@@ -1,0 +1,40 @@
+<svg width="100%" viewBox="0 0 680 300" role="img" xmlns="http://www.w3.org/2000/svg" style="">
+  <title style="fill:rgb(0, 0, 0);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">Naiad logo</title>
+  <desc style="fill:rgb(0, 0, 0);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">Naiad logo with a petrol water drop with wave lines, and small grass blades growing beneath it</desc>
+
+  
+
+  <g transform="translate(185, 55)" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
+    <!-- Outer drop – petrol -->
+    <path d="M62 0 C62 0 116 63 116 100 C116 131 92 153 62 153 C32 153 8 131 8 100 C8 63 62 0 62 0 Z" fill="#1a7a8a" style="fill:rgb(26, 122, 138);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+    <!-- Inner depth -->
+    <path d="M62 22 C62 22 100 68 100 96 C100 118 83 136 62 136 C41 136 24 118 24 96 C24 68 62 22 62 22 Z" fill="#5ec8d8" opacity="0.15" style="fill:rgb(94, 200, 216);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:0.15;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+    <!-- Wave 1 -->
+    <path d="M20 100 C32 90 50 95 62 90 C74 85 88 90 104 100" fill="none" stroke="#5ec8d8" stroke-width="2.5" stroke-linecap="round" opacity="0.75" style="fill:none;stroke:rgb(94, 200, 216);color:rgb(251, 251, 254);stroke-width:2.5px;stroke-linecap:round;stroke-linejoin:miter;opacity:0.75;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+    <!-- Wave 2 -->
+    <path d="M16 116 C30 105 50 111 62 106 C74 101 90 106 108 116" fill="none" stroke="#b8eaf2" stroke-width="1.8" stroke-linecap="round" opacity="0.45" style="fill:none;stroke:rgb(184, 234, 242);color:rgb(251, 251, 254);stroke-width:1.8px;stroke-linecap:round;stroke-linejoin:miter;opacity:0.45;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+    <!-- Glare -->
+    <ellipse cx="42" cy="65" rx="6" ry="11" fill="#b8eaf2" opacity="0.25" transform="rotate(-20 42 65)" style="fill:rgb(184, 234, 242);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:0.25;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+  </g>
+
+  <!-- Grass blades below drop -->
+  <!-- blade 1 center -->
+  <path d="M247 208 C247 195 243 182 240 170" fill="none" stroke="#4caf7d" stroke-width="2.2" stroke-linecap="round" style="fill:none;stroke:rgb(76, 175, 125);color:rgb(251, 251, 254);stroke-width:2.2px;stroke-linecap:round;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+  <!-- blade 2 right -->
+  <path d="M252 208 C254 194 260 182 264 171" fill="none" stroke="#4caf7d" stroke-width="2" stroke-linecap="round" style="fill:none;stroke:rgb(76, 175, 125);color:rgb(251, 251, 254);stroke-width:2px;stroke-linecap:round;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+  <!-- blade 3 left -->
+  <path d="M242 208 C240 194 234 184 230 174" fill="none" stroke="#4caf7d" stroke-width="2" stroke-linecap="round" style="fill:none;stroke:rgb(76, 175, 125);color:rgb(251, 251, 254);stroke-width:2px;stroke-linecap:round;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+  <!-- blade 4 far right – shorter -->
+  <path d="M257 209 C260 199 266 192 270 185" fill="none" stroke="#4caf7d" stroke-width="1.5" stroke-linecap="round" opacity="0.7" style="fill:none;stroke:rgb(76, 175, 125);color:rgb(251, 251, 254);stroke-width:1.5px;stroke-linecap:round;stroke-linejoin:miter;opacity:0.7;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+  <!-- blade 5 far left – shorter -->
+  <path d="M237 209 C234 199 228 193 224 186" fill="none" stroke="#4caf7d" stroke-width="1.5" stroke-linecap="round" opacity="0.7" style="fill:none;stroke:rgb(76, 175, 125);color:rgb(251, 251, 254);stroke-width:1.5px;stroke-linecap:round;stroke-linejoin:miter;opacity:0.7;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- tiny ground line -->
+  <line x1="218" y1="210" x2="278" y2="210" stroke="#4caf7d" stroke-width="1.2" stroke-linecap="round" opacity="0.35" style="fill:rgb(0, 0, 0);stroke:rgb(76, 175, 125);color:rgb(251, 251, 254);stroke-width:1.2px;stroke-linecap:round;stroke-linejoin:miter;opacity:0.35;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+
+  <!-- Wordmark -->
+  <text x="318" y="172" style="fill:rgb(250, 249, 245);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:Anthropic Sans, sans-serif;font-size:58px;font-weight:500;text-anchor:start;dominant-baseline:auto">Naiad</text>
+</svg>
