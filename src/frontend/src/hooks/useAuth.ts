@@ -5,11 +5,12 @@ export function useAuth() {
   const [authed, setAuthed] = useState<boolean | null>(null) // null = checking
 
   useEffect(() => {
-    const token = localStorage.getItem('naiad_token')
-    if (!token) { setAuthed(false); return }
     verify()
       .then(() => setAuthed(true))
-      .catch(() => { clearToken(); setAuthed(false) })
+      .catch(() => {
+        clearToken()
+        setAuthed(false)
+      })
   }, [])
 
   const login = useCallback(async (password: string) => {
