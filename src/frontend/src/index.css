@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+:root {
+  --n-bg: #0c1413;
+  --n-card: #141d1d;
+  --n-border: rgba(220, 235, 230, 0.06);
+  --n-teal-300: #5ec8d8;
+  --n-teal-600: #1a7a8a;
+  --n-leaf-400: #6eb289;
+  --n-paused: #d9a648;
+  --n-danger: #c45a5a;
+  --n-text: #d0d8d6;
+  --n-text-dim: #7a9090;
+  --n-r-lg: 18px;
+  --n-r-xl: 24px;
+  --n-sans: "Helvetica Neue", Arial, system-ui, sans-serif;
+}
+
+.light {
+  --n-bg: #f3f1ea;
+  --n-card: #fbf9f3;
+  --n-border: rgba(0, 0, 0, 0.06);
+  --n-text: #1a2424;
+  --n-text-dim: #6b7a78;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--n-bg);
+  color: var(--n-text);
+  font-family: var(--n-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.n-card {
+  background: var(--n-card);
+  border: 1px solid var(--n-border);
+  border-radius: var(--n-r-lg);
+  box-shadow: inset 0 1px 0 rgba(220,235,230,0.04);
+}
+
+@keyframes n-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.n-pulse { animation: n-pulse 2s ease-in-out infinite; }
+
+font-variant-numeric { font-variant-numeric: tabular-nums; }

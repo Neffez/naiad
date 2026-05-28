@@ -90,6 +90,7 @@ class SequenceRunner:
         self._driver = driver
         self._session_factory = session_factory
         self._running: str | None = None
+        self._current_zone: ZoneProgress | None = None
         self._stop_event: asyncio.Event = asyncio.Event()
         self._pause_event: asyncio.Event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
@@ -106,6 +107,7 @@ class SequenceRunner:
         return SequenceStatus(
             state=SequenceState.RUNNING,
             sequence_id=self._running,
+            current_zone=self._current_zone,
         )
 
     async def start(
@@ -113,6 +115,7 @@ class SequenceRunner:
         sequence_id: str,
         factor_pct: float = 100.0,
         override_min: float | None = None,
+        triggered_by: str = "manual",
     ) -> None:
         if sequence_id not in self._config.sequences:
             raise SequenceNotFound(sequence_id)
@@ -124,7 +127,7 @@ class SequenceRunner:
         self._pause_event.clear()
 
         self._task = asyncio.create_task(
-            self._execute(sequence_id, factor_pct, override_min),
+            self._execute(sequence_id, factor_pct, override_min, triggered_by),
             name=f"seq-{sequence_id}",
         )
 
@@ -145,7 +148,11 @@ class SequenceRunner:
             await self._task
 
     async def _execute(
-        self, sequence_id: str, factor_pct: float, override_min: float | None = None
+        self,
+        sequence_id: str,
+        factor_pct: float,
+        override_min: float | None = None,
+        triggered_by: str = "manual",
     ) -> None:
         seq = self._config.sequences[sequence_id]
         try:
@@ -157,11 +164,13 @@ class SequenceRunner:
             if snapshot is not None:
                 start_index = snapshot.zone_index
                 start_remaining = snapshot.remaining_min
+                triggered_by = "resume"
                 with self._session_factory() as session:
                     clear_snapshot(session, sequence_id)
 
             await self._run_zones(
-                sequence_id, seq, factor_pct, start_index, start_remaining, override_min
+                sequence_id, seq, factor_pct, start_index, start_remaining, override_min,
+                triggered_by,
             )
         except asyncio.CancelledError:
             raise
@@ -169,6 +178,7 @@ class SequenceRunner:
             logger.exception("Unhandled error in sequence '%s'", sequence_id)
         finally:
             self._running = None
+            self._current_zone = None
             self._task = None
 
     async def _run_zones(
@@ -179,6 +189,7 @@ class SequenceRunner:
         start_index: int,
         start_remaining: float | None,
         override_min: float | None = None,
+        triggered_by: str = "manual",
     ) -> None:
         if override_min is not None:
             duration_min = override_min
@@ -200,6 +211,9 @@ class SequenceRunner:
             start_remaining = None  # only applies to first resumed zone
 
             started_at = datetime.now(UTC)
+            self._current_zone = ZoneProgress(
+                zone_id=zone_id, started_at=started_at, duration_min=zone_duration
+            )
             await self._driver.turn_on(zone_cfg)
             logger.info("zone %s ON  (%.1f min)", zone_id, zone_duration)
 
@@ -215,6 +229,12 @@ class SequenceRunner:
             liters = actual_min / 60.0 * zone_cfg.flow_lph
             aborted = result in (_STOP, _WATCHDOG)
 
+            abort_reason: str | None = None
+            if result == _WATCHDOG:
+                abort_reason = "watchdog"
+            elif result == _STOP:
+                abort_reason = "manual_stop"
+
             with self._session_factory() as session:
                 session.add(RunHistory(
                     zone_id=zone_id,
@@ -223,8 +243,9 @@ class SequenceRunner:
                     ended_at=off_time,
                     duration_min=actual_min,
                     liters=liters,
-                    triggered_by="sequence",
+                    triggered_by=triggered_by,
                     aborted=aborted,
+                    abort_reason=abort_reason,
                 ))
                 session.commit()
 
