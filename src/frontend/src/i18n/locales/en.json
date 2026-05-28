@@ -1,0 +1,80 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "planner": "Planner",
+    "history": "History",
+    "settings": "Settings"
+  },
+  "status": {
+    "running": "Running",
+    "idle": "Ready",
+    "paused": "Paused",
+    "disabled": "Disabled",
+    "unknown": "Unknown"
+  },
+  "master": {
+    "on": "Master: On",
+    "off": "Master: Off"
+  },
+  "sequence": {
+    "start": "Start",
+    "stop": "Stop",
+    "pause": "Pause",
+    "resume": "Resume",
+    "factor": "Factor",
+    "nextRun": "Next run",
+    "zone": "Zone",
+    "zones": "Zones",
+    "duration": "Duration",
+    "confirmStart": "Start now?",
+    "startNow": "Start now",
+    "cancel": "Cancel"
+  },
+  "weather": {
+    "temp": "Temperature",
+    "rain": "Rain",
+    "wind": "Wind",
+    "season": "Season",
+    "seasonOff": "Season off",
+    "windOn": "Wind alert"
+  },
+  "history": {
+    "title": "History",
+    "zone": "Zone",
+    "sequence": "Sequence",
+    "started": "Started",
+    "duration": "Duration",
+    "liters": "Liters",
+    "trigger": "Trigger",
+    "aborted": "Aborted"
+  },
+  "settings": {
+    "title": "Settings",
+    "basisMin": "Basis min/zone",
+    "watchdog": "Watchdog (min)",
+    "factorTemp": "Temperature factor",
+    "factorRain": "Rain factor",
+    "tokens": "Active tokens",
+    "revokeToken": "Revoke",
+    "save": "Save"
+  },
+  "planner": {
+    "title": "Planner",
+    "inHours": "In hours",
+    "atTime": "At date/time",
+    "schedule": "Schedule",
+    "noPlans": "No scheduled runs"
+  },
+  "login": {
+    "title": "Naiad",
+    "password": "Password",
+    "login": "Log in",
+    "error": "Wrong password"
+  },
+  "errors": {
+    "windBlocked": "Wind alert — sequence blocked",
+    "masterOff": "Master switch is off",
+    "conflict": "Sequence already running",
+    "notConnected": "HA not connected"
+  }
+}

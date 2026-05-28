@@ -1,0 +1,80 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "planner": "Planen",
+    "history": "Verlauf",
+    "settings": "Einstellungen"
+  },
+  "status": {
+    "running": "Läuft",
+    "idle": "Bereit",
+    "paused": "Pausiert",
+    "disabled": "Deaktiviert",
+    "unknown": "Unbekannt"
+  },
+  "master": {
+    "on": "Master: An",
+    "off": "Master: Aus"
+  },
+  "sequence": {
+    "start": "Starten",
+    "stop": "Stoppen",
+    "pause": "Pause",
+    "resume": "Fortsetzen",
+    "factor": "Faktor",
+    "nextRun": "Nächster Lauf",
+    "zone": "Zone",
+    "zones": "Zonen",
+    "duration": "Dauer",
+    "confirmStart": "Jetzt starten?",
+    "startNow": "Jetzt starten",
+    "cancel": "Abbrechen"
+  },
+  "weather": {
+    "temp": "Temperatur",
+    "rain": "Regen",
+    "wind": "Wind",
+    "season": "Jahreszeit",
+    "seasonOff": "Saison aus",
+    "windOn": "Windalarm"
+  },
+  "history": {
+    "title": "Verlauf",
+    "zone": "Zone",
+    "sequence": "Sequenz",
+    "started": "Gestartet",
+    "duration": "Dauer",
+    "liters": "Liter",
+    "trigger": "Auslöser",
+    "aborted": "Abgebrochen"
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "basisMin": "Basis-Minuten/Zone",
+    "watchdog": "Watchdog (min)",
+    "factorTemp": "Temperatur-Faktor",
+    "factorRain": "Regen-Faktor",
+    "tokens": "Aktive Tokens",
+    "revokeToken": "Widerrufen",
+    "save": "Speichern"
+  },
+  "planner": {
+    "title": "Planen",
+    "inHours": "In Stunden",
+    "atTime": "Zu Datum/Uhrzeit",
+    "schedule": "Planen",
+    "noPlans": "Keine geplanten Läufe"
+  },
+  "login": {
+    "title": "Naiad",
+    "password": "Passwort",
+    "login": "Einloggen",
+    "error": "Falsches Passwort"
+  },
+  "errors": {
+    "windBlocked": "Windalarm — Sequenz blockiert",
+    "masterOff": "Master-Schalter ist aus",
+    "conflict": "Sequenz läuft bereits",
+    "notConnected": "HA nicht verbunden"
+  }
+}

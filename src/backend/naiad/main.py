@@ -19,6 +19,7 @@ from naiad.domain.sequences import SequenceRunner
 from naiad.domain.tracking import LiterTracker
 from naiad.drivers.ha_driver import HAEntityDriver
 from naiad.ha_client import HAClient
+from naiad.scheduler import setup_scheduler
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -91,6 +92,10 @@ async def _lifespan(app: FastAPI):  # type: ignore[type-arg]
     runner = SequenceRunner(config, driver, _session_factory)
     _tracker = LiterTracker(ha, config, _session_factory, runner.is_managed)
 
+    scheduler = setup_scheduler(config, runner, ha, _session_factory)
+    scheduler.start()
+    logger.info("Scheduler started (%d jobs)", len(scheduler.get_jobs()))
+
     app.state.config = config
     app.state.ha_client = ha
     app.state.runner = runner
@@ -98,6 +103,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[type-arg]
     logger.info("Naiad ready")
     yield
 
+    scheduler.shutdown(wait=False)
     await ha.stop()
     logger.info("Naiad stopped")
 
@@ -118,6 +124,7 @@ app.add_middleware(_RequestIDMiddleware)
 
 from naiad.api import auth, history, plans, preferences, sequences, settings, system  # noqa: E402
 from naiad.api import status as _status  # noqa: E402
+from naiad.api import ws as _ws  # noqa: E402
 
 app.include_router(_status.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
@@ -127,6 +134,7 @@ app.include_router(history.router, prefix="/api")
 app.include_router(plans.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(preferences.router, prefix="/api")
+app.include_router(_ws.router, prefix="/api")
 
 # Serve built frontend (present in Docker image, absent in dev)
 _static = Path(__file__).parent.parent / "static"
