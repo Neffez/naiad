@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends
+from typing import TypeVar
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import ValidationError
 from sqlmodel import Session, select
 
 from naiad.api.schemas import (
@@ -12,11 +15,14 @@ from naiad.api.schemas import (
 from naiad.config import AppConfig
 from naiad.database import get_session
 from naiad.dependencies import get_config, require_auth
+from naiad.domain.factors import merge_factor_config
 from naiad.domain.models import FactorOverride, SequenceOverride, UserPreference
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 _DEFAULT_TOKEN_LIFETIME = 30
+
+_T = TypeVar("_T")
 
 
 def _read_settings(config: AppConfig, session: Session) -> AppSettingsResponse:
@@ -32,7 +38,8 @@ def _read_settings(config: AppConfig, session: Session) -> AppSettingsResponse:
         min_pct=fo.temp_min_pct if fo and fo.temp_min_pct is not None else tc.min_pct,
         max_pct=fo.temp_max_pct if fo and fo.temp_max_pct is not None else tc.max_pct,
     )
-    def _r(override_val, default_val):  # type: ignore[no-untyped-def]
+
+    def _r(override_val: _T | None, default_val: _T) -> _T:
         return override_val if (fo and override_val is not None) else default_val
 
     rain = RainFactorSettingsResponse(
@@ -112,6 +119,13 @@ async def update_settings(
                 fo.rain_zero_above_mm = r.zero_above_mm
             if r.forecast_decay is not None:
                 fo.rain_forecast_decay = r.forecast_decay
+        # Validate the merged result before persisting: the read path
+        # (compute_factors) re-validates and would otherwise raise on every
+        # call, bricking status + scheduler. Fail fast with 422 instead.
+        try:
+            merge_factor_config(config, fo)
+        except ValidationError as e:
+            raise HTTPException(422, f"Invalid factor settings: {e}") from e
         fo.updated_at = datetime.now(UTC)
         session.add(fo)
 
@@ -119,6 +133,10 @@ async def update_settings(
         for seq_id, override in body.sequences.items():
             if seq_id not in config.sequences:
                 continue
+            if override.basis_min_per_zone is not None and override.basis_min_per_zone <= 0:
+                raise HTTPException(422, "basis_min_per_zone must be > 0")
+            if override.watchdog_min is not None and override.watchdog_min <= 0:
+                raise HTTPException(422, "watchdog_min must be > 0")
             so = session.get(SequenceOverride, seq_id) or SequenceOverride(sequence_id=seq_id)
             if override.basis_min_per_zone is not None:
                 so.basis_min_per_zone = override.basis_min_per_zone
@@ -130,17 +148,15 @@ async def update_settings(
             session.add(so)
 
     if body.token_lifetime_days is not None:
-        pref = (
-            session.get(UserPreference, "token_lifetime_days")
-            or UserPreference(key="token_lifetime_days", value="")
+        pref = session.get(UserPreference, "token_lifetime_days") or UserPreference(
+            key="token_lifetime_days", value=""
         )
         pref.value = str(body.token_lifetime_days)
         session.add(pref)
 
     if body.auto_login_enabled is not None:
-        pref = (
-            session.get(UserPreference, "auto_login_enabled")
-            or UserPreference(key="auto_login_enabled", value="")
+        pref = session.get(UserPreference, "auto_login_enabled") or UserPreference(
+            key="auto_login_enabled", value=""
         )
         pref.value = "1" if body.auto_login_enabled else "0"
         session.add(pref)
@@ -149,6 +165,7 @@ async def update_settings(
 
     if body.factors is not None or body.sequences is not None:
         from naiad.api.ws import broadcast_factor_updated
+
         await broadcast_factor_updated()
 
     return _read_settings(config, session)

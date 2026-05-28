@@ -7,6 +7,11 @@ ha:
 
 auth:
   mode: password  # password | forward_header | none
+  # Used only when mode = forward_header: trust an authenticated user asserted by
+  # a reverse proxy (e.g. Authelia/Authentik) via a request header.
+  forward_header:
+    header: X-Forwarded-User
+    trusted_proxies: []  # optional: only accept the header from these proxy IPs
   auto_login:
     enabled: false
     trigger:

@@ -108,7 +108,7 @@ components:
       type: object
       required: [temp_c, rain_24h_mm, wind_label, season_active]
       properties:
-        temp_c:        { type: number }
+        temp_c:        { type: number, nullable: true }
         rain_24h_mm:   { type: number }
         wind_label:    { type: string }
         season_active: { type: boolean }
@@ -135,7 +135,7 @@ components:
 
     SystemStatus:
       type: object
-      required: [master_on, ha_connected, weather, today_factor, liters_today, liters_week]
+      required: [master_on, ha_connected, weather, today_factor, liters_today, liters_week, week_series]
       properties:
         master_on:    { type: boolean }
         ha_connected: { type: boolean }
@@ -153,6 +153,10 @@ components:
             - { type: 'null' }
         liters_today: { type: number }
         liters_week:  { type: number }
+        week_series:
+          type: array
+          items: { type: number }
+          description: Liters per local weekday Mon..Sun of the current week
 
     # ── Plans ─────────────────────────────────────────────────────────────────
 
@@ -257,9 +261,6 @@ components:
           properties:
             temp: { $ref: '#/components/schemas/TempFactorSettings' }
             rain: { $ref: '#/components/schemas/RainFactorSettings' }
-        notify_targets:
-          type: array
-          items: { type: string }
         token_lifetime_days:  { type: integer }
         auto_login_enabled:   { type: boolean }
 

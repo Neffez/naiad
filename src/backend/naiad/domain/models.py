@@ -4,7 +4,7 @@ from sqlmodel import Field, SQLModel
 
 
 class RunHistory(SQLModel, table=True):
-    __tablename__ = "run_history"  # type: ignore[assignment]
+    __tablename__ = "run_history"
 
     id: int | None = Field(default=None, primary_key=True)
     zone_id: str
@@ -19,7 +19,7 @@ class RunHistory(SQLModel, table=True):
 
 
 class Plan(SQLModel, table=True):
-    __tablename__ = "plans"  # type: ignore[assignment]
+    __tablename__ = "plans"
 
     id: str = Field(primary_key=True)  # UUID
     sequence_id: str
@@ -29,7 +29,7 @@ class Plan(SQLModel, table=True):
 
 
 class AuthToken(SQLModel, table=True):
-    __tablename__ = "auth_tokens"  # type: ignore[assignment]
+    __tablename__ = "auth_tokens"
 
     token: str = Field(primary_key=True)
     device_label: str | None = None
@@ -39,7 +39,7 @@ class AuthToken(SQLModel, table=True):
 
 
 class UserPreference(SQLModel, table=True):
-    __tablename__ = "user_preferences"  # type: ignore[assignment]
+    __tablename__ = "user_preferences"
 
     key: str = Field(primary_key=True)
     value: str
@@ -48,7 +48,7 @@ class UserPreference(SQLModel, table=True):
 class ResumeSnapshot(SQLModel, table=True):
     """Manual-pause state only. Rain abort writes no snapshot."""
 
-    __tablename__ = "resume_snapshot"  # type: ignore[assignment]
+    __tablename__ = "resume_snapshot"
 
     id: int = Field(default=1, primary_key=True)
     sequence_id: str
@@ -58,10 +58,30 @@ class ResumeSnapshot(SQLModel, table=True):
     paused_at: datetime
 
 
+class ActiveRun(SQLModel, table=True):
+    """In-flight run state for crash recovery (singleton id=1).
+
+    Written at every zone start and cleared at every *graceful* end (completion,
+    stop, pause, watchdog, error). It therefore survives only a hard crash /
+    abrupt process restart — exactly the case where the in-memory runner state
+    and watchdog are lost while a valve may still be physically open.
+    """
+
+    __tablename__ = "active_run"
+
+    id: int = Field(default=1, primary_key=True)
+    sequence_id: str
+    zone_index: int
+    zone_started_at: datetime
+    zone_planned_min: float  # planned duration of the current zone (for staleness/remaining)
+    run_duration_min: float  # per-zone duration for the subsequent zones
+    triggered_by: str
+
+
 class SequenceOverride(SQLModel, table=True):
     """Per-sequence user overrides. NULL = use YAML default."""
 
-    __tablename__ = "sequence_overrides"  # type: ignore[assignment]
+    __tablename__ = "sequence_overrides"
 
     sequence_id: str = Field(primary_key=True)
     basis_min_per_zone: int | None = None
@@ -73,7 +93,7 @@ class SequenceOverride(SQLModel, table=True):
 class FactorOverride(SQLModel, table=True):
     """Factor parameter overrides — singleton (id always = 1). NULL = use YAML default."""
 
-    __tablename__ = "factor_overrides"  # type: ignore[assignment]
+    __tablename__ = "factor_overrides"
 
     id: int = Field(default=1, primary_key=True)
     temp_basis_c: float | None = None

@@ -1,13 +1,14 @@
-from datetime import date, datetime
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query
-from sqlmodel import Session, func, select
+from sqlmodel import Session, col, func, select
 
 from naiad.api.schemas import HistoryEntryResponse, PaginatedHistoryResponse
 from naiad.config import AppConfig
 from naiad.database import get_session
 from naiad.dependencies import get_config, require_auth
 from naiad.domain.models import RunHistory
+from naiad.timeutil import local_date_to_utc
 
 router = APIRouter(tags=["history"])
 
@@ -30,17 +31,19 @@ async def get_history(
         query = query.where(RunHistory.sequence_id == sequence_id)
     if zone_id is not None:
         query = query.where(RunHistory.zone_id == zone_id)
+    # from/to are local calendar dates; convert to naive-UTC bounds (half-open)
+    # to match how started_at is stored, so filtering aligns with local days.
     if from_date is not None:
-        from_dt = datetime(from_date.year, from_date.month, from_date.day)
+        from_dt = local_date_to_utc(config.timezone, from_date)
         query = query.where(RunHistory.started_at >= from_dt)
     if to_date is not None:
-        to_dt = datetime(to_date.year, to_date.month, to_date.day, 23, 59, 59)
-        query = query.where(RunHistory.started_at <= to_dt)
+        to_dt = local_date_to_utc(config.timezone, to_date, end_exclusive=True)
+        query = query.where(RunHistory.started_at < to_dt)
 
     total = session.exec(select(func.count()).select_from(query.subquery())).one()
 
     items = session.exec(
-        query.order_by(RunHistory.started_at.desc())
+        query.order_by(col(RunHistory.started_at).desc())
         .offset((page - 1) * per_page)
         .limit(per_page)
     ).all()

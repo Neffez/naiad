@@ -20,24 +20,10 @@ The HA-native irrigation stack is powerful but spread across too many layers. A 
 - **Hardware-agnostic by design.** Any Home Assistant `switch.*` entity works as a valve through the abstract driver layer. Non-KNX setups are experimental and untested.
 - **Requires Home Assistant** as the hardware driver layer (v1). A direct KNX/IP driver via xknx is planned for v2.
 
-## UI
-
-"Naiad Control Surface" — a dark, water-themed control surface. Not a plant tracker, not a marketing page.
-
-- **Dark theme** default (`#0c1413` deep pond background), light theme optional
-- **Accent:** petrol-teal (`#5ec8d8` active/live, `#1a7a8a` brand) + leaf green for idle/healthy states
-- **Typography:** Helvetica Neue / Arial, tabular-nums for all timers, liters, and percentages
-- **Touch-friendly:** all primary targets ≥ 44 px; designed for a 10" FullHD touchscreen in a hallway
-- **Glanceable:** next irrigation run is the hero element, not the adjustment factor
-- **No scroll** on the 1920×1080 Visu layout — everything above the fold
-
-Layouts: 3-column desktop/tablet (today-block · sequence grid · valves+chart), stacked mobile (430×932) with bottom navigation. Embedded in Home Assistant via `type: iframe` with `?embed=1` hiding the sidebar.
-
 ## Tech stack
 
 - Python 3.12 + FastAPI backend, served as a single Docker image
-- React + Vite + TypeScript frontend (statically served by the backend)
-- Custom CSS design system (`naiad-tokens.css`) — CSS custom properties, no utility framework
+- React + Vite + TypeScript + CSS frontend (statically served by the backend)
 - TanStack React Query for data fetching, `react-i18next` for i18n (DE + EN)
 - SQLite for persistence (SQLModel ORM)
 - APScheduler for cron-style scheduling
@@ -55,6 +41,59 @@ docker compose up -d
 ```
 
 Open `http://<host>:8080` in your browser.
+
+## Local Development (without Docker)
+
+Prerequisites: Python 3.12+, Node 20+.
+
+**One-time setup**
+
+```bash
+# From the project root
+cp config.example.yaml data/config.yaml   # adjust zones, sequences, sensors
+```
+
+**Terminal 1 — Backend**
+
+Linux/macOS
+```bash
+cd src/backend
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+set -a; source ../../.env; set +a
+NAIAD_CONFIG=../../data/config.yaml NAIAD_DATA_DIR=../../data \
+  uvicorn naiad.main:app --host localhost --port 8080 --reload
+```
+
+Windows (PowerShell)
+```powershell
+cd src/backend
+python -m venv .venv; .venv\Scripts\activate
+pip install -e ".[dev]"
+Get-Content ..\..\\.env | Where-Object { $_ -match '^[^#].+=.' } |
+  ForEach-Object { $k,$v = $_ -split '=',2; [System.Environment]::SetEnvironmentVariable($k,$v) }
+$env:NAIAD_CONFIG="..\..\data\config.yaml"; $env:NAIAD_DATA_DIR="..\..\data"
+uvicorn naiad.main:app --host localhost --port 8080 --reload
+```
+**Terminal 2 — Frontend**
+
+```bash
+cd src/frontend
+npm install --legacy-peer-deps  # only on first run
+npm run dev
+```
+
+Open `http://localhost:5173` in Browser.
+
+The vite-dev-server will proxy `/api/*` to `http://localhost:8080`, WebSocket included — no CORS-Setup required.
+
+**Tests & Linting (Backend)**
+
+```bash
+cd src/backend && pytest
+ruff check naiad tests
+mypy naiad
+```
 
 ## License
 

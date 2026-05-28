@@ -3,7 +3,8 @@
     "dashboard": "Dashboard",
     "planner": "Planen",
     "history": "Verlauf",
-    "settings": "Einstellungen"
+    "settings": "Einstellungen",
+    "theme": "Theme"
   },
   "status": {
     "running": "Läuft",
@@ -15,7 +16,8 @@
   },
   "master": {
     "on": "Aktiv",
-    "off": "Aus"
+    "off": "Aus",
+    "system": "System"
   },
   "sequence": {
     "start": "Starten",
@@ -29,7 +31,10 @@
     "duration": "Dauer",
     "confirmStart": "Jetzt starten?",
     "startNow": "Jetzt starten",
-    "cancel": "Abbrechen"
+    "cancel": "Abbrechen",
+    "minLeft": "min Rest",
+    "remainingPaused": "Rest, pausiert",
+    "regularPerZone": "regulär {{min}} min/Zone"
   },
   "weather": {
     "temp": "Temperatur",
@@ -37,7 +42,11 @@
     "wind": "Wind",
     "season": "Jahreszeit",
     "seasonOff": "Saison aus",
-    "windOn": "Windalarm"
+    "windOn": "Windalarm",
+    "windActive": "aktiv",
+    "windCalm": "ruhig",
+    "seasonActive": "aktiv",
+    "seasonPaused": "Pause"
   },
   "history": {
     "title": "Verlauf",
@@ -47,7 +56,15 @@
     "duration": "Dauer",
     "liters": "Liter",
     "trigger": "Auslöser",
-    "aborted": "Abgebrochen"
+    "aborted": "Abgebrochen",
+    "manual": "Manuell",
+    "scheduled": "Zeitplan",
+    "last7days": "Letzte 7 Tage",
+    "totalRuns": "Läufe gesamt",
+    "avgDuration": "Ø Dauer / Lauf",
+    "empty": "Noch keine Läufe aufgezeichnet",
+    "prev": "Zurück",
+    "next": "Weiter"
   },
   "settings": {
     "title": "Einstellungen",
@@ -57,7 +74,26 @@
     "factorRain": "Regen-Faktor",
     "tokens": "Aktive Tokens",
     "revokeToken": "Widerrufen",
-    "save": "Speichern"
+    "save": "Speichern",
+    "loading": "Laden…",
+    "saved": "Gespeichert",
+    "sequences": "Sequenzen",
+    "pause": "Pause",
+    "system": "System",
+    "connected": "Verbunden",
+    "disconnected": "Getrennt",
+    "basisC": "Basis °C",
+    "pctPerC": "% pro °C",
+    "minPct": "Min %",
+    "maxPct": "Max %",
+    "thresholdProb": "Schwelle Prob %",
+    "reduceAbove": "Reduz. ab mm",
+    "zeroAbove": "Null ab mm",
+    "forecastDecay": "Forecast Decay",
+    "version": "Version",
+    "haIntegration": "HA Integration",
+    "language": "Sprache",
+    "logout": "Abmelden"
   },
   "planner": {
     "title": "Planen",
@@ -88,6 +124,47 @@
     "cancel": "Abbrechen",
     "start": "Jetzt starten"
   },
+  "dashboard": {
+    "title": "Garten",
+    "sequences": "Sequenzen",
+    "configured": "konfiguriert",
+    "running": "läuft",
+    "ready": "bereit",
+    "valvesLive": "Ventile · Live",
+    "valves": "Ventile",
+    "live": "live",
+    "usage7d": "Verbrauch · 7 Tage",
+    "usage": "Verbrauch",
+    "thisWeek": "diese Woche",
+    "today": "heute"
+  },
+  "today": {
+    "title": "Nächste Bewässerungen",
+    "noRun": "Kein Lauf geplant",
+    "after": "Danach",
+    "adjustment": "Anpassung",
+    "auto": "auto",
+    "blocked": "{{seqs}} blockiert"
+  },
+  "time": {
+    "now": "jetzt",
+    "inMin": "in {{n}} min",
+    "inH": "in {{h}} h",
+    "inHM": "in {{h}} h {{m}} min",
+    "todayAt": "Heute {{time}}",
+    "tomorrowAt": "Morgen {{time}}"
+  },
+  "valve": {
+    "live": "Live",
+    "off": "Aus"
+  },
+  "abortReason": {
+    "rain": "Regen",
+    "watchdog": "Watchdog",
+    "manual_stop": "Manuell gestoppt",
+    "ha_disconnect": "HA getrennt"
+  },
+  "weekdaysShort": ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"],
   "errors": {
     "windBlocked": "Windalarm — Sequenz blockiert",
     "masterOff": "Master-Schalter ist aus",
