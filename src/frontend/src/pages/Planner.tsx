@@ -1,7 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { createPlan, deletePlan, getPlans, getSequences, type CreatePlanRequest } from '../api/client'
+import { createPlan, deletePlan, getPlans, getSequences, type CreatePlanRequest, type SequenceState } from '../api/client'
+import { IChevDown, IX } from '../components/icons'
+
+const SEQUENCE_COLORS: Record<string, string> = {
+  beete: '#7fc8a8',
+  rasen: '#7fc8a8',
+  hochbeet: '#c8a87f',
+  hecke: '#a87fc8',
+  lichtschacht: '#8a9ea6',
+  topf: '#8a9ea6',
+}
+
+function seqColor(id: string): string {
+  for (const [key, color] of Object.entries(SEQUENCE_COLORS)) {
+    if (id.toLowerCase().includes(key)) return color
+  }
+  return 'var(--n-teal-500)'
+}
 
 export default function Planner() {
   const { t } = useTranslation()
@@ -11,7 +28,9 @@ export default function Planner() {
 
   const [seqId, setSeqId] = useState('')
   const [mode, setMode] = useState<'in_hours' | 'at_datetime'>('in_hours')
-  const [value, setValue] = useState('4')
+  const [hoursValue, setHoursValue] = useState('4')
+  const [dateValue, setDateValue] = useState('')
+  const [timeValue, setTimeValue] = useState('')
   const [durMin, setDurMin] = useState('')
   const [error, setError] = useState('')
 
@@ -26,130 +45,230 @@ export default function Planner() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plans'] }),
   })
 
-  async function submit(e: FormEvent) {
+  function submit(e: FormEvent) {
     e.preventDefault()
     if (!seqId) return
     const req: CreatePlanRequest = {
       sequence_id: seqId,
       mode,
-      value: mode === 'in_hours' ? parseFloat(value) : value,
+      value: mode === 'in_hours' ? parseFloat(hoursValue) : `${dateValue}T${timeValue}`,
     }
     if (durMin) req.duration_min = parseInt(durMin)
     createMut.mutate(req)
   }
 
+  function seqLabel(seqId: string): string {
+    return sequences.find((s: SequenceState) => s.id === seqId)?.label ?? seqId
+  }
+
+  const inputStyle: React.CSSProperties = {
+    flex: 1, height: '100%', padding: '0 18px',
+    background: 'transparent', border: 'none',
+    color: 'var(--n-fg)', fontSize: 15,
+    fontFamily: 'var(--n-sans)', outline: 'none',
+    fontVariantNumeric: 'tabular-nums',
+  }
+
+  const fieldStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 0,
+    background: 'var(--n-card)',
+    border: '1px solid var(--n-line-strong)',
+    borderRadius: 'var(--n-r-md)',
+    height: 52, overflow: 'hidden',
+  }
+
   return (
-    <div className="p-4 flex flex-col gap-4">
-      <h2 className="text-lg font-semibold">{t('planner.title')}</h2>
-
-      <form onSubmit={submit} className="n-card p-4 flex flex-col gap-3">
-        <select
-          value={seqId}
-          onChange={e => setSeqId(e.target.value)}
-          className="rounded-lg px-3 py-2"
-          style={{ background: 'var(--n-bg)', border: '1px solid var(--n-border)', color: 'var(--n-text)' }}
-        >
-          <option value="">— Sequenz wählen —</option>
-          {sequences.filter(s => s.enabled).map(s => (
-            <option key={s.id} value={s.id}>{s.label}</option>
-          ))}
-        </select>
-
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setMode('in_hours')}
-            className="flex-1 rounded-lg py-1.5 text-sm"
+    <div style={{ maxWidth: 900, display: 'flex', flexDirection: 'column', gap: 22 }}>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Sequence select */}
+        <div style={{ position: 'relative' }}>
+          <select
+            value={seqId}
+            onChange={(e) => setSeqId(e.target.value)}
             style={{
-              background: mode === 'in_hours' ? 'var(--n-teal-600)' : 'var(--n-card)',
-              color: mode === 'in_hours' ? '#fff' : 'var(--n-text-dim)',
-              border: '1px solid var(--n-border)',
+              width: '100%', height: 52, padding: '0 18px',
+              background: 'var(--n-card)',
+              border: '1px solid var(--n-line-strong)',
+              borderRadius: 'var(--n-r-md)',
+              color: seqId ? 'var(--n-fg)' : 'var(--n-fg-muted)',
+              fontSize: 15, fontFamily: 'var(--n-sans)',
+              appearance: 'none', cursor: 'pointer', outline: 'none',
             }}
           >
-            {t('planner.inHours')}
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('at_datetime')}
-            className="flex-1 rounded-lg py-1.5 text-sm"
-            style={{
-              background: mode === 'at_datetime' ? 'var(--n-teal-600)' : 'var(--n-card)',
-              color: mode === 'at_datetime' ? '#fff' : 'var(--n-text-dim)',
-              border: '1px solid var(--n-border)',
-            }}
-          >
-            {t('planner.atTime')}
-          </button>
+            <option value="">{t('planner.selectSequence', { defaultValue: '— Sequenz wählen —' })}</option>
+            {sequences.filter((s) => s.enabled).map((s) => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </select>
+          <span style={{
+            position: 'absolute', right: 18, top: '50%', transform: 'translateY(-50%)',
+            color: 'var(--n-fg-muted)', pointerEvents: 'none',
+          }}>
+            <IChevDown size={18} />
+          </span>
         </div>
 
+        {/* Mode toggle */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr',
+          background: 'var(--n-card)',
+          border: '1px solid var(--n-line-strong)',
+          borderRadius: 'var(--n-r-md)',
+          overflow: 'hidden', height: 48,
+        }}>
+          {([
+            { id: 'in_hours' as const, label: t('planner.inHours') },
+            { id: 'at_datetime' as const, label: t('planner.atTime') },
+          ]).map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setMode(opt.id)}
+              style={{
+                background: mode === opt.id
+                  ? 'linear-gradient(180deg, var(--n-teal-500), var(--n-teal-600))'
+                  : 'transparent',
+                border: 'none',
+                color: mode === opt.id ? '#04181c' : 'var(--n-fg-muted)',
+                fontSize: 14,
+                fontWeight: mode === opt.id ? 600 : 400,
+                fontFamily: 'var(--n-sans)',
+                cursor: 'pointer',
+                transition: 'all 160ms var(--n-ease)',
+                borderRadius: mode === opt.id ? 'var(--n-r-sm)' : 0,
+                margin: mode === opt.id ? 4 : 0,
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Conditional inputs */}
         {mode === 'in_hours' ? (
-          <input
-            type="number"
-            value={value}
-            onChange={e => setValue(e.target.value)}
-            placeholder="Stunden ab jetzt"
-            min={0.1}
-            step={0.5}
-            className="rounded-lg px-3 py-2"
-            style={{ background: 'var(--n-bg)', border: '1px solid var(--n-border)', color: 'var(--n-text)' }}
-          />
+          <div style={fieldStyle}>
+            <input
+              type="number"
+              value={hoursValue}
+              onChange={(e) => setHoursValue(e.target.value)}
+              min="1" max="72"
+              placeholder={t('planner.hoursPlaceholder', { defaultValue: 'Stunden' })}
+              style={inputStyle}
+            />
+            <span style={{
+              padding: '0 14px', color: 'var(--n-fg-muted)', fontSize: 13,
+              borderLeft: '1px solid var(--n-line)',
+              height: '100%', display: 'flex', alignItems: 'center',
+              background: 'rgba(255,255,255,0.015)',
+            }}>h</span>
+          </div>
         ) : (
-          <input
-            type="datetime-local"
-            value={value}
-            onChange={e => setValue(e.target.value)}
-            className="rounded-lg px-3 py-2"
-            style={{ background: 'var(--n-bg)', border: '1px solid var(--n-border)', color: 'var(--n-text)' }}
-          />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <input
+              type="date"
+              value={dateValue}
+              onChange={(e) => setDateValue(e.target.value)}
+              style={{
+                height: 52, padding: '0 18px',
+                background: 'var(--n-card)',
+                border: '1px solid var(--n-line-strong)',
+                borderRadius: 'var(--n-r-md)',
+                color: 'var(--n-fg)', fontSize: 15,
+                fontFamily: 'var(--n-sans)', outline: 'none',
+                colorScheme: 'dark',
+              }}
+            />
+            <input
+              type="time"
+              value={timeValue}
+              onChange={(e) => setTimeValue(e.target.value)}
+              style={{
+                height: 52, padding: '0 18px',
+                background: 'var(--n-card)',
+                border: '1px solid var(--n-line-strong)',
+                borderRadius: 'var(--n-r-md)',
+                color: 'var(--n-fg)', fontSize: 15,
+                fontFamily: 'var(--n-sans)', outline: 'none',
+                colorScheme: 'dark',
+              }}
+            />
+          </div>
         )}
 
-        <input
-          type="number"
-          value={durMin}
-          onChange={e => setDurMin(e.target.value)}
-          placeholder="Dauer (min) — leer = Konfig-Standard"
-          className="rounded-lg px-3 py-2"
-          style={{ background: 'var(--n-bg)', border: '1px solid var(--n-border)', color: 'var(--n-text)' }}
-        />
+        {/* Duration override */}
+        <div style={fieldStyle}>
+          <input
+            type="number"
+            value={durMin}
+            onChange={(e) => setDurMin(e.target.value)}
+            min="1" max="120"
+            placeholder={t('planner.durationPlaceholder', { defaultValue: 'Dauer (min) — leer = Konfig-Standard' })}
+            style={{ ...inputStyle, color: durMin ? 'var(--n-fg)' : 'var(--n-fg-muted)' }}
+          />
+          <span style={{
+            padding: '0 14px', color: 'var(--n-fg-muted)', fontSize: 13,
+            borderLeft: '1px solid var(--n-line)',
+            height: '100%', display: 'flex', alignItems: 'center',
+            background: 'rgba(255,255,255,0.015)',
+          }}>min</span>
+        </div>
 
-        {error && <p className="text-sm" style={{ color: 'var(--n-danger)' }}>{error}</p>}
+        {error && <p style={{ color: 'var(--n-danger)', fontSize: 13 }}>{error}</p>}
 
+        {/* Submit */}
         <button
           type="submit"
-          className="rounded-lg py-2 font-medium"
-          style={{ background: 'var(--n-teal-600)', color: '#fff' }}
+          className="n-btn primary lg"
+          style={{ width: '100%', height: 52, fontSize: 15 }}
         >
           {t('planner.schedule')}
         </button>
       </form>
 
-      {plans.length === 0 ? (
-        <p className="text-sm text-center" style={{ color: 'var(--n-text-dim)' }}>{t('planner.noPlans')}</p>
-      ) : (
-        <div className="n-card flex flex-col divide-y" style={{ borderColor: 'var(--n-border)' }}>
-          {plans.map(plan => {
-            const seq = sequences.find(s => s.id === plan.sequence_id)
-            return (
-              <div key={plan.id} className="flex items-center justify-between p-4">
-                <div>
-                  <p className="font-medium">{seq?.label ?? plan.sequence_id}</p>
-                  <p className="text-sm" style={{ color: 'var(--n-text-dim)' }}>
-                    {new Date(plan.scheduled_at).toLocaleString()}
-                    {plan.duration_min ? ` · ${plan.duration_min} min` : ''}
-                  </p>
+      {/* Planned runs */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+        {plans.length === 0 ? (
+          <span style={{
+            color: 'var(--n-fg-muted)', fontSize: 14,
+            textAlign: 'center', padding: '16px 0',
+          }}>
+            {t('planner.noPlans')}
+          </span>
+        ) : (
+          plans.map((p) => (
+            <div key={p.id} className="n-card" style={{
+              padding: '14px 18px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: 14,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{
+                  width: 4, height: 28, borderRadius: 2,
+                  background: seqColor(p.sequence_id),
+                }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600 }}>{seqLabel(p.sequence_id)}</span>
+                  <span className="n-label" style={{ fontSize: 12 }}>
+                    {new Date(p.scheduled_at).toLocaleString('de', {
+                      weekday: 'short', day: '2-digit', month: '2-digit',
+                      hour: '2-digit', minute: '2-digit',
+                    })}
+                    {p.duration_min ? ` · ${p.duration_min} min` : ''}
+                  </span>
                 </div>
-                <button
-                  onClick={() => deleteMut.mutate(plan.id)}
-                  className="rounded px-2 py-1 text-sm"
-                  style={{ color: 'var(--n-danger)', border: '1px solid var(--n-danger)' }}
-                >
-                  ✕
-                </button>
               </div>
-            )
-          })}
-        </div>
-      )}
+              <button
+                className="n-iconbtn"
+                onClick={() => deleteMut.mutate(p.id)}
+                style={{ width: 36, height: 36 }}
+                title={t('planner.remove', { defaultValue: 'Entfernen' })}
+              >
+                <IX size={15} />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   )
 }

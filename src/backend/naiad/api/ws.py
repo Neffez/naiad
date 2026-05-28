@@ -50,6 +50,62 @@ class WsManager:
 manager = WsManager()
 
 
+# ── Broadcast helpers (called from other modules) ─────────────────────────────
+
+async def broadcast_sequence_changed(
+    sequence_id: str, status: str, triggered_by: str = "manual",
+) -> None:
+    await manager.broadcast({
+        "type": "sequence_changed",
+        "data": {
+            "sequence_id": sequence_id,
+            "status": status,
+            "triggered_by": triggered_by,
+            "ts": datetime.now(UTC).isoformat(),
+        },
+    })
+
+
+async def broadcast_valve_changed(zone_id: str, state: str, entity_id: str) -> None:
+    await manager.broadcast({
+        "type": "valve_changed",
+        "data": {
+            "zone_id": zone_id,
+            "state": state,
+            "entity_id": entity_id,
+            "ts": datetime.now(UTC).isoformat(),
+        },
+    })
+
+
+async def broadcast_notification(message: str, level: str = "info") -> None:
+    await manager.broadcast({
+        "type": "notification",
+        "data": {
+            "message": message,
+            "level": level,
+            "ts": datetime.now(UTC).isoformat(),
+        },
+    })
+
+
+async def broadcast_factor_updated() -> None:
+    await manager.broadcast({
+        "type": "factor_updated",
+        "data": {"ts": datetime.now(UTC).isoformat()},
+    })
+
+
+async def broadcast_ha_state(connected: bool) -> None:
+    await manager.broadcast({
+        "type": "ha_state",
+        "data": {
+            "connected": connected,
+            "ts": datetime.now(UTC).isoformat(),
+        },
+    })
+
+
 # ── Auth helper ───────────────────────────────────────────────────────────────
 
 def _authenticate(token_str: str, session: Session) -> bool:

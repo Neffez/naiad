@@ -9,16 +9,16 @@ Exception: user-visible UI strings are managed through i18n (`src/frontend/src/i
 ## Architecture
 
 - **Backend**: Python 3.12, FastAPI, SQLModel, APScheduler — source at `src/backend/`
-- **Frontend**: React + Vite + TypeScript, Tailwind CSS, shadcn/ui — source at `src/frontend/`
-- **API contract**: `docs/openapi.yaml` is the source of truth. Frontend TypeScript types are generated from it via `openapi-typescript` — do not write types by hand.
+- **Frontend**: React + Vite + TypeScript, custom CSS design system (`naiad-tokens.css`), TanStack React Query, react-i18next — source at `src/frontend/`
+- **API contract**: `docs/openapi.yaml` is the reference specification. Frontend TypeScript types live in `src/frontend/src/api/client.ts` alongside the fetch wrappers.
 - **Design reference**: `design/` contains the Claude Design prototype. Use it as the visual reference for components and layout. It is not a build input.
 
 ## Code style
 
 - Python: follow `ruff` defaults (configured in `pyproject.toml`). Type-annotate all public functions.
 - TypeScript: strict mode. No `any`. Prefer `const` over `let`.
-- No inline styles in React components unless directly mirroring a design token from `naiad-tokens.css`.
-- Tailwind classes for layout; CSS variables (`--n-*`) for brand colors and radii — do not hardcode hex values.
+- React components use inline styles referencing CSS custom properties (`var(--n-*)`) from `naiad-tokens.css`. This mirrors the design prototype in `design/`. Utility class names (`n-card`, `n-btn`, `n-chip`, etc.) are defined in `index.css`.
+- Do not hardcode hex color values — always use `--n-*` tokens. Exception: sequence accent colors that are data-driven.
 
 ## Testing
 

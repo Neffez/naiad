@@ -33,6 +33,7 @@
   <script type="text/babel" src="naiad-tablet.jsx"></script>
   <script type="text/babel" src="naiad-mobile.jsx"></script>
   <script type="text/babel" src="naiad-dialog.jsx"></script>
+  <script type="text/babel" src="naiad-screens.jsx"></script>
 
   <script type="text/babel" data-presets="react">
     const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -98,6 +99,22 @@
               </DCArtboard>
               <DCArtboard id="valves" label="04 · ValveGrid · 8×1 / 4×2 / 2×4" width={1020} height={820}>
                 <ValveGridArtboard theme={t.theme} />
+              </DCArtboard>
+            </DCSection>
+
+            <DCSection
+              id="screens"
+              title="Screens"
+              subtitle="Planer, Verlauf und Einstellungen — alle über die Sidebar erreichbar."
+            >
+              <DCArtboard id="planner" label={"07 · Planer · 1920 × 1080 · " + (t.embed ? "Embed" : "Stand-alone")} width={1920} height={1080}>
+                <NaiadPlannerScreen theme={t.theme} embed={t.embed} />
+              </DCArtboard>
+              <DCArtboard id="history" label={"08 · Verlauf · 1920 × 1080 · " + (t.embed ? "Embed" : "Stand-alone")} width={1920} height={1080}>
+                <NaiadHistoryScreen theme={t.theme} embed={t.embed} />
+              </DCArtboard>
+              <DCArtboard id="settings" label={"09 · Einstellungen · 1920 × 1080 · " + (t.embed ? "Embed" : "Stand-alone")} width={1920} height={1080}>
+                <NaiadSettingsScreen theme={t.theme} embed={t.embed} />
               </DCArtboard>
             </DCSection>
 

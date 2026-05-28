@@ -10,11 +10,12 @@
     "idle": "Bereit",
     "paused": "Pausiert",
     "disabled": "Deaktiviert",
+    "skipped": "Übersprungen",
     "unknown": "Unbekannt"
   },
   "master": {
-    "on": "Master: An",
-    "off": "Master: Aus"
+    "on": "Aktiv",
+    "off": "Aus"
   },
   "sequence": {
     "start": "Starten",
@@ -70,6 +71,22 @@
     "password": "Passwort",
     "login": "Einloggen",
     "error": "Falsches Passwort"
+  },
+  "emergency": {
+    "title": "Notaus — System + alle Ventile sofort stoppen",
+    "label": "Notaus",
+    "confirm": "Bestätigen?"
+  },
+  "confirm": {
+    "startNow": "Sofort starten",
+    "zones": "Zonen",
+    "perZone": "Je Zone",
+    "water": "Wasser",
+    "durationOverride": "Dauer-Override",
+    "resetTo": "Auf {{min}} min zurücksetzen",
+    "factorHint": "Anpassungsfaktor wird nicht angewendet — Sofortstart läuft mit eingestellter Dauer.",
+    "cancel": "Abbrechen",
+    "start": "Jetzt starten"
   },
   "errors": {
     "windBlocked": "Windalarm — Sequenz blockiert",

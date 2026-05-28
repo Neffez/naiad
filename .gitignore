@@ -22,6 +22,7 @@ src/frontend/dist/
 
 # App data
 data/
+config.yaml
 *.db
 *.db-shm
 *.db-wal

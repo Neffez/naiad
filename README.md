@@ -6,7 +6,7 @@
 
 ---
 
-> **Status:** pre-alpha. Infrastructure bootstrapped — implementation in progress.
+> **Status:** alpha. Backend functional (schedules, sequences, factors, HA integration). Frontend implements the full "Naiad Control Surface" design across all four screens (Dashboard, Planner, History, Settings).
 
 Naiad replaces the irrigation automation logic that typically lives inside Home Assistant (Irrigation Unlimited, automations, pyscript, helpers, dashboard cards) with a single standalone web application. Home Assistant remains the driver for the physical switches and the source of weather and sensor data; everything else — schedules, factor calculation, manual planning, history, UI — happens in Naiad.
 
@@ -37,9 +37,11 @@ Layouts: 3-column desktop/tablet (today-block · sequence grid · valves+chart),
 
 - Python 3.12 + FastAPI backend, served as a single Docker image
 - React + Vite + TypeScript frontend (statically served by the backend)
-- Tailwind CSS + shadcn/ui component library
-- SQLite for persistence
+- Custom CSS design system (`naiad-tokens.css`) — CSS custom properties, no utility framework
+- TanStack React Query for data fetching, `react-i18next` for i18n (DE + EN)
+- SQLite for persistence (SQLModel ORM)
 - APScheduler for cron-style scheduling
+- Real-time updates via WebSocket (sequence state, valve changes, factor updates, HA status)
 - Docker images published to GHCR for `amd64` + `arm64`
 
 ## Quickstart

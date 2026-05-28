@@ -8,9 +8,10 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlmodel import Session, select
 
+from naiad.api.ws import broadcast_notification, broadcast_sequence_changed
 from naiad.config import AppConfig
 from naiad.domain.factors import compute_factors
-from naiad.domain.models import Plan, UserPreference
+from naiad.domain.models import Plan, SequenceOverride, UserPreference
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.domain.sequences import MutexConflict, SequenceRunner
 from naiad.ha_client import HAClient
@@ -50,6 +51,12 @@ async def _run_sequence_job(
     if seq_cfg is None or not seq_cfg.enabled:
         return
 
+    with session_factory() as session:
+        seq_override = session.get(SequenceOverride, sequence_id)
+    if seq_override and seq_override.paused:
+        logger.info("Skipped (%s): paused via override", sequence_id)
+        return
+
     if not _master_on(session_factory):
         logger.info("Skipped (%s): master off", sequence_id)
         return
@@ -61,7 +68,8 @@ async def _run_sequence_job(
         await _notify(ha, config, f"⚠️ {seq_cfg.label}: Wind — Lauf übersprungen")
         return
 
-    factors = compute_factors(snapshot, config)
+    with session_factory() as session:
+        factors = compute_factors(snapshot, config, session)
 
     if factors.season_off:
         logger.info("Skipped (%s): season off", sequence_id)
@@ -77,10 +85,14 @@ async def _run_sequence_job(
         label_pct = int(round(factors.factor_pct))
         note = f"🌿 {seq_cfg.label} gestartet ({triggered_by}, Faktor {label_pct} %)"
         await _notify(ha, config, note)
+        await broadcast_sequence_changed(sequence_id, "running", triggered_by)
+        await broadcast_notification(note)
         logger.info("Started '%s' via %s (factor=%d%%)", sequence_id, triggered_by, label_pct)
     except MutexConflict as e:
         logger.warning("Conflict for '%s': %s", sequence_id, e)
-        await _notify(ha, config, f"⚠️ Zeitplan-Konflikt: {seq_cfg.label} — läuft bereits")
+        conflict_note = f"⚠️ Zeitplan-Konflikt: {seq_cfg.label} — läuft bereits"
+        await _notify(ha, config, conflict_note)
+        await broadcast_notification(conflict_note, level="warning")
 
 
 async def _plan_tick(
@@ -132,8 +144,12 @@ async def _on_rain(
     logger.info("Rain detected — aborting '%s'", status.sequence_id)
 
     try:
-        await runner.stop()
-        await _notify(ha, config, f"🌧 Bewässerung gestoppt: Regen ({label})")
+        seq_id = status.sequence_id
+        await runner.stop(reason="rain")
+        rain_note = f"🌧 Bewässerung gestoppt: Regen ({label})"
+        await _notify(ha, config, rain_note)
+        await broadcast_sequence_changed(seq_id, "idle", "rain")
+        await broadcast_notification(rain_note, level="warning")
     except Exception:
         logger.exception("Error aborting sequence on rain")
 

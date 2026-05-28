@@ -31,6 +31,7 @@ class HAClient:
         self._state_callbacks: list[StateCallback] = []
         self._connected = asyncio.Event()
         self._loop_task: asyncio.Task[None] | None = None
+        self.on_connection_change: Callable[[bool], Awaitable[None]] | None = None
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -58,12 +59,15 @@ class HAClient:
             except asyncio.CancelledError:
                 raise
             except Exception:
+                was_connected = self._connected.is_set()
                 self._connected.clear()
                 self._ws = None
                 for fut in self._pending.values():
                     if not fut.done():
                         fut.cancel()
                 self._pending.clear()
+                if was_connected and self.on_connection_change:
+                    asyncio.create_task(self.on_connection_change(False))
                 logger.warning(
                     "HA connection lost — retrying in %.0fs", delay, exc_info=True
                 )
@@ -72,7 +76,7 @@ class HAClient:
 
     async def _connect(self) -> None:
         logger.info("Connecting to Home Assistant at %s", self._url)
-        async with websockets.connect(self._url) as ws:
+        async with websockets.connect(self._url, max_size=2**24) as ws:
             # Auth handshake
             raw = await ws.recv()
             msg: dict[str, Any] = json.loads(raw)
@@ -101,25 +105,22 @@ class HAClient:
             )
 
             try:
-                # Load full state cache
-                states: list[dict[str, Any]] = await self._send_command(
-                    ws, {"type": "get_states"}
-                )
-                for state in states:
-                    self._state_cache[state["entity_id"]] = state
-                logger.info("State cache loaded (%d entities)", len(self._state_cache))
-
-                # Subscribe to all state_changed events
-                await ws.send(
-                    json.dumps({
-                        "id": self._next_id(),
-                        "type": "subscribe_events",
-                        "event_type": "state_changed",
-                    })
+                # Subscribe to state_changed events first (lightweight)
+                await self._send_command(
+                    ws,
+                    {"type": "subscribe_events", "event_type": "state_changed"},
                 )
 
+                # Connection is usable for call_service now
                 self._connected.set()
                 logger.info("Home Assistant connection ready")
+                if self.on_connection_change:
+                    asyncio.create_task(self.on_connection_change(True))
+
+                # Load full state cache in background (best-effort)
+                asyncio.create_task(
+                    self._load_state_cache(ws), name="ha-state-cache"
+                )
 
                 await msg_task  # runs until connection drops
             finally:
@@ -129,6 +130,22 @@ class HAClient:
                         await msg_task
                 self._connected.clear()
                 self._ws = None
+
+    async def _load_state_cache(self, ws: ClientConnection) -> None:
+        """Best-effort bulk load of all entity states."""
+        try:
+            states: list[dict[str, Any]] = await self._send_command(
+                ws, {"type": "get_states"}, timeout=120.0,
+            )
+            for state in states:
+                self._state_cache[state["entity_id"]] = state
+            logger.info("State cache loaded (%d entities)", len(self._state_cache))
+        except Exception:
+            logger.warning(
+                "Could not bulk-load state cache — "
+                "states will populate incrementally from events",
+                exc_info=True,
+            )
 
     async def _message_loop(self, ws: ClientConnection) -> None:
         async for raw in ws:
@@ -167,7 +184,8 @@ class HAClient:
         return self._msg_id
 
     async def _send_command(
-        self, ws: ClientConnection, msg: dict[str, Any]
+        self, ws: ClientConnection, msg: dict[str, Any],
+        timeout: float = 10.0,
     ) -> Any:
         msg_id = self._next_id()
         full = {**msg, "id": msg_id}
@@ -175,7 +193,7 @@ class HAClient:
         self._pending[msg_id] = fut
         await ws.send(json.dumps(full))
         try:
-            return await asyncio.wait_for(fut, timeout=10.0)
+            return await asyncio.wait_for(fut, timeout=timeout)
         except TimeoutError as err:
             self._pending.pop(msg_id, None)
             raise HAError(

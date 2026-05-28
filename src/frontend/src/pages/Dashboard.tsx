@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   getSequences,
   getStatus,
+  getValves,
   pauseSequence,
   setMaster,
   startSequence,
@@ -10,223 +12,19 @@ import {
   type SequenceState,
   type SystemStatus,
 } from '../api/client'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { EmergencyStop } from '../components/EmergencyStop'
+import { IAlert, ILogo } from '../components/icons'
+import { MasterToggle } from '../components/MasterToggle'
+import { SequenceCard } from '../components/SequenceCard'
+import { TodayBlock } from '../components/TodayBlock'
+import { ValveGrid } from '../components/ValveGrid'
+import { WeatherStrip } from '../components/WeatherStrip'
+import { WeekChart } from '../components/WeekChart'
 import { useWebSocket } from '../hooks/useWebSocket'
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function ledClass(status: string) {
-  return `n-led n-led-${status === 'running' ? 'running' : status === 'paused' ? 'paused' : status === 'disabled' ? 'disabled' : 'idle'}`
-}
-function chipClass(status: string) {
-  const map: Record<string, string> = { running: 'n-chip-running', idle: 'n-chip-idle', paused: 'n-chip-paused', disabled: 'n-chip-disabled' }
-  return `n-chip ${map[status] ?? 'n-chip-disabled'}`
-}
-function statusLabel(status: string, t: (k: string) => string) {
-  return t(`status.${status}` as never) || status
-}
-
-// ── Weather strip ─────────────────────────────────────────────────────────────
-
-function WeatherStrip({ sys }: { sys: SystemStatus }) {
-  const { t } = useTranslation()
-  const w = sys.weather
-  const f = sys.today_factor
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-      {w.temp_c != null && (
-        <span className="n-num" style={{ color: 'var(--n-text-2)', fontSize: 13 }}>
-          🌡 <strong style={{ color: 'var(--n-text)' }}>{w.temp_c.toFixed(1)}°C</strong>
-        </span>
-      )}
-      <span className="n-num" style={{ color: 'var(--n-text-2)', fontSize: 13 }}>
-        🌧 <strong style={{ color: 'var(--n-text)' }}>{w.rain_24h_mm.toFixed(1)} mm</strong>
-      </span>
-      {w.wind_label === 'on' && (
-        <span style={{ color: 'var(--n-paused)', fontSize: 13, fontWeight: 600 }}>💨 {t('weather.windOn')}</span>
-      )}
-      {!w.season_active && (
-        <span style={{ color: 'var(--n-paused)', fontSize: 13, fontWeight: 600 }}>❄ {t('weather.seasonOff')}</span>
-      )}
-      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--n-text-2)' }}>
-        {t('sequence.factor')}:&nbsp;
-        <strong className="n-num" style={{ color: 'var(--n-teal-300)', fontSize: 16 }}>
-          {f.combined_pct} %
-        </strong>
-        {f.wind_blocking_sequences.length > 0 && (
-          <span style={{ color: 'var(--n-paused)', fontSize: 11 }}>
-            (Wind sperrt: {f.wind_blocking_sequences.join(', ')})
-          </span>
-        )}
-      </span>
-    </div>
-  )
-}
-
-// ── Header ────────────────────────────────────────────────────────────────────
-
-function Header({ sys, onMaster }: { sys?: SystemStatus; onMaster: () => void }) {
-  const { t } = useTranslation()
-  const masterOn = sys?.master_on ?? true
-
-  return (
-    <div style={{
-      background: 'var(--n-surface)',
-      borderBottom: '1px solid var(--n-border)',
-      padding: '14px 20px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 10,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        {/* Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 20 }}>🌊</span>
-          <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--n-teal-300)', letterSpacing: '-0.3px' }}>
-            Naiad
-          </span>
-        </div>
-
-        <div style={{ flex: 1 }} />
-
-        {/* HA disconnect badge */}
-        {sys && !sys.ha_connected && (
-          <span style={{ fontSize: 11, color: 'var(--n-danger)', border: '1px solid rgba(196,90,90,0.4)', borderRadius: 6, padding: '2px 8px' }}>
-            HA offline
-          </span>
-        )}
-
-        {/* Master toggle */}
-        <button
-          className="n-btn"
-          onClick={onMaster}
-          style={{
-            background: masterOn ? 'var(--n-teal-700)' : 'rgba(255,255,255,0.04)',
-            color: masterOn ? 'var(--n-teal-300)' : 'var(--n-text-3)',
-            border: masterOn ? '1px solid var(--n-teal-600)' : '1px solid var(--n-border-hi)',
-            minWidth: 110,
-          }}
-        >
-          <span style={{
-            width: 8, height: 8, borderRadius: '50%',
-            background: masterOn ? 'var(--n-teal-300)' : 'var(--n-text-3)',
-            boxShadow: masterOn ? '0 0 6px var(--n-teal-300)' : 'none',
-            animation: masterOn ? 'n-pulse-led 2s ease-in-out infinite' : 'none',
-          }} />
-          {masterOn ? t('master.on') : t('master.off')}
-        </button>
-      </div>
-
-      {/* Weather strip */}
-      {sys && <WeatherStrip sys={sys} />}
-    </div>
-  )
-}
-
-// ── Sequence card ─────────────────────────────────────────────────────────────
-
-function SequenceCard({ seq, onStart, onStop, onPause }: {
-  seq: SequenceState
-  onStart: () => void
-  onStop: () => void
-  onPause: () => void
-}) {
-  const { t } = useTranslation()
-  const isRunning = seq.status === 'running'
-  const isPaused  = seq.status === 'paused'
-  const isDisabled = seq.status === 'disabled' || !seq.enabled
-
-  const progress = seq.current_run
-    ? Math.min(100, (seq.current_run.elapsed_min / (seq.current_run.elapsed_min + seq.current_run.remaining_min)) * 100)
-    : 0
-
-  return (
-    <div
-      className={`n-card n-fade-in${isRunning ? ' n-card-running' : ''}`}
-      style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10, opacity: isDisabled ? 0.45 : 1 }}
-    >
-      {/* Title row */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span className={ledClass(seq.status)} />
-          <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--n-text)' }}>{seq.label}</span>
-        </div>
-        <span className={chipClass(seq.status)}>{statusLabel(seq.status, t)}</span>
-      </div>
-
-      {/* Progress bar (running only) */}
-      {isRunning && seq.current_run && (
-        <div>
-          <div className="n-progress">
-            <div className="n-progress-fill" style={{ width: `${progress}%` }} />
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 11, color: 'var(--n-text-2)' }}>
-            <span className="n-num">{seq.current_run.elapsed_min.toFixed(0)} min vergangen</span>
-            <span className="n-num" style={{ color: 'var(--n-teal-300)' }}>
-              noch {seq.current_run.remaining_min.toFixed(0)} min
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Zone list */}
-      <div style={{ fontSize: 12, color: 'var(--n-text-3)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {seq.zones.map((z, i) => (
-          <span key={z.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            {i > 0 && <span>→</span>}
-            <span style={{ color: z.valve_state === 'on' ? 'var(--n-teal-300)' : 'var(--n-text-3)' }}>
-              {z.label}
-            </span>
-          </span>
-        ))}
-      </div>
-
-      {/* Meta row */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
-        <span style={{ color: 'var(--n-text-3)' }}>
-          {seq.basis_min_per_zone} min/Zone
-        </span>
-        {seq.factor_note && (
-          <span style={{ color: 'var(--n-paused)', fontSize: 11 }}>{seq.factor_note}</span>
-        )}
-        {!seq.factor_note && (
-          <span className="n-num" style={{ color: 'var(--n-text-3)' }}>
-            {seq.factor_pct} %
-          </span>
-        )}
-      </div>
-
-      {/* Actions */}
-      {!isDisabled && (
-        <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-          {!isRunning && !isPaused && (
-            <button className="n-btn n-btn-primary" style={{ flex: 1 }} onClick={onStart}>
-              ▶ {t('sequence.start')}
-            </button>
-          )}
-          {isPaused && (
-            <button className="n-btn n-btn-primary" style={{ flex: 1 }} onClick={onStart}>
-              ▶ {t('sequence.resume')}
-            </button>
-          )}
-          {isRunning && (
-            <>
-              <button className="n-btn n-btn-amber" style={{ flex: 1 }} onClick={onPause}>
-                ⏸ {t('sequence.pause')}
-              </button>
-              <button className="n-btn n-btn-danger" style={{ flex: 1 }} onClick={onStop}>
-                ⏹ {t('sequence.stop')}
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Main dashboard ────────────────────────────────────────────────────────────
-
 export default function Dashboard() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
 
   const { data: status } = useQuery<SystemStatus>({
@@ -239,6 +37,11 @@ export default function Dashboard() {
     queryFn: getSequences,
     refetchInterval: 15_000,
   })
+  const { data: valves = [] } = useQuery({
+    queryKey: ['valves'],
+    queryFn: getValves,
+    refetchInterval: 15_000,
+  })
 
   const masterMut = useMutation({
     mutationFn: (on: boolean) => setMaster(on),
@@ -246,15 +49,18 @@ export default function Dashboard() {
   })
 
   useWebSocket((msg) => {
-    if (['status_snapshot', 'sequence_changed', 'run_tick'].includes(msg.type)) {
+    if (['status_snapshot', 'sequence_changed', 'run_tick', 'valve_changed', 'factor_updated'].includes(msg.type)) {
       qc.invalidateQueries({ queryKey: ['sequences'] })
       qc.invalidateQueries({ queryKey: ['status'] })
+      qc.invalidateQueries({ queryKey: ['valves'] })
     }
   })
 
-  async function handleStart(id: string) {
+  const [confirmSeq, setConfirmSeq] = useState<SequenceState | null>(null)
+
+  async function handleStart(seq: SequenceState, durationMin?: number) {
     try {
-      await startSequence(id)
+      await startSequence(seq.id, durationMin)
       qc.invalidateQueries({ queryKey: ['sequences'] })
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e))
@@ -271,76 +77,258 @@ export default function Dashboard() {
     qc.invalidateQueries({ queryKey: ['sequences'] })
   }
 
-  // Next run block (from status or first upcoming sequence)
-  const nextRun = status?.next_run
+  async function handleEmergency() {
+    await masterMut.mutateAsync(false)
+    for (const seq of sequences.filter((s) => s.status === 'running')) {
+      await stopSequence(seq.id)
+    }
+    qc.invalidateQueries({ queryKey: ['sequences'] })
+  }
+
+  const masterOn = status?.master_on ?? true
+
+  const weekData = buildWeekData(status)
+  const running = sequences.filter((s) => s.status === 'running').length
+  const idle = sequences.filter((s) => s.status === 'idle').length
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      <Header sys={status} onMaster={() => masterMut.mutate(!(status?.master_on ?? true))} />
+      {/* header */}
+      <header
+        className="n-wavebed"
+        style={{
+          padding: '0 24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottom: '1px solid var(--n-line)',
+          height: 88,
+          flex: '0 0 88px',
+          gap: 24,
+          position: 'relative',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 28, minWidth: 0 }}>
+          <div className="mobile-only" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <ILogo size={24} />
+            <span style={{ fontSize: 17, fontWeight: 500, color: 'var(--n-fg)' }}>Naiad</span>
+          </div>
 
-      <div style={{ padding: '20px', maxWidth: 1200, margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="desktop-only" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span className="n-eyebrow">{t('nav.dashboard')}</span>
+            <span style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.01em' }}>Garten</span>
+          </div>
 
-        {/* Next run banner */}
-        {nextRun && (
-          <div className="n-card" style={{
-            padding: '14px 18px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            borderColor: 'var(--n-teal-700)',
-            background: 'rgba(26,122,138,0.08)',
-          }}>
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--n-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>
-                Nächster Lauf
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--n-teal-300)' }}>{nextRun.sequence_label}</div>
+          <div className="desktop-only">
+            <div className="n-vdivider" style={{ height: 40 }} />
+          </div>
+
+          {status && (
+            <div className="desktop-only">
+              <WeatherStrip sys={status} />
             </div>
-            <div style={{ textAlign: 'right' }}>
-              <div className="n-num" style={{ fontSize: 14, color: 'var(--n-text)' }}>
-                {new Date(nextRun.scheduled_at).toLocaleString('de', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--n-text-2)', marginTop: 2 }}>
-                {nextRun.duration_min} min/Zone
-              </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div className="desktop-only" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div className="n-vdivider" style={{ height: 40 }} />
+            <MasterToggle on={masterOn} onToggle={() => masterMut.mutate(!masterOn)} />
+            <EmergencyStop onFire={handleEmergency} />
+          </div>
+
+          <div className="mobile-only">
+            <MasterToggle on={masterOn} onToggle={() => masterMut.mutate(!masterOn)} compact />
+          </div>
+        </div>
+      </header>
+
+      {/* mobile-only: weather + master below header */}
+      {status && (
+        <div className="mobile-only" style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <WeatherStrip sys={status} compact />
+        </div>
+      )}
+
+      {/* TABLET: 3-column grid */}
+      <main className="desktop-only" style={{
+        flex: 1,
+        padding: '22px 36px 28px',
+        display: 'grid',
+        gridTemplateColumns: '360px 1fr 440px',
+        gap: 22,
+        minHeight: 0,
+      }}>
+        {/* col 1: Today block — fills full height */}
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          {status && <TodayBlock sys={status} />}
+        </div>
+
+        {/* col 2: Sequences */}
+        <section style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '0 2px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span className="n-eyebrow">{t('sequence.zones', { defaultValue: 'Sequenzen' })}</span>
+              <span style={{ fontSize: 16, fontWeight: 500 }}>{sequences.length} konfiguriert</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12.5 }}>
+              {running > 0 && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--n-teal-200)' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
+                  {running} läuft
+                </span>
+              )}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--n-fg-muted)' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-fg-dim)' }} />
+                {idle} bereit
+              </span>
             </div>
           </div>
-        )}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 14,
+            alignContent: 'start',
+          }}>
+            {sequences.map((seq) => (
+              <SequenceCard
+                key={seq.id}
+                seq={seq}
+                size="rich"
+                onStart={() => setConfirmSeq(seq)}
+                onPause={() => (seq.status === 'running' ? handlePause(seq.id) : handleStart(seq))}
+              />
+            ))}
+          </div>
+        </section>
 
-        {/* Sequence grid */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-          gap: 12,
-        }}>
-          {sequences.map(seq => (
+        {/* col 3: Valves + Chart */}
+        <section style={{ display: 'flex', flexDirection: 'column', gap: 18, minHeight: 0 }}>
+          {valves.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span className="n-eyebrow">Ventile · Live</span>
+                  <span style={{ fontSize: 16, fontWeight: 500 }}>{valves.length} Zonen</span>
+                </div>
+                {valves.some((v) => v.state === 'on') && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--n-teal-200)', fontSize: 12.5 }}>
+                    <span className="n-drop" />
+                    {valves.filter((v) => v.state === 'on').length} live
+                  </span>
+                )}
+              </div>
+              <ValveGrid valves={valves} cols={2} />
+            </div>
+          )}
+
+          <div className="n-card" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span className="n-eyebrow">Verbrauch · 7 Tage</span>
+                <span className="mono" style={{ fontSize: 22, fontWeight: 500 }}>
+                  {status?.liters_week.toFixed(0) ?? '—'} L
+                </span>
+              </div>
+            </div>
+            <WeekChart data={weekData} height={150} />
+          </div>
+        </section>
+      </main>
+
+      {/* MOBILE: stacked layout */}
+      <main
+        className="mobile-only"
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '0 20px 20px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 14,
+        }}
+      >
+        {status && <TodayBlock sys={status} dense />}
+
+        <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '0 2px' }}>
+            <span className="n-eyebrow">Sequenzen</span>
+            <span className="n-label" style={{ fontSize: 11 }}>
+              {running > 0 && <span style={{ color: 'var(--n-teal-200)' }}>{running} läuft · </span>}
+              {idle} bereit
+            </span>
+          </div>
+          {sequences.map((seq) => (
             <SequenceCard
               key={seq.id}
               seq={seq}
-              onStart={() => handleStart(seq.id)}
-              onStop={() => handleStop(seq.id)}
-              onPause={() => handlePause(seq.id)}
+              onStart={() => setConfirmSeq(seq)}
+              onPause={() => (seq.status === 'running' ? handlePause(seq.id) : handleStart(seq))}
             />
           ))}
-        </div>
+        </section>
 
-        {/* Liter summary */}
-        {status && (
-          <div style={{ display: 'flex', gap: 12 }}>
-            {[
-              { label: 'Heute', value: status.liters_today },
-              { label: 'Diese Woche', value: status.liters_week },
-            ].map(({ label, value }) => (
-              <div key={label} className="n-card" style={{ flex: 1, padding: '12px 16px' }}>
-                <div style={{ fontSize: 11, color: 'var(--n-text-3)', marginBottom: 4 }}>{label}</div>
-                <div className="n-num" style={{ fontSize: 22, fontWeight: 600, color: 'var(--n-teal-300)' }}>
-                  {value.toFixed(0)} <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--n-text-2)' }}>L</span>
-                </div>
-              </div>
-            ))}
-          </div>
+        {valves.length > 0 && (
+          <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '0 2px' }}>
+              <span className="n-eyebrow">Ventile</span>
+              {valves.some((v) => v.state === 'on') && (
+                <span className="n-label" style={{ fontSize: 11, color: 'var(--n-teal-200)' }}>
+                  {valves.filter((v) => v.state === 'on').length} live
+                </span>
+              )}
+            </div>
+            <ValveGrid valves={valves} cols={2} />
+          </section>
         )}
-      </div>
+
+        <div className="n-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+            <div>
+              <span className="n-eyebrow">Verbrauch</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                <span className="n-bignum" style={{ fontSize: 26 }}>{status?.liters_week.toFixed(0) ?? '—'} L</span>
+                <span style={{ fontSize: 12, color: 'var(--n-fg-muted)' }}>diese Woche</span>
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <span className="mono" style={{ fontSize: 14, color: 'var(--n-teal-200)' }}>
+                {status?.liters_today.toFixed(0) ?? '—'} L
+              </span>
+              <div className="n-label" style={{ fontSize: 11 }}>heute</div>
+            </div>
+          </div>
+          <WeekChart data={weekData} height={100} />
+        </div>
+      </main>
+
+      {/* Confirm dialog */}
+      {confirmSeq && (
+        <ConfirmDialog
+          open={!!confirmSeq}
+          title={confirmSeq.label}
+          subtitle={`${confirmSeq.schedule_label} · ${confirmSeq.zones.length} × ${confirmSeq.basis_min_per_zone} min`}
+          zones={confirmSeq.zones.length}
+          defaultDuration={confirmSeq.basis_min_per_zone}
+          onConfirm={(dur) => {
+            handleStart(confirmSeq, dur)
+            setConfirmSeq(null)
+          }}
+          onCancel={() => setConfirmSeq(null)}
+        />
+      )}
     </div>
   )
+}
+
+function buildWeekData(status: SystemStatus | undefined) {
+  const days = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+  const todayIdx = new Date().getDay()
+  const adjustedIdx = todayIdx === 0 ? 6 : todayIdx - 1
+
+  return days.map((day, i) => ({
+    day,
+    liters: i === adjustedIdx ? (status?.liters_today ?? 0) : 0,
+    today: i === adjustedIdx,
+  }))
 }
