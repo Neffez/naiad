@@ -2,11 +2,13 @@ import os
 import re
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ── HA ──────────────────────────────────────────────────────────────────────
+
 
 class HAConfig(BaseModel):
     url: str
@@ -15,6 +17,7 @@ class HAConfig(BaseModel):
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
+
 
 class AutoLoginTrigger(BaseModel):
     url_param: str = "embed"
@@ -27,14 +30,24 @@ class AutoLoginConfig(BaseModel):
     trigger: AutoLoginTrigger = AutoLoginTrigger()
 
 
+class ForwardHeaderConfig(BaseModel):
+    """Trusted reverse-proxy header auth (mode = forward_header)."""
+
+    header: str = "X-Forwarded-User"
+    # If non-empty, the request's client IP must be one of these (the proxy).
+    trusted_proxies: list[str] = []
+
+
 class AuthConfig(BaseModel):
     mode: Literal["password", "forward_header", "none"] = "password"
     password: str = ""  # plain text or bcrypt hash ($2b$...)
+    forward_header: ForwardHeaderConfig = ForwardHeaderConfig()
     auto_login: AutoLoginConfig = AutoLoginConfig()
     frame_ancestors: list[str] = ["'self'"]
 
 
 # ── Sensors ──────────────────────────────────────────────────────────────────
+
 
 class SensorsConfig(BaseModel):
     rain: str
@@ -49,6 +62,7 @@ class SensorsConfig(BaseModel):
 
 # ── Zones ─────────────────────────────────────────────────────────────────────
 
+
 class ZoneConfig(BaseModel):
     label: str
     switch: str
@@ -56,6 +70,7 @@ class ZoneConfig(BaseModel):
 
 
 # ── Sequences ────────────────────────────────────────────────────────────────
+
 
 class ScheduleConfig(BaseModel):
     cron: str
@@ -80,6 +95,7 @@ class SequenceConfig(BaseModel):
 
 
 # ── Factors ──────────────────────────────────────────────────────────────────
+
 
 class TempFactorConfig(BaseModel):
     formula: Literal["linear"] = "linear"
@@ -113,6 +129,7 @@ class FactorsConfig(BaseModel):
 
 # ── Root ─────────────────────────────────────────────────────────────────────
 
+
 class AppConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -122,30 +139,51 @@ class AppConfig(BaseModel):
     zones: dict[str, ZoneConfig]
     sequences: dict[str, SequenceConfig]
     factors: FactorsConfig = FactorsConfig()
+    timezone: str = "Europe/Berlin"  # IANA tz for cron schedules and day bucketing
+
+    @model_validator(mode="after")
+    def validate_timezone(self) -> "AppConfig":
+        from zoneinfo import ZoneInfoNotFoundError
+
+        try:
+            ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as e:
+            raise ValueError(f"Invalid timezone: {self.timezone!r}") from e
+        return self
 
     @model_validator(mode="after")
     def validate_zone_references(self) -> "AppConfig":
         for seq_id, seq in self.sequences.items():
             for zone_id in seq.zones:
                 if zone_id not in self.zones:
-                    raise ValueError(
-                        f"Sequence '{seq_id}' references unknown zone '{zone_id}'"
-                    )
+                    raise ValueError(f"Sequence '{seq_id}' references unknown zone '{zone_id}'")
         return self
 
 
 # ── Loader ───────────────────────────────────────────────────────────────────
 
+
+_REQUIRED_CONFIG_VARS = {"HA_TOKEN"}
+
+
 def _expand_env_vars(text: str) -> str:
+    missing: list[str] = []
+
     def replace(m: re.Match[str]) -> str:
         var = m.group(1)
-        if var not in os.environ:
-            raise ValueError(
-                f"Config references undefined environment variable: ${{{var}}}"
-            )
-        return os.environ[var]
+        if var in os.environ:
+            return os.environ[var]
+        if var in _REQUIRED_CONFIG_VARS:
+            missing.append(var)
+        return ""
 
-    return re.sub(r"\$\{(\w+)\}", replace, text)
+    result = re.sub(r"\$\{(\w+)\}", replace, text)
+    if missing:
+        raise ValueError(
+            f"Config references required environment variable(s) that are not set: "
+            + ", ".join(f"${{{v}}}" for v in missing)
+        )
+    return result
 
 
 def load_config(path: Path | None = None) -> AppConfig:

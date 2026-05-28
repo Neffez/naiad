@@ -1,7 +1,12 @@
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
-from naiad.domain.resume import clear_snapshot, load_snapshot, save_pause_snapshot
+from naiad.domain.resume import (
+    clear_orphan_snapshot,
+    clear_snapshot,
+    load_snapshot,
+    save_pause_snapshot,
+)
 
 
 @pytest.fixture
@@ -39,6 +44,18 @@ def test_clear_snapshot(session: Session) -> None:
 def test_clear_wrong_sequence_does_nothing(session: Session) -> None:
     save_pause_snapshot(session, "seq_1", "zone_a", 0, 5.0)
     clear_snapshot(session, "seq_other")
+    assert load_snapshot(session, "seq_1") is not None
+
+
+def test_clear_orphan_snapshot_drops_other_sequence(session: Session) -> None:
+    save_pause_snapshot(session, "seq_1", "zone_a", 0, 5.0)
+    clear_orphan_snapshot(session, "seq_2")  # starting a different sequence
+    assert load_snapshot(session, "seq_1") is None
+
+
+def test_clear_orphan_snapshot_keeps_same_sequence(session: Session) -> None:
+    save_pause_snapshot(session, "seq_1", "zone_a", 0, 5.0)
+    clear_orphan_snapshot(session, "seq_1")  # resuming the same sequence
     assert load_snapshot(session, "seq_1") is not None
 
 

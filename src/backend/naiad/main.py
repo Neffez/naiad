@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,6 +24,7 @@ from naiad.scheduler import setup_scheduler
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
+
 class _JSONFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         obj: dict[str, Any] = {
@@ -34,10 +36,28 @@ class _JSONFormatter(logging.Formatter):
         if record.exc_info:
             obj["exc"] = self.formatException(record.exc_info)
         skip = {
-            "name", "msg", "args", "created", "filename", "funcName",
-            "levelname", "levelno", "lineno", "module", "msecs", "pathname",
-            "process", "processName", "relativeCreated", "thread", "threadName",
-            "exc_info", "exc_text", "stack_info", "message", "taskName",
+            "name",
+            "msg",
+            "args",
+            "created",
+            "filename",
+            "funcName",
+            "levelname",
+            "levelno",
+            "lineno",
+            "module",
+            "msecs",
+            "pathname",
+            "process",
+            "processName",
+            "relativeCreated",
+            "thread",
+            "threadName",
+            "exc_info",
+            "exc_text",
+            "stack_info",
+            "message",
+            "taskName",
         }
         for key, val in record.__dict__.items():
             if key not in skip:
@@ -55,11 +75,28 @@ def _setup_logging() -> None:
 
 # ── Request-ID middleware ─────────────────────────────────────────────────────
 
+
 class _RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Any) -> Response:
         req_id = request.headers.get("X-Request-ID", uuid.uuid4().hex[:8])
         response: Response = await call_next(request)
         response.headers["X-Request-ID"] = req_id
+        return response
+
+
+# ── Security-headers middleware ───────────────────────────────────────────────
+
+
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Emit Content-Security-Policy: frame-ancestors from auth.frame_ancestors,
+    so the configured HA-dashboard-embedding policy is actually enforced."""
+
+    async def dispatch(self, request: Request, call_next: Any) -> Response:
+        response: Response = await call_next(request)
+        config = getattr(request.app.state, "config", None)
+        if config is not None:
+            ancestors = " ".join(config.auth.frame_ancestors) or "'none'"
+            response.headers["Content-Security-Policy"] = f"frame-ancestors {ancestors}"
         return response
 
 
@@ -69,7 +106,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def _lifespan(app: FastAPI):  # type: ignore[type-arg]
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     _setup_logging()
     logger.info("Naiad starting")
 
@@ -96,7 +133,13 @@ async def _lifespan(app: FastAPI):  # type: ignore[type-arg]
     scheduler.start()
     logger.info("Scheduler started (%d jobs)", len(scheduler.get_jobs()))
 
-    from naiad.api.ws import broadcast_ha_state, broadcast_valve_changed, manager as ws_manager
+    from naiad.api.ws import broadcast_ha_state, broadcast_sequence_changed, broadcast_valve_changed
+    from naiad.api.ws import manager as ws_manager
+
+    async def _on_run_started(sequence_id: str, triggered_by: str) -> None:
+        await broadcast_sequence_changed(sequence_id, "running", triggered_by)
+
+    runner.on_started = _on_run_started
 
     valve_entities = {z.switch: z_id for z_id, z in config.zones.items()}
 
@@ -110,8 +153,40 @@ async def _lifespan(app: FastAPI):  # type: ignore[type-arg]
 
     ha.subscribe_state_changes(_valve_state_cb)
 
+    recovery_done = False
+
     async def _ha_connected_cb(connected: bool) -> None:
+        nonlocal recovery_done
         await broadcast_ha_state(connected)
+        if connected:
+            if runner.status().sequence_id is not None:
+                return  # a run is live (reconnect mid-run) — don't interfere
+            if not recovery_done:
+                # First time HA is reachable: recover an interrupted run if its
+                # zone window is still open, otherwise close orphaned valves.
+                recovery_done = True
+                action = await runner.recover_run()
+                logger.info("Crash recovery: %s", action)
+            else:
+                # Later reconnects while idle: close any orphaned valves. A
+                # manually/externally opened valve is also closed here, since
+                # Naiad treats itself as the authoritative valve controller.
+                await runner.reconcile_valves()
+                logger.info("Valve reconciliation complete")
+        else:
+            # Do NOT abort a live run on disconnect: the run task does not depend
+            # on HA, and aborting cannot physically close the valve anyway (HA is
+            # unreachable). A brief blip thus stays transparent — the resilient
+            # turn_off succeeds once HA returns, the watchdog still bounds the run,
+            # and reconcile-on-reconnect closes anything left open. The ActiveRun
+            # record is kept, so a crash during the outage still recovers on boot.
+            running = runner.status().sequence_id
+            if running is not None:
+                logger.warning(
+                    "HA connection lost while '%s' is running — run continues; "
+                    "valve will be reconciled when HA returns",
+                    running,
+                )
 
     ha.on_connection_change = _ha_connected_cb
 
@@ -142,6 +217,7 @@ app = FastAPI(
 )
 
 app.add_middleware(_RequestIDMiddleware)
+app.add_middleware(_SecurityHeadersMiddleware)
 
 from naiad.api import auth, history, plans, preferences, sequences, settings, system  # noqa: E402
 from naiad.api import status as _status  # noqa: E402

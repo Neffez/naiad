@@ -2,7 +2,7 @@ import asyncio
 import contextlib
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
 from typing import Any
 
 import websockets
@@ -11,7 +11,7 @@ from websockets.asyncio.client import ClientConnection
 
 logger = logging.getLogger(__name__)
 
-StateCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
+StateCallback = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
 
 
 class HAError(Exception):
@@ -31,20 +31,28 @@ class HAClient:
         self._state_callbacks: list[StateCallback] = []
         self._connected = asyncio.Event()
         self._loop_task: asyncio.Task[None] | None = None
-        self.on_connection_change: Callable[[bool], Awaitable[None]] | None = None
+        # Strong references to fire-and-forget tasks; the event loop only keeps
+        # weak refs, so without this they could be garbage-collected mid-flight.
+        self._bg_tasks: set[asyncio.Task[Any]] = set()
+        self.on_connection_change: Callable[[bool], Coroutine[Any, Any, None]] | None = None
+
+    def _spawn(self, coro: Coroutine[Any, Any, None], *, name: str | None = None) -> None:
+        task = asyncio.create_task(coro, name=name)
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def start(self) -> None:
-        self._loop_task = asyncio.create_task(
-            self._connect_loop(), name="ha-connect-loop"
-        )
+        self._loop_task = asyncio.create_task(self._connect_loop(), name="ha-connect-loop")
 
     async def stop(self) -> None:
         if self._loop_task:
             self._loop_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._loop_task
+        for task in list(self._bg_tasks):
+            task.cancel()
         if self._ws:
             await self._ws.close()
 
@@ -67,10 +75,8 @@ class HAClient:
                         fut.cancel()
                 self._pending.clear()
                 if was_connected and self.on_connection_change:
-                    asyncio.create_task(self.on_connection_change(False))
-                logger.warning(
-                    "HA connection lost — retrying in %.0fs", delay, exc_info=True
-                )
+                    self._spawn(self.on_connection_change(False), name="ha-conn-change")
+                logger.warning("HA connection lost — retrying in %.0fs", delay, exc_info=True)
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 60.0)
 
@@ -81,28 +87,20 @@ class HAClient:
             raw = await ws.recv()
             msg: dict[str, Any] = json.loads(raw)
             if msg.get("type") != "auth_required":
-                raise HAError(
-                    {"message": f"Expected auth_required, got: {msg.get('type')}"}
-                )
+                raise HAError({"message": f"Expected auth_required, got: {msg.get('type')}"})
 
-            await ws.send(
-                json.dumps({"type": "auth", "access_token": self._token})
-            )
+            await ws.send(json.dumps({"type": "auth", "access_token": self._token}))
             raw = await ws.recv()
             msg = json.loads(raw)
             if msg.get("type") != "auth_ok":
-                raise HAError(
-                    {"message": "HA authentication failed — check HA_TOKEN"}
-                )
+                raise HAError({"message": "HA authentication failed — check HA_TOKEN"})
 
             self._ws = ws
             ha_version = msg.get("ha_version", "unknown")
             logger.info("Authenticated with Home Assistant %s", ha_version)
 
             # Start message dispatch as a concurrent task
-            msg_task = asyncio.create_task(
-                self._message_loop(ws), name="ha-msg-loop"
-            )
+            msg_task = asyncio.create_task(self._message_loop(ws), name="ha-msg-loop")
 
             try:
                 # Subscribe to state_changed events first (lightweight)
@@ -115,12 +113,10 @@ class HAClient:
                 self._connected.set()
                 logger.info("Home Assistant connection ready")
                 if self.on_connection_change:
-                    asyncio.create_task(self.on_connection_change(True))
+                    self._spawn(self.on_connection_change(True), name="ha-conn-change")
 
                 # Load full state cache in background (best-effort)
-                asyncio.create_task(
-                    self._load_state_cache(ws), name="ha-state-cache"
-                )
+                self._spawn(self._load_state_cache(ws), name="ha-state-cache")
 
                 await msg_task  # runs until connection drops
             finally:
@@ -135,15 +131,16 @@ class HAClient:
         """Best-effort bulk load of all entity states."""
         try:
             states: list[dict[str, Any]] = await self._send_command(
-                ws, {"type": "get_states"}, timeout=120.0,
+                ws,
+                {"type": "get_states"},
+                timeout=120.0,
             )
             for state in states:
                 self._state_cache[state["entity_id"]] = state
             logger.info("State cache loaded (%d entities)", len(self._state_cache))
         except Exception:
             logger.warning(
-                "Could not bulk-load state cache — "
-                "states will populate incrementally from events",
+                "Could not bulk-load state cache — states will populate incrementally from events",
                 exc_info=True,
             )
 
@@ -172,10 +169,7 @@ class HAClient:
                     if new_state:
                         self._state_cache[entity_id] = new_state
                         for cb in self._state_callbacks:
-                            asyncio.create_task(
-                                cb(entity_id, new_state),
-                                name=f"state-cb-{entity_id}",
-                            )
+                            self._spawn(cb(entity_id, new_state), name=f"state-cb-{entity_id}")
 
     # ── Command helper ────────────────────────────────────────────────────────
 
@@ -184,7 +178,9 @@ class HAClient:
         return self._msg_id
 
     async def _send_command(
-        self, ws: ClientConnection, msg: dict[str, Any],
+        self,
+        ws: ClientConnection,
+        msg: dict[str, Any],
         timeout: float = 10.0,
     ) -> Any:
         msg_id = self._next_id()
@@ -202,9 +198,7 @@ class HAClient:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    async def call_service(
-        self, domain: str, service: str, **service_data: Any
-    ) -> Any:
+    async def call_service(self, domain: str, service: str, **service_data: Any) -> Any:
         if not self._connected.is_set() or self._ws is None:
             raise HAError({"message": "Not connected to Home Assistant"})
         return await self._send_command(

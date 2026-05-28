@@ -13,16 +13,18 @@ export function useAuth() {
       })
   }, [])
 
+  // A 401 from any request — or an explicit logout — dispatches this event.
+  useEffect(() => {
+    const onUnauthorized = () => setAuthed(false)
+    window.addEventListener('naiad:unauthorized', onUnauthorized)
+    return () => window.removeEventListener('naiad:unauthorized', onUnauthorized)
+  }, [])
+
   const login = useCallback(async (password: string) => {
     const res = await apiLogin(password)
     setToken(res.token)
     setAuthed(true)
   }, [])
 
-  const logout = useCallback(() => {
-    clearToken()
-    setAuthed(false)
-  }, [])
-
-  return { authed, login, logout }
+  return { authed, login }
 }

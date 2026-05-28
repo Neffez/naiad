@@ -1,27 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { createPlan, deletePlan, getPlans, getSequences, type CreatePlanRequest, type SequenceState } from '../api/client'
+import { createPlan, deletePlan, getPlans, getSequences, type CreatePlanRequest } from '../api/client'
 import { IChevDown, IX } from '../components/icons'
-
-const SEQUENCE_COLORS: Record<string, string> = {
-  beete: '#7fc8a8',
-  rasen: '#7fc8a8',
-  hochbeet: '#c8a87f',
-  hecke: '#a87fc8',
-  lichtschacht: '#8a9ea6',
-  topf: '#8a9ea6',
-}
-
-function seqColor(id: string): string {
-  for (const [key, color] of Object.entries(SEQUENCE_COLORS)) {
-    if (id.toLowerCase().includes(key)) return color
-  }
-  return 'var(--n-teal-500)'
-}
+import { seqColor } from '../theme/sequenceColors'
 
 export default function Planner() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const qc = useQueryClient()
   const { data: plans = [] } = useQuery({ queryKey: ['plans'], queryFn: getPlans })
   const { data: sequences = [] } = useQuery({ queryKey: ['sequences'], queryFn: getSequences })
@@ -55,10 +40,6 @@ export default function Planner() {
     }
     if (durMin) req.duration_min = parseInt(durMin)
     createMut.mutate(req)
-  }
-
-  function seqLabel(seqId: string): string {
-    return sequences.find((s: SequenceState) => s.id === seqId)?.label ?? seqId
   }
 
   const inputStyle: React.CSSProperties = {
@@ -247,9 +228,9 @@ export default function Planner() {
                   background: seqColor(p.sequence_id),
                 }} />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600 }}>{seqLabel(p.sequence_id)}</span>
+                  <span style={{ fontSize: 15, fontWeight: 600 }}>{p.sequence_label}</span>
                   <span className="n-label" style={{ fontSize: 12 }}>
-                    {new Date(p.scheduled_at).toLocaleString('de', {
+                    {new Date(p.scheduled_at).toLocaleString(i18n.language, {
                       weekday: 'short', day: '2-digit', month: '2-digit',
                       hour: '2-digit', minute: '2-digit',
                     })}

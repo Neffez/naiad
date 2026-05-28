@@ -1,26 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getSequences, getSettings, getStatus, updateSettings } from '../api/client'
-
-const SEQUENCE_COLORS: Record<string, string> = {
-  beete: '#7fc8a8',
-  rasen: '#7fc8a8',
-  hochbeet: '#c8a87f',
-  hecke: '#a87fc8',
-  lichtschacht: '#8a9ea6',
-  topf: '#8a9ea6',
-}
-
-function seqColor(id: string): string {
-  for (const [key, color] of Object.entries(SEQUENCE_COLORS)) {
-    if (id.toLowerCase().includes(key)) return color
-  }
-  return 'var(--n-teal-500)'
-}
+import { getSequences, getSettings, getStatus, logout, updateSettings } from '../api/client'
+import { seqColor } from '../theme/sequenceColors'
 
 export default function Settings() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const qc = useQueryClient()
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
   const { data: sequences = [] } = useQuery({ queryKey: ['sequences'], queryFn: getSequences })
@@ -100,42 +85,42 @@ export default function Settings() {
 
       {/* Temperatur-Faktor */}
       <SettingsSection title={t('settings.factorTemp')}>
-        <SettingsRow label="Basis °C">
+        <SettingsRow label={t('settings.basisC')}>
           <NumInput value={settings.factors.temp.basis_c} unit="°C" onBlur={(v) => mut.mutate({ factors: { temp: { basis_c: v } } })} />
         </SettingsRow>
-        <SettingsRow label="% pro °C">
+        <SettingsRow label={t('settings.pctPerC')}>
           <NumInput value={settings.factors.temp.pct_per_c} unit="%" onBlur={(v) => mut.mutate({ factors: { temp: { pct_per_c: v } } })} />
         </SettingsRow>
-        <SettingsRow label="Min %">
+        <SettingsRow label={t('settings.minPct')}>
           <NumInput value={settings.factors.temp.min_pct} unit="%" onBlur={(v) => mut.mutate({ factors: { temp: { min_pct: v } } })} />
         </SettingsRow>
-        <SettingsRow label="Max %" last>
+        <SettingsRow label={t('settings.maxPct')} last>
           <NumInput value={settings.factors.temp.max_pct} unit="%" onBlur={(v) => mut.mutate({ factors: { temp: { max_pct: v } } })} />
         </SettingsRow>
       </SettingsSection>
 
       {/* Regen-Faktor */}
       <SettingsSection title={t('settings.factorRain')}>
-        <SettingsRow label="Schwelle Prob %">
+        <SettingsRow label={t('settings.thresholdProb')}>
           <NumInput value={settings.factors.rain.threshold_prob} unit="%" onBlur={(v) => mut.mutate({ factors: { rain: { threshold_prob: v } } })} />
         </SettingsRow>
-        <SettingsRow label="Reduz. ab mm">
+        <SettingsRow label={t('settings.reduceAbove')}>
           <NumInput value={settings.factors.rain.reduce_above_mm} unit="mm" onBlur={(v) => mut.mutate({ factors: { rain: { reduce_above_mm: v } } })} />
         </SettingsRow>
-        <SettingsRow label="Null ab mm">
+        <SettingsRow label={t('settings.zeroAbove')}>
           <NumInput value={settings.factors.rain.zero_above_mm} unit="mm" onBlur={(v) => mut.mutate({ factors: { rain: { zero_above_mm: v } } })} />
         </SettingsRow>
-        <SettingsRow label="Forecast Decay" last>
+        <SettingsRow label={t('settings.forecastDecay')} last>
           <NumInput value={settings.factors.rain.forecast_decay} unit="" width={60} step={0.1} onBlur={(v) => mut.mutate({ factors: { rain: { forecast_decay: v } } })} />
         </SettingsRow>
       </SettingsSection>
 
       {/* System */}
       <SettingsSection title={t('settings.system', { defaultValue: 'System' })}>
-        <SettingsRow label="Version">
+        <SettingsRow label={t('settings.version')}>
           <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>v0.1.0</span>
         </SettingsRow>
-        <SettingsRow label="HA Integration" last>
+        <SettingsRow label={t('settings.haIntegration')}>
           {status?.ha_connected ? (
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -161,7 +146,32 @@ export default function Settings() {
             </span>
           )}
         </SettingsRow>
+        <SettingsRow label={t('settings.language')} last>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {(['de', 'en'] as const).map((lng) => (
+              <button
+                key={lng}
+                className={`n-btn${i18n.language?.startsWith(lng) ? ' primary' : ''}`}
+                style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
+                onClick={() => {
+                  i18n.changeLanguage(lng)
+                  localStorage.setItem('naiad_lang', lng)
+                }}
+              >
+                {lng.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </SettingsRow>
       </SettingsSection>
+
+      <button
+        className="n-btn"
+        onClick={logout}
+        style={{ alignSelf: 'flex-start', height: 38, padding: '0 18px', fontSize: 13 }}
+      >
+        {t('settings.logout')}
+      </button>
     </div>
   )
 }

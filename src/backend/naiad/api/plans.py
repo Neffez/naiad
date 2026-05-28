@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from naiad.api.schemas import CreatePlanRequest, PlanResponse
 from naiad.config import AppConfig
@@ -42,7 +42,7 @@ async def list_plans(
     session: Session = Depends(get_session),
 ) -> list[PlanResponse]:
     plans = session.exec(
-        select(Plan).where(Plan.scheduled_at >= datetime.now(UTC)).order_by(Plan.scheduled_at)
+        select(Plan).where(Plan.scheduled_at >= datetime.now(UTC)).order_by(col(Plan.scheduled_at))
     ).all()
     return [_to_response(p, config) for p in plans]
 
