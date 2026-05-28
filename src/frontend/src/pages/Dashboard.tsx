@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
   getSequences,
@@ -12,22 +12,117 @@ import {
 } from '../api/client'
 import { useWebSocket } from '../hooks/useWebSocket'
 
-const STATUS_COLOR: Record<string, string> = {
-  running: 'var(--n-teal-300)',
-  idle: 'var(--n-leaf-400)',
-  paused: 'var(--n-paused)',
-  disabled: 'var(--n-text-dim)',
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function ledClass(status: string) {
+  return `n-led n-led-${status === 'running' ? 'running' : status === 'paused' ? 'paused' : status === 'disabled' ? 'disabled' : 'idle'}`
+}
+function chipClass(status: string) {
+  const map: Record<string, string> = { running: 'n-chip-running', idle: 'n-chip-idle', paused: 'n-chip-paused', disabled: 'n-chip-disabled' }
+  return `n-chip ${map[status] ?? 'n-chip-disabled'}`
+}
+function statusLabel(status: string, t: (k: string) => string) {
+  return t(`status.${status}` as never) || status
 }
 
-function StatusDot({ status }: { status: string }) {
-  const color = STATUS_COLOR[status] ?? 'var(--n-text-dim)'
+// ── Weather strip ─────────────────────────────────────────────────────────────
+
+function WeatherStrip({ sys }: { sys: SystemStatus }) {
+  const { t } = useTranslation()
+  const w = sys.weather
+  const f = sys.today_factor
   return (
-    <span
-      className={status === 'running' ? 'n-pulse' : ''}
-      style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, marginRight: 6 }}
-    />
+    <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+      {w.temp_c != null && (
+        <span className="n-num" style={{ color: 'var(--n-text-2)', fontSize: 13 }}>
+          🌡 <strong style={{ color: 'var(--n-text)' }}>{w.temp_c.toFixed(1)}°C</strong>
+        </span>
+      )}
+      <span className="n-num" style={{ color: 'var(--n-text-2)', fontSize: 13 }}>
+        🌧 <strong style={{ color: 'var(--n-text)' }}>{w.rain_24h_mm.toFixed(1)} mm</strong>
+      </span>
+      {w.wind_label === 'on' && (
+        <span style={{ color: 'var(--n-paused)', fontSize: 13, fontWeight: 600 }}>💨 {t('weather.windOn')}</span>
+      )}
+      {!w.season_active && (
+        <span style={{ color: 'var(--n-paused)', fontSize: 13, fontWeight: 600 }}>❄ {t('weather.seasonOff')}</span>
+      )}
+      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--n-text-2)' }}>
+        {t('sequence.factor')}:&nbsp;
+        <strong className="n-num" style={{ color: 'var(--n-teal-300)', fontSize: 16 }}>
+          {f.combined_pct} %
+        </strong>
+        {f.wind_blocking_sequences.length > 0 && (
+          <span style={{ color: 'var(--n-paused)', fontSize: 11 }}>
+            (Wind sperrt: {f.wind_blocking_sequences.join(', ')})
+          </span>
+        )}
+      </span>
+    </div>
   )
 }
+
+// ── Header ────────────────────────────────────────────────────────────────────
+
+function Header({ sys, onMaster }: { sys?: SystemStatus; onMaster: () => void }) {
+  const { t } = useTranslation()
+  const masterOn = sys?.master_on ?? true
+
+  return (
+    <div style={{
+      background: 'var(--n-surface)',
+      borderBottom: '1px solid var(--n-border)',
+      padding: '14px 20px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 10,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 20 }}>🌊</span>
+          <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--n-teal-300)', letterSpacing: '-0.3px' }}>
+            Naiad
+          </span>
+        </div>
+
+        <div style={{ flex: 1 }} />
+
+        {/* HA disconnect badge */}
+        {sys && !sys.ha_connected && (
+          <span style={{ fontSize: 11, color: 'var(--n-danger)', border: '1px solid rgba(196,90,90,0.4)', borderRadius: 6, padding: '2px 8px' }}>
+            HA offline
+          </span>
+        )}
+
+        {/* Master toggle */}
+        <button
+          className="n-btn"
+          onClick={onMaster}
+          style={{
+            background: masterOn ? 'var(--n-teal-700)' : 'rgba(255,255,255,0.04)',
+            color: masterOn ? 'var(--n-teal-300)' : 'var(--n-text-3)',
+            border: masterOn ? '1px solid var(--n-teal-600)' : '1px solid var(--n-border-hi)',
+            minWidth: 110,
+          }}
+        >
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: masterOn ? 'var(--n-teal-300)' : 'var(--n-text-3)',
+            boxShadow: masterOn ? '0 0 6px var(--n-teal-300)' : 'none',
+            animation: masterOn ? 'n-pulse-led 2s ease-in-out infinite' : 'none',
+          }} />
+          {masterOn ? t('master.on') : t('master.off')}
+        </button>
+      </div>
+
+      {/* Weather strip */}
+      {sys && <WeatherStrip sys={sys} />}
+    </div>
+  )
+}
+
+// ── Sequence card ─────────────────────────────────────────────────────────────
 
 function SequenceCard({ seq, onStart, onStop, onPause }: {
   seq: SequenceState
@@ -37,75 +132,101 @@ function SequenceCard({ seq, onStart, onStop, onPause }: {
 }) {
   const { t } = useTranslation()
   const isRunning = seq.status === 'running'
-  const isPaused = seq.status === 'paused'
+  const isPaused  = seq.status === 'paused'
+  const isDisabled = seq.status === 'disabled' || !seq.enabled
+
+  const progress = seq.current_run
+    ? Math.min(100, (seq.current_run.elapsed_min / (seq.current_run.elapsed_min + seq.current_run.remaining_min)) * 100)
+    : 0
 
   return (
     <div
-      className="n-card p-4 flex flex-col gap-2"
-      style={isRunning ? { borderColor: 'var(--n-teal-600)', boxShadow: '0 0 16px rgba(94,200,216,0.15)' } : undefined}
+      className={`n-card n-fade-in${isRunning ? ' n-card-running' : ''}`}
+      style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10, opacity: isDisabled ? 0.45 : 1 }}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center">
-          <StatusDot status={seq.status} />
-          <span className="font-medium">{seq.label}</span>
+      {/* Title row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className={ledClass(seq.status)} />
+          <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--n-text)' }}>{seq.label}</span>
         </div>
-        <span className="text-xs" style={{ color: STATUS_COLOR[seq.status] }}>
-          {t(`status.${seq.status}`)}
-        </span>
+        <span className={chipClass(seq.status)}>{statusLabel(seq.status, t)}</span>
       </div>
 
-      {seq.factor_note && (
-        <p className="text-xs" style={{ color: 'var(--n-paused)' }}>{seq.factor_note}</p>
+      {/* Progress bar (running only) */}
+      {isRunning && seq.current_run && (
+        <div>
+          <div className="n-progress">
+            <div className="n-progress-fill" style={{ width: `${progress}%` }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 11, color: 'var(--n-text-2)' }}>
+            <span className="n-num">{seq.current_run.elapsed_min.toFixed(0)} min vergangen</span>
+            <span className="n-num" style={{ color: 'var(--n-teal-300)' }}>
+              noch {seq.current_run.remaining_min.toFixed(0)} min
+            </span>
+          </div>
+        </div>
       )}
 
-      <div className="text-xs" style={{ color: 'var(--n-text-dim)' }}>
-        {seq.zones.map(z => z.label).join(' → ')}
+      {/* Zone list */}
+      <div style={{ fontSize: 12, color: 'var(--n-text-3)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {seq.zones.map((z, i) => (
+          <span key={z.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {i > 0 && <span>→</span>}
+            <span style={{ color: z.valve_state === 'on' ? 'var(--n-teal-300)' : 'var(--n-text-3)' }}>
+              {z.label}
+            </span>
+          </span>
+        ))}
       </div>
 
-      <div className="flex gap-2 mt-1">
-        {!isRunning && !isPaused && seq.enabled && (
-          <button
-            onClick={onStart}
-            className="flex-1 rounded-lg py-1.5 text-sm font-medium"
-            style={{ background: 'var(--n-teal-600)', color: '#fff' }}
-          >
-            ▶ {t('sequence.start')}
-          </button>
+      {/* Meta row */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
+        <span style={{ color: 'var(--n-text-3)' }}>
+          {seq.basis_min_per_zone} min/Zone
+        </span>
+        {seq.factor_note && (
+          <span style={{ color: 'var(--n-paused)', fontSize: 11 }}>{seq.factor_note}</span>
         )}
-        {isRunning && (
-          <>
-            <button
-              onClick={onPause}
-              className="flex-1 rounded-lg py-1.5 text-sm"
-              style={{ border: '1px solid var(--n-paused)', color: 'var(--n-paused)' }}
-            >
-              ⏸ {t('sequence.pause')}
-            </button>
-            <button
-              onClick={onStop}
-              className="flex-1 rounded-lg py-1.5 text-sm"
-              style={{ border: '1px solid var(--n-danger)', color: 'var(--n-danger)' }}
-            >
-              ⏹ {t('sequence.stop')}
-            </button>
-          </>
-        )}
-        {isPaused && (
-          <button
-            onClick={onStart}
-            className="flex-1 rounded-lg py-1.5 text-sm"
-            style={{ border: '1px solid var(--n-leaf-400)', color: 'var(--n-leaf-400)' }}
-          >
-            ▶ {t('sequence.resume')}
-          </button>
+        {!seq.factor_note && (
+          <span className="n-num" style={{ color: 'var(--n-text-3)' }}>
+            {seq.factor_pct} %
+          </span>
         )}
       </div>
+
+      {/* Actions */}
+      {!isDisabled && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+          {!isRunning && !isPaused && (
+            <button className="n-btn n-btn-primary" style={{ flex: 1 }} onClick={onStart}>
+              ▶ {t('sequence.start')}
+            </button>
+          )}
+          {isPaused && (
+            <button className="n-btn n-btn-primary" style={{ flex: 1 }} onClick={onStart}>
+              ▶ {t('sequence.resume')}
+            </button>
+          )}
+          {isRunning && (
+            <>
+              <button className="n-btn n-btn-amber" style={{ flex: 1 }} onClick={onPause}>
+                ⏸ {t('sequence.pause')}
+              </button>
+              <button className="n-btn n-btn-danger" style={{ flex: 1 }} onClick={onStop}>
+                ⏹ {t('sequence.stop')}
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
 
+// ── Main dashboard ────────────────────────────────────────────────────────────
+
 export default function Dashboard() {
-  const { t } = useTranslation()
   const qc = useQueryClient()
 
   const { data: status } = useQuery<SystemStatus>({
@@ -116,24 +237,20 @@ export default function Dashboard() {
   const { data: sequences = [] } = useQuery<SequenceState[]>({
     queryKey: ['sequences'],
     queryFn: getSequences,
-    refetchInterval: 10_000,
+    refetchInterval: 15_000,
+  })
+
+  const masterMut = useMutation({
+    mutationFn: (on: boolean) => setMaster(on),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['status'] }),
   })
 
   useWebSocket((msg) => {
-    if (msg.type === 'status_snapshot' || msg.type === 'sequence_changed') {
+    if (['status_snapshot', 'sequence_changed', 'run_tick'].includes(msg.type)) {
       qc.invalidateQueries({ queryKey: ['sequences'] })
       qc.invalidateQueries({ queryKey: ['status'] })
     }
-    if (msg.type === 'valve_changed') {
-      qc.invalidateQueries({ queryKey: ['valves'] })
-    }
   })
-
-  async function handleMaster() {
-    if (!status) return
-    await setMaster(!status.master_on)
-    qc.invalidateQueries({ queryKey: ['status'] })
-  }
 
   async function handleStart(id: string) {
     try {
@@ -154,73 +271,76 @@ export default function Dashboard() {
     qc.invalidateQueries({ queryKey: ['sequences'] })
   }
 
-  const masterOn = status?.master_on ?? true
+  // Next run block (from status or first upcoming sequence)
+  const nextRun = status?.next_run
 
   return (
-    <div className="p-4 flex flex-col gap-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold" style={{ color: 'var(--n-teal-300)' }}>Naiad</h1>
-        <button
-          onClick={handleMaster}
-          className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors"
-          style={{
-            background: masterOn ? 'var(--n-teal-600)' : 'var(--n-card)',
-            color: masterOn ? '#fff' : 'var(--n-text-dim)',
-            border: masterOn ? 'none' : '1px solid var(--n-border)',
-          }}
-        >
-          {masterOn ? t('master.on') : t('master.off')}
-        </button>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <Header sys={status} onMaster={() => masterMut.mutate(!(status?.master_on ?? true))} />
+
+      <div style={{ padding: '20px', maxWidth: 1200, margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        {/* Next run banner */}
+        {nextRun && (
+          <div className="n-card" style={{
+            padding: '14px 18px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            borderColor: 'var(--n-teal-700)',
+            background: 'rgba(26,122,138,0.08)',
+          }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--n-text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>
+                Nächster Lauf
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--n-teal-300)' }}>{nextRun.sequence_label}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div className="n-num" style={{ fontSize: 14, color: 'var(--n-text)' }}>
+                {new Date(nextRun.scheduled_at).toLocaleString('de', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--n-text-2)', marginTop: 2 }}>
+                {nextRun.duration_min} min/Zone
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Sequence grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+          gap: 12,
+        }}>
+          {sequences.map(seq => (
+            <SequenceCard
+              key={seq.id}
+              seq={seq}
+              onStart={() => handleStart(seq.id)}
+              onStop={() => handleStop(seq.id)}
+              onPause={() => handlePause(seq.id)}
+            />
+          ))}
+        </div>
+
+        {/* Liter summary */}
+        {status && (
+          <div style={{ display: 'flex', gap: 12 }}>
+            {[
+              { label: 'Heute', value: status.liters_today },
+              { label: 'Diese Woche', value: status.liters_week },
+            ].map(({ label, value }) => (
+              <div key={label} className="n-card" style={{ flex: 1, padding: '12px 16px' }}>
+                <div style={{ fontSize: 11, color: 'var(--n-text-3)', marginBottom: 4 }}>{label}</div>
+                <div className="n-num" style={{ fontSize: 22, fontWeight: 600, color: 'var(--n-teal-300)' }}>
+                  {value.toFixed(0)} <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--n-text-2)' }}>L</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-
-      {/* Weather strip */}
-      {status && (
-        <div className="n-card px-4 py-2 flex gap-6 text-sm" style={{ color: 'var(--n-text-dim)' }}>
-          {status.weather.temp_c != null && <span>🌡 {status.weather.temp_c.toFixed(1)} °C</span>}
-          <span>🌧 {status.weather.rain_24h_mm.toFixed(1)} mm</span>
-          {status.weather.wind_label === 'on' && <span style={{ color: 'var(--n-paused)' }}>💨 {t('weather.windOn')}</span>}
-          {!status.weather.season_active && <span style={{ color: 'var(--n-paused)' }}>❄ {t('weather.seasonOff')}</span>}
-          <span className="ml-auto">
-            {t('sequence.factor')}: <strong style={{ color: 'var(--n-teal-300)', fontVariantNumeric: 'tabular-nums' }}>
-              {status.today_factor.combined_pct} %
-            </strong>
-          </span>
-        </div>
-      )}
-
-      {/* Next run */}
-      {status?.next_run && (
-        <div className="n-card px-4 py-3" style={{ borderColor: 'var(--n-teal-600)' }}>
-          <p className="text-xs" style={{ color: 'var(--n-text-dim)' }}>{t('sequence.nextRun')}</p>
-          <p className="font-medium" style={{ color: 'var(--n-teal-300)' }}>
-            {status.next_run.sequence_label}
-          </p>
-          <p className="text-sm" style={{ color: 'var(--n-text-dim)' }}>
-            {new Date(status.next_run.scheduled_at).toLocaleString()} · {status.next_run.duration_min} min
-          </p>
-        </div>
-      )}
-
-      {/* Sequence grid */}
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
-        {sequences.map(seq => (
-          <SequenceCard
-            key={seq.id}
-            seq={seq}
-            onStart={() => handleStart(seq.id)}
-            onStop={() => handleStop(seq.id)}
-            onPause={() => handlePause(seq.id)}
-          />
-        ))}
-      </div>
-
-      {/* HA disconnected warning */}
-      {status && !status.ha_connected && (
-        <div className="n-card px-4 py-2 text-sm" style={{ borderColor: 'var(--n-danger)', color: 'var(--n-danger)' }}>
-          ⚠ {t('errors.notConnected')}
-        </div>
-      )}
     </div>
   )
 }

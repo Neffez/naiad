@@ -13,25 +13,45 @@ import Settings from './pages/Settings'
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5000 } } })
 
-function Nav() {
+function BottomNav() {
   const { t } = useTranslation()
-  const linkStyle = ({ isActive }: { isActive: boolean }): React.CSSProperties => ({
-    color: isActive ? 'var(--n-teal-300)' : 'var(--n-text-dim)',
-    fontWeight: isActive ? 600 : 400,
-    textDecoration: 'none',
-    fontSize: 14,
-    padding: '10px 14px',
-    display: 'inline-block',
-  })
-
+  const items = [
+    { to: '/', label: t('nav.dashboard'), icon: '◉', end: true },
+    { to: '/planner', label: t('nav.planner'), icon: '📅' },
+    { to: '/history', label: t('nav.history'), icon: '📊' },
+    { to: '/settings', label: t('nav.settings'), icon: '⚙' },
+  ]
   return (
-    <nav style={{ background: 'var(--n-card)', borderBottom: '1px solid var(--n-border)' }}>
-      <div style={{ display: 'flex', gap: 4, padding: '0 8px', maxWidth: 1200, margin: '0 auto' }}>
-        <NavLink to="/" end style={linkStyle}>{t('nav.dashboard')}</NavLink>
-        <NavLink to="/planner" style={linkStyle}>{t('nav.planner')}</NavLink>
-        <NavLink to="/history" style={linkStyle}>{t('nav.history')}</NavLink>
-        <NavLink to="/settings" style={linkStyle}>{t('nav.settings')}</NavLink>
-      </div>
+    <nav style={{
+      display: 'flex',
+      borderTop: '1px solid var(--n-border)',
+      background: 'var(--n-surface)',
+      position: 'sticky',
+      bottom: 0,
+    }}>
+      {items.map(({ to, label, icon, end }) => (
+        <NavLink
+          key={to}
+          to={to}
+          end={end}
+          style={({ isActive }) => ({
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            padding: '10px 4px',
+            fontSize: 10,
+            fontWeight: 600,
+            textDecoration: 'none',
+            color: isActive ? 'var(--n-teal-300)' : 'var(--n-text-3)',
+            gap: 3,
+            transition: 'color 0.15s',
+          })}
+        >
+          <span style={{ fontSize: 18 }}>{icon}</span>
+          {label}
+        </NavLink>
+      ))}
     </nav>
   )
 }
@@ -41,28 +61,42 @@ function AppShell() {
 
   useEffect(() => {
     const theme = localStorage.getItem('naiad_theme') ?? 'dark'
-    document.documentElement.className = theme === 'light' ? 'light' : ''
+    document.documentElement.className = theme === 'light' ? 'theme-light' : ''
   }, [])
 
-  if (authed === null) return null
+  if (authed === null) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 24, height: 24, borderRadius: '50%', border: '2px solid var(--n-teal-600)', borderTopColor: 'var(--n-teal-300)', animation: 'spin 0.8s linear infinite' }} />
+      </div>
+    )
+  }
 
   if (!authed) return <Login onLogin={login} />
 
   return (
     <Router>
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-        <Nav />
-        <main style={{ flex: 1, maxWidth: 1200, margin: '0 auto', width: '100%' }}>
+        <div style={{ flex: 1 }}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/planner" element={<Planner />} />
-            <Route path="/history" element={<History />} />
-            <Route path="/settings" element={<Settings />} />
+            <Route path="/planner" element={<PageShell title=""><Planner /></PageShell>} />
+            <Route path="/history" element={<PageShell title=""><History /></PageShell>} />
+            <Route path="/settings" element={<PageShell title=""><Settings /></PageShell>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-        </main>
+        </div>
+        <BottomNav />
       </div>
     </Router>
+  )
+}
+
+function PageShell({ children }: { children: React.ReactNode; title: string }) {
+  return (
+    <div style={{ maxWidth: 900, margin: '0 auto', width: '100%', padding: '0 0 80px' }}>
+      {children}
+    </div>
   )
 }
 

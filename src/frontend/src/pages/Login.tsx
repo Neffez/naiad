@@ -25,29 +25,45 @@ export default function Login({ onLogin }: Props) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--n-bg)' }}>
-      <div className="n-card p-8 w-80 flex flex-col gap-4">
-        <h1 className="text-2xl font-semibold text-center" style={{ color: 'var(--n-teal-300)' }}>
-          {t('login.title')}
-        </h1>
-        <form onSubmit={submit} className="flex flex-col gap-3">
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'var(--n-bg)',
+    }}>
+      <div className="n-card" style={{ width: 320, padding: '32px 28px', display: 'flex', flexDirection: 'column', gap: 24 }}>
+        {/* Logo */}
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 36, marginBottom: 8 }}>🌊</div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--n-teal-300)', letterSpacing: '-0.3px' }}>
+            Naiad
+          </h1>
+          <p style={{ fontSize: 12, color: 'var(--n-text-3)', marginTop: 4 }}>
+            Gartenbewässerung
+          </p>
+        </div>
+
+        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <input
             type="password"
             value={pw}
             onChange={e => setPw(e.target.value)}
             placeholder={t('login.password')}
-            className="rounded-lg px-3 py-2 outline-none"
-            style={{ background: 'var(--n-bg)', border: '1px solid var(--n-border)', color: 'var(--n-text)' }}
+            className="n-input"
+            style={{ textAlign: 'center', letterSpacing: '0.2em' }}
             autoFocus
           />
-          {error && <p className="text-sm" style={{ color: 'var(--n-danger)' }}>{error}</p>}
+          {error && (
+            <p style={{ fontSize: 12, color: 'var(--n-danger)', textAlign: 'center' }}>{error}</p>
+          )}
           <button
             type="submit"
+            className="n-btn n-btn-primary"
             disabled={loading}
-            className="rounded-lg py-2 font-medium transition-opacity"
-            style={{ background: 'var(--n-teal-600)', color: '#fff', opacity: loading ? 0.6 : 1 }}
+            style={{ width: '100%', justifyContent: 'center', padding: '10px' }}
           >
-            {t('login.login')}
+            {loading ? '…' : t('login.login')}
           </button>
         </form>
       </div>
