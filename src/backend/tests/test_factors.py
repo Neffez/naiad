@@ -1,7 +1,9 @@
 import pytest
+from sqlmodel import Session, SQLModel, create_engine
 
 from naiad.config import AppConfig
 from naiad.domain.factors import SensorSnapshot, compute_factors
+from naiad.domain.models import FactorOverride
 
 
 def _snap(**kwargs) -> SensorSnapshot:
@@ -97,3 +99,45 @@ def test_forecast_tomorrow_with_decay(minimal_config: AppConfig) -> None:
         minimal_config,
     )
     assert result.rain_factor_pct == pytest.approx(0.0)
+
+
+@pytest.fixture
+def factor_engine():
+    eng = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(eng)
+    return eng
+
+
+def test_factor_override_temp_basis(minimal_config: AppConfig, factor_engine) -> None:
+    """DB override for temp_basis_c shifts the baseline temperature."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, temp_basis_c=25.0))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(_snap(temperature_c=25.0), minimal_config, session)
+
+    assert result.temp_delta_pct == pytest.approx(0.0)
+    assert result.factor_pct == pytest.approx(100.0)
+
+
+def test_factor_override_rain_zero_above(minimal_config: AppConfig, factor_engine) -> None:
+    """DB override for rain_zero_above_mm changes the full-block threshold."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_zero_above_mm=10.0))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(
+            _snap(precipitation_prob_today=90.0, precipitation_today_mm=12.0),
+            minimal_config,
+            session,
+        )
+    assert result.rain_factor_pct == pytest.approx(0.0)
+
+
+def test_no_factor_override_uses_yaml(minimal_config: AppConfig, factor_engine) -> None:
+    """Without DB overrides, YAML config values are used."""
+    with Session(factor_engine) as session:
+        result = compute_factors(_snap(), minimal_config, session)
+    assert result.factor_pct == pytest.approx(100.0)

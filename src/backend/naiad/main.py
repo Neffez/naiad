@@ -96,9 +96,30 @@ async def _lifespan(app: FastAPI):  # type: ignore[type-arg]
     scheduler.start()
     logger.info("Scheduler started (%d jobs)", len(scheduler.get_jobs()))
 
+    from naiad.api.ws import broadcast_ha_state, broadcast_valve_changed, manager as ws_manager
+
+    valve_entities = {z.switch: z_id for z_id, z in config.zones.items()}
+
+    async def _valve_state_cb(entity_id: str, new_state: dict[str, Any]) -> None:
+        if entity_id not in valve_entities:
+            return
+        zone_id = valve_entities[entity_id]
+        state_val = new_state.get("state", "unknown")
+        if state_val in ("on", "off"):
+            await broadcast_valve_changed(zone_id, state_val, entity_id)
+
+    ha.subscribe_state_changes(_valve_state_cb)
+
+    async def _ha_connected_cb(connected: bool) -> None:
+        await broadcast_ha_state(connected)
+
+    ha.on_connection_change = _ha_connected_cb
+
     app.state.config = config
     app.state.ha_client = ha
     app.state.runner = runner
+    app.state.scheduler = scheduler
+    app.state.ws_manager = ws_manager
 
     logger.info("Naiad ready")
     yield

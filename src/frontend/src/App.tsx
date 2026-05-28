@@ -1,10 +1,15 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type ReactNode, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom'
+import { IChart, IHome, ICal, ISettings } from './components/icons'
+import { MasterToggle } from './components/MasterToggle'
+import { Sidebar } from './components/Sidebar'
+import { WeatherStrip } from './components/WeatherStrip'
 import './i18n'
 import './index.css'
 import { useAuth } from './hooks/useAuth'
+import { getStatus, setMaster, type SystemStatus } from './api/client'
 import Dashboard from './pages/Dashboard'
 import History from './pages/History'
 import Login from './pages/Login'
@@ -15,41 +20,48 @@ const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5
 
 function BottomNav() {
   const { t } = useTranslation()
-  const items = [
-    { to: '/', label: t('nav.dashboard'), icon: '◉', end: true },
-    { to: '/planner', label: t('nav.planner'), icon: '📅' },
-    { to: '/history', label: t('nav.history'), icon: '📊' },
-    { to: '/settings', label: t('nav.settings'), icon: '⚙' },
+  const items: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
+    { to: '/', label: t('nav.dashboard'), icon: <IHome size={20} />, end: true },
+    { to: '/planner', label: t('nav.planner'), icon: <ICal size={20} /> },
+    { to: '/history', label: t('nav.history'), icon: <IChart size={20} /> },
+    { to: '/settings', label: t('nav.settings'), icon: <ISettings size={20} /> },
   ]
   return (
-    <nav style={{
-      display: 'flex',
-      borderTop: '1px solid var(--n-border)',
-      background: 'var(--n-surface)',
-      position: 'sticky',
-      bottom: 0,
-    }}>
+    <nav
+      style={{
+        display: 'flex',
+        justifyContent: 'space-around',
+        alignItems: 'center',
+        borderTop: '1px solid var(--n-line)',
+        background: 'var(--n-bg-elev)',
+        height: 64,
+        padding: '0 4px',
+      }}
+    >
       {items.map(({ to, label, icon, end }) => (
         <NavLink
           key={to}
           to={to}
           end={end}
-          style={({ isActive }) => ({
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            padding: '10px 4px',
-            fontSize: 10,
-            fontWeight: 600,
-            textDecoration: 'none',
-            color: isActive ? 'var(--n-teal-300)' : 'var(--n-text-3)',
-            gap: 3,
-            transition: 'color 0.15s',
-          })}
+          style={{ textDecoration: 'none', flex: 1 }}
         >
-          <span style={{ fontSize: 18 }}>{icon}</span>
-          {label}
+          {({ isActive }) => (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 2,
+                padding: '6px 0',
+                color: isActive ? 'var(--n-teal-200)' : 'var(--n-fg-muted)',
+                fontSize: 10.5,
+                letterSpacing: '0.02em',
+              }}
+            >
+              {icon}
+              <span>{label}</span>
+            </div>
+          )}
         </NavLink>
       ))}
     </nav>
@@ -61,13 +73,22 @@ function AppShell() {
 
   useEffect(() => {
     const theme = localStorage.getItem('naiad_theme') ?? 'dark'
-    document.documentElement.className = theme === 'light' ? 'theme-light' : ''
+    document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark')
   }, [])
 
   if (authed === null) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ width: 24, height: 24, borderRadius: '50%', border: '2px solid var(--n-teal-600)', borderTopColor: 'var(--n-teal-300)', animation: 'spin 0.8s linear infinite' }} />
+        <div
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: '50%',
+            border: '2px solid var(--n-teal-600)',
+            borderTopColor: 'var(--n-teal-300)',
+            animation: 'n-spin 0.8s linear infinite',
+          }}
+        />
       </div>
     )
   }
@@ -76,26 +97,83 @@ function AppShell() {
 
   return (
     <Router>
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ flex: 1 }}>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/planner" element={<PageShell title=""><Planner /></PageShell>} />
-            <Route path="/history" element={<PageShell title=""><History /></PageShell>} />
-            <Route path="/settings" element={<PageShell title=""><Settings /></PageShell>} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+      <div style={{ minHeight: '100vh', display: 'flex' }}>
+        {/* Sidebar — visible on desktop (≥1024px), hidden on mobile */}
+        <div className="desktop-only">
+          <Sidebar />
         </div>
-        <BottomNav />
+
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/planner" element={<PageShell title="Planen"><Planner /></PageShell>} />
+              <Route path="/history" element={<PageShell title="Verlauf"><History /></PageShell>} />
+              <Route path="/settings" element={<PageShell title="Einstellungen"><Settings /></PageShell>} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </div>
+
+          {/* Bottom nav — visible on mobile (<1024px), hidden on desktop */}
+          <div className="mobile-only">
+            <BottomNav />
+          </div>
+        </div>
       </div>
     </Router>
   )
 }
 
-function PageShell({ children }: { children: React.ReactNode; title: string }) {
+function PageShell({ title, children }: { title: string; children: React.ReactNode }) {
+  const queryClient = useQueryClient()
+  const { data: status } = useQuery<SystemStatus>({ queryKey: ['status'], queryFn: getStatus, refetchInterval: 30_000 })
+  const masterMut = useMutation({ mutationFn: (on: boolean) => setMaster(on), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status'] }) })
+  const masterOn = status?.master_on ?? true
+
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto', width: '100%', padding: '0 0 80px' }}>
-      {children}
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+      {/* Desktop header */}
+      <header
+        className="n-wavebed desktop-only"
+        style={{
+          height: 88, padding: '0 36px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          borderBottom: '1px solid var(--n-line)',
+          flex: '0 0 88px', gap: 24, position: 'relative',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 28, minWidth: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span className="n-eyebrow">Naiad</span>
+            <span style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.01em' }}>{title}</span>
+          </div>
+          <div className="n-vdivider" style={{ height: 40 }} />
+          {status && <WeatherStrip sys={status} />}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div className="n-vdivider" style={{ height: 40 }} />
+          <MasterToggle on={masterOn} onToggle={() => masterMut.mutate(!masterOn)} />
+        </div>
+      </header>
+
+      {/* Mobile header */}
+      <div className="mobile-only" style={{
+        padding: '18px 20px 14px', display: 'flex', flexDirection: 'column', gap: 4,
+        borderBottom: '1px solid var(--n-line)',
+      }}>
+        <span className="n-eyebrow">Naiad</span>
+        <span style={{ fontSize: 20, fontWeight: 500 }}>{title}</span>
+      </div>
+
+      {/* Content */}
+      <main style={{
+        flex: 1, padding: '28px 44px 36px',
+        overflowY: 'auto', scrollbarWidth: 'none',
+      }}
+        className="page-content"
+      >
+        {children}
+      </main>
     </div>
   )
 }

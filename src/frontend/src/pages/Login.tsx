@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ILogo } from '../components/icons'
 
 interface Props {
   onLogin: (password: string) => Promise<void>
@@ -35,11 +36,11 @@ export default function Login({ onLogin }: Props) {
       <div className="n-card" style={{ width: 320, padding: '32px 28px', display: 'flex', flexDirection: 'column', gap: 24 }}>
         {/* Logo */}
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>🌊</div>
+          <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'center' }}><ILogo size={48} /></div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--n-teal-300)', letterSpacing: '-0.3px' }}>
             Naiad
           </h1>
-          <p style={{ fontSize: 12, color: 'var(--n-text-3)', marginTop: 4 }}>
+          <p style={{ fontSize: 12, color: 'var(--n-fg-muted)', marginTop: 4 }}>
             Gartenbewässerung
           </p>
         </div>
@@ -59,7 +60,7 @@ export default function Login({ onLogin }: Props) {
           )}
           <button
             type="submit"
-            className="n-btn n-btn-primary"
+            className="n-btn primary"
             disabled={loading}
             style={{ width: '100%', justifyContent: 'center', padding: '10px' }}
           >

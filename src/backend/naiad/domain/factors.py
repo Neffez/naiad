@@ -1,6 +1,12 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from naiad.config import AppConfig, RainFactorConfig, TempFactorConfig
+
+if TYPE_CHECKING:
+    from sqlmodel import Session
 
 
 @dataclass
@@ -51,8 +57,56 @@ def _compute_rain_factor(
     return 1.0 - (rain_mm - cfg.reduce_above_mm) / span
 
 
-def compute_factors(snapshot: SensorSnapshot, config: AppConfig) -> FactorResult:
-    cfg = config.factors
+def _effective_factor_config(
+    config: AppConfig, session: Session | None,
+) -> tuple[TempFactorConfig, RainFactorConfig]:
+    """Merge YAML factor config with DB overrides (if any)."""
+    temp_cfg = config.factors.temp
+    rain_cfg = config.factors.rain
+
+    if session is None:
+        return temp_cfg, rain_cfg
+
+    from naiad.domain.models import FactorOverride
+
+    fo = session.get(FactorOverride, 1)
+    if fo is None:
+        return temp_cfg, rain_cfg
+
+    temp_data = temp_cfg.model_dump()
+    for field_name, db_attr in [
+        ("basis_c", "temp_basis_c"),
+        ("pct_per_c", "temp_pct_per_c"),
+        ("min_pct", "temp_min_pct"),
+        ("max_pct", "temp_max_pct"),
+    ]:
+        val = getattr(fo, db_attr)
+        if val is not None:
+            temp_data[field_name] = val
+    eff_temp = TempFactorConfig.model_validate(temp_data)
+
+    rain_data = rain_cfg.model_dump()
+    for field_name, db_attr in [
+        ("forecast_days", "rain_forecast_days"),
+        ("threshold_prob", "rain_threshold_prob"),
+        ("reduce_above_mm", "rain_reduce_above_mm"),
+        ("zero_above_mm", "rain_zero_above_mm"),
+        ("forecast_decay", "rain_forecast_decay"),
+    ]:
+        val = getattr(fo, db_attr)
+        if val is not None:
+            rain_data[field_name] = val
+    eff_rain = RainFactorConfig.model_validate(rain_data)
+
+    return eff_temp, eff_rain
+
+
+def compute_factors(
+    snapshot: SensorSnapshot,
+    config: AppConfig,
+    session: Session | None = None,
+) -> FactorResult:
+    eff_temp, eff_rain = _effective_factor_config(config, session)
 
     if not snapshot.season_on:
         return FactorResult(
@@ -69,11 +123,11 @@ def compute_factors(snapshot: SensorSnapshot, config: AppConfig) -> FactorResult
         snapshot.precipitation_prob_tomorrow,
         snapshot.precipitation_today_mm,
         snapshot.precipitation_tomorrow_mm,
-        cfg.rain,
+        eff_rain,
     )
 
     if snapshot.temperature_c is not None:
-        temp_multiplier = _compute_temp_factor(snapshot.temperature_c, cfg.temp)
+        temp_multiplier = _compute_temp_factor(snapshot.temperature_c, eff_temp)
     else:
         temp_multiplier = 1.0
 

@@ -4,9 +4,10 @@ from datetime import datetime
 from typing import Any
 
 import pytest
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from naiad.config import AppConfig
+from naiad.domain.models import RunHistory, SequenceOverride
 from naiad.domain.resume import load_snapshot
 from naiad.domain.sequences import MutexConflict, NotRunning, SequenceRunner, SequenceState
 
@@ -127,3 +128,68 @@ async def test_is_managed_while_running(runner: SequenceRunner) -> None:
     assert runner.is_managed("zone_a") is True
     assert runner.is_managed("zone_b") is False
     await runner.stop()
+
+
+async def test_stop_reason_defaults_to_manual(runner: SequenceRunner, engine) -> None:
+    await runner.start("seq_1")
+    await asyncio.sleep(0)
+    await runner.stop()
+
+    with Session(engine) as session:
+        history = list(session.exec(select(RunHistory)).all())
+    aborted = [h for h in history if h.aborted]
+    assert len(aborted) == 1
+    assert aborted[0].abort_reason == "manual_stop"
+
+
+async def test_stop_reason_rain(runner: SequenceRunner, engine) -> None:
+    await runner.start("seq_1")
+    await asyncio.sleep(0)
+    await runner.stop(reason="rain")
+
+    with Session(engine) as session:
+        history = list(session.exec(select(RunHistory)).all())
+    aborted = [h for h in history if h.aborted]
+    assert len(aborted) == 1
+    assert aborted[0].abort_reason == "rain"
+
+
+async def test_status_includes_triggered_by(runner: SequenceRunner) -> None:
+    await runner.start("seq_1", triggered_by="cron")
+    status = runner.status()
+    assert status.triggered_by == "cron"
+    await runner.stop()
+
+
+async def test_status_includes_current_zone(runner: SequenceRunner) -> None:
+    await runner.start("seq_1")
+    await asyncio.sleep(0)
+    status = runner.status()
+    assert status.state == SequenceState.RUNNING
+    assert status.current_zone is not None
+    assert status.current_zone.zone_id == "zone_a"
+    await runner.stop()
+
+
+async def test_db_override_basis_min(fast_config: AppConfig, driver: FakeDriver, engine) -> None:
+    with Session(engine) as session:
+        session.add(SequenceOverride(sequence_id="seq_1", basis_min_per_zone=5))
+        session.commit()
+
+    runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
+    basis, watchdog = runner._effective_seq_params(
+        fast_config.sequences["seq_1"], "seq_1",
+    )
+    assert basis == 5.0
+
+
+async def test_db_override_watchdog_min(fast_config: AppConfig, driver: FakeDriver, engine) -> None:
+    with Session(engine) as session:
+        session.add(SequenceOverride(sequence_id="seq_1", watchdog_min=120))
+        session.commit()
+
+    runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
+    basis, watchdog = runner._effective_seq_params(
+        fast_config.sequences["seq_1"], "seq_1",
+    )
+    assert watchdog == 120.0

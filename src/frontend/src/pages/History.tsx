@@ -1,7 +1,46 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getHistory } from '../api/client'
+import { getHistory, type HistoryEntry } from '../api/client'
+import { IClock, IPlay } from '../components/icons'
+
+const SEQUENCE_COLORS: Record<string, string> = {
+  beete: '#7fc8a8',
+  rasen: '#7fc8a8',
+  hochbeet: '#c8a87f',
+  hecke: '#a87fc8',
+  lichtschacht: '#8a9ea6',
+  topf: '#8a9ea6',
+}
+
+function seqColor(id: string): string {
+  for (const [key, color] of Object.entries(SEQUENCE_COLORS)) {
+    if (id.toLowerCase().includes(key)) return color
+  }
+  return 'var(--n-fg-dim)'
+}
+
+function fmtDur(min: number | null): string {
+  if (min == null) return '—'
+  if (min < 60) return `${min.toFixed(0)} min`
+  return `${(min / 60).toFixed(1)} h`
+}
+
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleString('de', {
+    day: '2-digit', month: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
+const COLS = [
+  { key: 'zone', label: 'Zone', flex: 1.3 },
+  { key: 'seq', label: 'Sequenz', flex: 1 },
+  { key: 'started', label: 'Gestartet', flex: 1.2 },
+  { key: 'dur', label: 'Dauer', flex: 0.7 },
+  { key: 'liters', label: 'Liter', flex: 0.7 },
+  { key: 'trigger', label: 'Auslöser', flex: 0.8 },
+] as const
 
 export default function History() {
   const { t } = useTranslation()
@@ -12,68 +51,165 @@ export default function History() {
     queryFn: () => getHistory({ page, per_page: 50 }),
   })
 
-  function fmtDur(min: number | null) {
-    if (min == null) return '—'
-    if (min < 60) return `${min.toFixed(0)} min`
-    return `${(min / 60).toFixed(1)} h`
-  }
+  const items = data?.items ?? []
+  const totalLiters = items.reduce((a, r) => a + (r.liters ?? 0), 0)
+  const avgDur = items.length > 0
+    ? Math.round(items.reduce((a, r) => a + (r.duration_min ?? 0), 0) / items.length)
+    : 0
 
   return (
-    <div className="p-4 flex flex-col gap-4">
-      <h2 className="text-lg font-semibold">{t('history.title')}</h2>
-
-      <div className="n-card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--n-border)', color: 'var(--n-text-dim)' }}>
-              <th className="text-left p-3">{t('history.zone')}</th>
-              <th className="text-left p-3">{t('history.sequence')}</th>
-              <th className="text-left p-3">{t('history.started')}</th>
-              <th className="text-right p-3">{t('history.duration')}</th>
-              <th className="text-right p-3">{t('history.liters')}</th>
-              <th className="text-left p-3">{t('history.trigger')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data?.items.map(row => (
-              <tr key={row.id} style={{ borderBottom: '1px solid var(--n-border)', opacity: row.aborted ? 0.6 : 1 }}>
-                <td className="p-3">{row.zone_label}</td>
-                <td className="p-3" style={{ color: 'var(--n-text-dim)' }}>{row.sequence_label}</td>
-                <td className="p-3" style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--n-text-dim)' }}>
-                  {new Date(row.started_at).toLocaleString()}
-                </td>
-                <td className="p-3 text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                  {fmtDur(row.duration_min)}
-                </td>
-                <td className="p-3 text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                  {row.liters != null ? `${row.liters.toFixed(0)} L` : '—'}
-                </td>
-                <td className="p-3" style={{ color: row.aborted ? 'var(--n-danger)' : 'var(--n-text-dim)' }}>
-                  {row.aborted ? `⚠ ${row.abort_reason ?? 'aborted'}` : row.triggered_by}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+      {/* Summary bar */}
+      <div style={{ display: 'flex', gap: 32, marginBottom: 22, flexWrap: 'wrap' }}>
+        <SummaryBlock
+          label={t('history.last7days', { defaultValue: 'Letzte 7 Tage' })}
+          value={`${Math.round(totalLiters).toLocaleString('de')} L`}
+        />
+        <div className="n-vdivider" style={{ height: 44 }} />
+        <SummaryBlock
+          label={t('history.totalRuns', { defaultValue: 'Läufe gesamt' })}
+          value={String(data?.total ?? 0)}
+        />
+        <div className="n-vdivider" style={{ height: 44 }} />
+        <SummaryBlock
+          label={t('history.avgDuration', { defaultValue: 'Ø Dauer / Lauf' })}
+          value={`${avgDur} min`}
+        />
       </div>
 
-      {data && data.total > data.per_page && (
-        <div className="flex justify-center gap-3 text-sm">
-          <button
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="px-3 py-1 rounded"
-            style={{ background: 'var(--n-card)', border: '1px solid var(--n-border)' }}
-          >← Zurück</button>
-          <span style={{ color: 'var(--n-text-dim)' }}>{page} / {Math.ceil(data.total / data.per_page)}</span>
-          <button
-            onClick={() => setPage(p => p + 1)}
-            disabled={page >= Math.ceil(data.total / data.per_page)}
-            className="px-3 py-1 rounded"
-            style={{ background: 'var(--n-card)', border: '1px solid var(--n-border)' }}
-          >Weiter →</button>
+      {/* Table header */}
+      <div style={{
+        display: 'flex', alignItems: 'center',
+        padding: '12px 18px',
+        borderBottom: '1px solid var(--n-line-bright)',
+      }}>
+        {COLS.map((c) => (
+          <span key={c.key} className="n-eyebrow" style={{
+            flex: c.flex, fontSize: 11, letterSpacing: '0.05em',
+          }}>
+            {c.label}
+          </span>
+        ))}
+      </div>
+
+      {/* Table rows */}
+      {items.map((row) => (
+        <HistoryRow key={row.id} row={row} />
+      ))}
+
+      {/* Empty state */}
+      {items.length === 0 && (
+        <div style={{
+          padding: '32px 0', textAlign: 'center',
+          color: 'var(--n-fg-muted)', fontSize: 14,
+        }}>
+          {t('history.empty', { defaultValue: 'Noch keine Läufe aufgezeichnet' })}
         </div>
       )}
+
+      {/* Pagination */}
+      {data && data.total > data.per_page && (
+        <div style={{
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
+          gap: 12, padding: '18px 0',
+        }}>
+          <button
+            className="n-btn"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page === 1}
+            style={{ height: 36, padding: '0 14px', fontSize: 13 }}
+          >
+            ← {t('history.prev', { defaultValue: 'Zurück' })}
+          </button>
+          <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>
+            {page} / {Math.ceil(data.total / data.per_page)}
+          </span>
+          <button
+            className="n-btn"
+            onClick={() => setPage((p) => p + 1)}
+            disabled={page >= Math.ceil(data.total / data.per_page)}
+            style={{ height: 36, padding: '0 14px', fontSize: 13 }}
+          >
+            {t('history.next', { defaultValue: 'Weiter' })} →
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SummaryBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span className="n-eyebrow">{label}</span>
+      <span className="mono" style={{ fontSize: 28, fontWeight: 500, letterSpacing: '-0.02em' }}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
+function HistoryRow({ row }: { row: HistoryEntry }) {
+  const isManual = row.triggered_by === 'manual'
+  const triggerLabel = isManual ? 'Manuell' : 'Zeitplan'
+
+  return (
+    <div
+      style={{
+        display: 'flex', alignItems: 'center',
+        padding: '13px 18px',
+        borderBottom: '1px solid var(--n-line)',
+        opacity: row.aborted ? 0.6 : 1,
+      }}
+    >
+      <span style={{
+        flex: COLS[0].flex, fontSize: 13.5, fontWeight: 500,
+        display: 'flex', alignItems: 'center', gap: 10,
+      }}>
+        <span style={{
+          width: 4, height: 22, borderRadius: 2,
+          background: seqColor(row.sequence_id),
+        }} />
+        {row.zone_label}
+      </span>
+      <span style={{ flex: COLS[1].flex, fontSize: 13.5, color: 'var(--n-fg-soft)' }}>
+        {row.sequence_label}
+      </span>
+      <span className="mono" style={{ flex: COLS[2].flex, fontSize: 13, color: 'var(--n-fg-soft)' }}>
+        {fmtDate(row.started_at)}
+      </span>
+      <span className="mono" style={{ flex: COLS[3].flex, fontSize: 13, color: 'var(--n-fg-soft)' }}>
+        {fmtDur(row.duration_min)}
+      </span>
+      <span className="mono" style={{ flex: COLS[4].flex, fontSize: 13, color: 'var(--n-teal-200)' }}>
+        {row.liters != null ? `${row.liters.toFixed(0)} L` : '—'}
+      </span>
+      <span style={{ flex: COLS[5].flex, fontSize: 12.5 }}>
+        {row.aborted ? (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '4px 10px', borderRadius: 999,
+            border: '1px solid rgba(255,100,100,0.30)',
+            background: 'rgba(255,100,100,0.08)',
+            color: 'var(--n-danger, #ff6464)',
+            fontSize: 11.5, fontWeight: 500,
+          }}>
+            ⚠ {row.abort_reason ?? 'aborted'}
+          </span>
+        ) : (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '4px 10px', borderRadius: 999,
+            border: '1px solid var(--n-line-strong)',
+            background: isManual ? 'var(--n-paused-soft)' : 'rgba(255,255,255,0.02)',
+            color: isManual ? 'var(--n-paused)' : 'var(--n-fg-muted)',
+            fontSize: 11.5, fontWeight: 500,
+          }}>
+            {isManual ? <IPlay size={11} /> : <IClock size={11} />}
+            {triggerLabel}
+          </span>
+        )}
+      </span>
     </div>
   )
 }

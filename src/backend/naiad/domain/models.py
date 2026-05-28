@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlmodel import Field, SQLModel
 
@@ -25,7 +25,7 @@ class Plan(SQLModel, table=True):
     sequence_id: str
     scheduled_at: datetime
     duration_min: int | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class AuthToken(SQLModel, table=True):
@@ -33,7 +33,7 @@ class AuthToken(SQLModel, table=True):
 
     token: str = Field(primary_key=True)
     device_label: str | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     last_used_at: datetime | None = None
     expires_at: datetime
 
@@ -67,7 +67,7 @@ class SequenceOverride(SQLModel, table=True):
     basis_min_per_zone: int | None = None
     watchdog_min: int | None = None
     paused: bool = False
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class FactorOverride(SQLModel, table=True):
@@ -85,4 +85,4 @@ class FactorOverride(SQLModel, table=True):
     rain_reduce_above_mm: float | None = None
     rain_zero_above_mm: float | None = None
     rain_forecast_decay: float | None = None
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

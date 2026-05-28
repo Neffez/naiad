@@ -44,6 +44,7 @@ class SequenceStatus:
     state: SequenceState
     sequence_id: str | None = None
     current_zone: ZoneProgress | None = None
+    triggered_by: str = "manual"
 
 
 _STOP = "stop"
@@ -94,6 +95,8 @@ class SequenceRunner:
         self._stop_event: asyncio.Event = asyncio.Event()
         self._pause_event: asyncio.Event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
+        self._stop_reason: str = "manual_stop"
+        self._triggered_by: str = "manual"
 
     def is_managed(self, zone_id: str) -> bool:
         if self._running is None:
@@ -108,6 +111,7 @@ class SequenceRunner:
             state=SequenceState.RUNNING,
             sequence_id=self._running,
             current_zone=self._current_zone,
+            triggered_by=self._triggered_by,
         )
 
     async def start(
@@ -125,15 +129,18 @@ class SequenceRunner:
         self._running = sequence_id  # set before first await — asyncio mutex
         self._stop_event.clear()
         self._pause_event.clear()
+        self._stop_reason = "manual_stop"
+        self._triggered_by = triggered_by
 
         self._task = asyncio.create_task(
             self._execute(sequence_id, factor_pct, override_min, triggered_by),
             name=f"seq-{sequence_id}",
         )
 
-    async def stop(self) -> None:
+    async def stop(self, reason: str = "manual_stop") -> None:
         if self._running is None:
             raise NotRunning
+        self._stop_reason = reason
         with self._session_factory() as session:
             clear_snapshot(session, self._running)
         self._stop_event.set()
@@ -181,6 +188,23 @@ class SequenceRunner:
             self._current_zone = None
             self._task = None
 
+    def _effective_seq_params(self, seq: SequenceConfig, sequence_id: str) -> tuple[float, float]:
+        """Return (basis_min_per_zone, watchdog_min) with DB overrides applied."""
+        from naiad.domain.models import SequenceOverride
+
+        basis = float(seq.basis_min_per_zone)
+        watchdog = float(seq.watchdog_min)
+
+        with self._session_factory() as session:
+            override = session.get(SequenceOverride, sequence_id)
+            if override is not None:
+                if override.basis_min_per_zone is not None:
+                    basis = float(override.basis_min_per_zone)
+                if override.watchdog_min is not None:
+                    watchdog = float(override.watchdog_min)
+
+        return basis, watchdog
+
     async def _run_zones(
         self,
         sequence_id: str,
@@ -191,11 +215,13 @@ class SequenceRunner:
         override_min: float | None = None,
         triggered_by: str = "manual",
     ) -> None:
+        effective_basis, effective_watchdog = self._effective_seq_params(seq, sequence_id)
+
         if override_min is not None:
             duration_min = override_min
         else:
             lo, hi = seq.range
-            basis = seq.basis_min_per_zone * factor_pct / 100.0
+            basis = effective_basis * factor_pct / 100.0
             duration_min = max(float(lo), min(float(hi), basis))
 
         for i, zone_id in enumerate(seq.zones):
@@ -218,7 +244,7 @@ class SequenceRunner:
             logger.info("zone %s ON  (%.1f min)", zone_id, zone_duration)
 
             result = await _wait_zone(
-                zone_duration, seq.watchdog_min, self._stop_event, self._pause_event
+                zone_duration, effective_watchdog, self._stop_event, self._pause_event
             )
 
             off_time = datetime.now(UTC)
@@ -233,7 +259,7 @@ class SequenceRunner:
             if result == _WATCHDOG:
                 abort_reason = "watchdog"
             elif result == _STOP:
-                abort_reason = "manual_stop"
+                abort_reason = self._stop_reason
 
             with self._session_factory() as session:
                 session.add(RunHistory(

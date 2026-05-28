@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typegen": "openapi-typescript ../../docs/openapi.yaml -o src/api/schema.d.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.14",

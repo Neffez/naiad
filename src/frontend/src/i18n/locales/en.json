@@ -10,11 +10,12 @@
     "idle": "Ready",
     "paused": "Paused",
     "disabled": "Disabled",
+    "skipped": "Skipped",
     "unknown": "Unknown"
   },
   "master": {
-    "on": "Master: On",
-    "off": "Master: Off"
+    "on": "Active",
+    "off": "Off"
   },
   "sequence": {
     "start": "Start",
@@ -70,6 +71,22 @@
     "password": "Password",
     "login": "Log in",
     "error": "Wrong password"
+  },
+  "emergency": {
+    "title": "Emergency stop — stop system + all valves immediately",
+    "label": "Emergency",
+    "confirm": "Confirm?"
+  },
+  "confirm": {
+    "startNow": "Start now",
+    "zones": "Zones",
+    "perZone": "Per zone",
+    "water": "Water",
+    "durationOverride": "Duration override",
+    "resetTo": "Reset to {{min}} min",
+    "factorHint": "Adjustment factor will not be applied — manual start runs with the set duration.",
+    "cancel": "Cancel",
+    "start": "Start now"
   },
   "errors": {
     "windBlocked": "Wind alert — sequence blocked",

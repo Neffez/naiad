@@ -146,4 +146,9 @@ async def update_settings(
         session.add(pref)
 
     session.commit()
+
+    if body.factors is not None or body.sequences is not None:
+        from naiad.api.ws import broadcast_factor_updated
+        await broadcast_factor_updated()
+
     return _read_settings(config, session)

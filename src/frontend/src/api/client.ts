@@ -16,6 +16,7 @@ async function request<T>(
   method: string,
   path: string,
   body?: unknown,
+  opts?: { skipReloadOn401?: boolean },
 ): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   const token = getToken()
@@ -27,7 +28,7 @@ async function request<T>(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
 
-  if (res.status === 401) {
+  if (res.status === 401 && !opts?.skipReloadOn401) {
     clearToken()
     window.location.reload()
   }
@@ -52,7 +53,8 @@ export const api = {
 export const login = (password: string) =>
   api.post<{ token: string; expires_at: string }>('/auth/login', { password })
 
-export const verify = () => api.get<{ valid: boolean }>('/auth/verify')
+export const verify = () =>
+  request<{ valid: boolean }>('GET', '/auth/verify', undefined, { skipReloadOn401: true })
 
 // Sequences
 export const getSequences = () => api.get<SequenceState[]>('/sequences')

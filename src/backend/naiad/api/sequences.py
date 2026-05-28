@@ -1,20 +1,25 @@
+from datetime import UTC, datetime
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from naiad.api.schemas import (
+    CurrentRunResponse,
     SequenceStateResponse,
     StartSequenceRequest,
     ZoneSummaryResponse,
 )
 from naiad.config import AppConfig
 from naiad.database import get_session
-from naiad.dependencies import get_config, get_ha_client, get_runner, require_auth
+from naiad.dependencies import get_config, get_ha_client, get_runner, get_scheduler, require_auth
 from naiad.domain.factors import compute_factors
 from naiad.domain.models import ResumeSnapshot, SequenceOverride
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.domain.sequences import MutexConflict, NotRunning, SequenceRunner, SequenceState
 from naiad.ha_client import HAClient
+
+from naiad.api.ws import broadcast_sequence_changed
 
 router = APIRouter(prefix="/sequences", tags=["sequences"])
 
@@ -33,16 +38,50 @@ def _sequence_status(
 ) -> str:
     seq_cfg = config.sequences[seq_id]
     if not seq_cfg.enabled:
-        return SequenceState.IDLE  # disabled in config → treat as idle but not runnable
+        return "disabled"
     if runner.status().sequence_id == seq_id:
         return SequenceState.RUNNING
     snap = session.get(ResumeSnapshot, 1)
     if snap and snap.sequence_id == seq_id:
-        return "paused"
+        return SequenceState.PAUSED
     override = session.get(SequenceOverride, seq_id)
     if override and override.paused:
-        return "disabled"
+        return "skipped"
     return SequenceState.IDLE
+
+
+def _get_next_run_at(scheduler: AsyncIOScheduler, seq_id: str) -> datetime | None:
+    job = scheduler.get_job(f"cron-{seq_id}")
+    if job is None:
+        return None
+    return job.next_run_time
+
+
+def _build_current_run(
+    runner: SequenceRunner,
+    seq_id: str,
+    config: AppConfig,
+) -> CurrentRunResponse | None:
+    run_status = runner.status()
+    if run_status.sequence_id != seq_id or run_status.current_zone is None:
+        return None
+
+    zone = run_status.current_zone
+    now = datetime.now(UTC)
+    elapsed_min = (now - zone.started_at).total_seconds() / 60.0
+    remaining_min = max(0.0, zone.duration_min - elapsed_min)
+    zone_cfg = config.zones.get(zone.zone_id)
+    zone_label = zone_cfg.label if zone_cfg else zone.zone_id
+
+    return CurrentRunResponse(
+        zone_id=zone.zone_id,
+        zone_label=zone_label,
+        started_at=zone.started_at,
+        elapsed_min=round(elapsed_min, 2),
+        remaining_min=round(remaining_min, 2),
+        total_min=zone.duration_min,
+        triggered_by=run_status.triggered_by,
+    )
 
 
 def _build_state(
@@ -51,13 +90,14 @@ def _build_state(
     session: Session,
     config: AppConfig,
     ha: HAClient,
+    scheduler: AsyncIOScheduler,
 ) -> SequenceStateResponse:
     seq_cfg = config.sequences[seq_id]
     status = _sequence_status(seq_id, runner, session, config)
     override = session.get(SequenceOverride, seq_id)
 
     snapshot = read_sensor_snapshot(ha, config)
-    factors = compute_factors(snapshot, config)
+    factors = compute_factors(snapshot, config, session)
     factor_pct = int(round(factors.factor_pct))
 
     notes: list[str] = []
@@ -93,10 +133,10 @@ def _build_state(
         factor_pct=factor_pct,
         factor_note=factor_note,
         schedule_label=seq_cfg.schedule.cron,
-        next_run_at=None,
+        next_run_at=_get_next_run_at(scheduler, seq_id),
         zones=zones,
         basis_min_per_zone=effective_basis,
-        current_run=None,
+        current_run=_build_current_run(runner, seq_id, config),
     )
 
 
@@ -107,9 +147,10 @@ async def list_sequences(
     runner: SequenceRunner = Depends(get_runner),
     ha: HAClient = Depends(get_ha_client),
     session: Session = Depends(get_session),
+    scheduler: AsyncIOScheduler = Depends(get_scheduler),
 ) -> list[SequenceStateResponse]:
     return [
-        _build_state(seq_id, runner, session, config, ha)
+        _build_state(seq_id, runner, session, config, ha, scheduler)
         for seq_id in config.sequences
     ]
 
@@ -122,10 +163,11 @@ async def get_sequence(
     runner: SequenceRunner = Depends(get_runner),
     ha: HAClient = Depends(get_ha_client),
     session: Session = Depends(get_session),
+    scheduler: AsyncIOScheduler = Depends(get_scheduler),
 ) -> SequenceStateResponse:
     if sequence_id not in config.sequences:
         raise HTTPException(404, f"Sequence '{sequence_id}' not found")
-    return _build_state(sequence_id, runner, session, config, ha)
+    return _build_state(sequence_id, runner, session, config, ha, scheduler)
 
 
 @router.post("/{sequence_id}/start", status_code=202)
@@ -144,6 +186,11 @@ async def start_sequence(
     seq_cfg = config.sequences[sequence_id]
     if not seq_cfg.enabled:
         raise HTTPException(422, "Sequence is disabled")
+
+    seq_override = session.get(SequenceOverride, sequence_id)
+    if seq_override and seq_override.paused:
+        raise HTTPException(422, "Sequence is paused (skipped)")
+
     if not _master_on(session):
         raise HTTPException(422, "Master switch is off")
 
@@ -159,6 +206,7 @@ async def start_sequence(
     except MutexConflict as e:
         raise HTTPException(409, str(e)) from e
 
+    await broadcast_sequence_changed(sequence_id, "running", "manual")
     return {"started": sequence_id}
 
 
@@ -175,6 +223,7 @@ async def pause_sequence(
         await runner.pause()
     except NotRunning as e:
         raise HTTPException(409, str(e)) from e
+    await broadcast_sequence_changed(sequence_id, "paused", "manual")
     return {"paused": sequence_id}
 
 
@@ -191,4 +240,5 @@ async def stop_sequence(
         await runner.stop()
     except NotRunning as e:
         raise HTTPException(409, str(e)) from e
+    await broadcast_sequence_changed(sequence_id, "idle", "manual")
     return {"stopped": sequence_id}

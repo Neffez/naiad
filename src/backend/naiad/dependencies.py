@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session
@@ -23,6 +24,10 @@ def get_ha_client(request: Request) -> HAClient:
 
 def get_runner(request: Request) -> SequenceRunner:
     return request.app.state.runner  # type: ignore[no-any-return]
+
+
+def get_scheduler(request: Request) -> AsyncIOScheduler:
+    return request.app.state.scheduler  # type: ignore[no-any-return]
 
 
 async def require_auth(
