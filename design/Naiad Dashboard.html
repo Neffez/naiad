@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Naiad — Garten-Bewässerung · Frontend-Design</title>
+  <link rel="stylesheet" href="naiad-tokens.css" />
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #f0eee9; }
+    body { font-family: 'Geist', -apple-system, sans-serif; }
+    /* canvas page background — slightly warmer than the dark UI itself,
+       so the dark artboards pop. */
+  </style>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js"
+          integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L"
+          crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"
+          integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm"
+          crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"
+          integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"
+          crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="tweaks-panel.jsx"></script>
+  <script type="text/babel" src="naiad-icons.jsx"></script>
+  <script type="text/babel" src="naiad-data.jsx"></script>
+  <script type="text/babel" src="naiad-components.jsx"></script>
+  <script type="text/babel" src="naiad-tablet.jsx"></script>
+  <script type="text/babel" src="naiad-mobile.jsx"></script>
+  <script type="text/babel" src="naiad-dialog.jsx"></script>
+
+  <script type="text/babel" data-presets="react">
+    const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+      "theme": "dark",
+      "embed": false,
+      "accent": "#5ec8d8",
+      "serif": "eb-garamond"
+    }/*EDITMODE-END*/;
+
+    const App = () => {
+      const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+
+      // serif font swap
+      React.useEffect(() => {
+        const stacks = {
+          instrument:   "'Instrument Serif', Georgia, serif",
+          baskerville:  "'Libre Baskerville', 'Baskerville', Georgia, serif",
+          cormorant:    "'Cormorant Garamond', 'EB Garamond', Georgia, serif",
+          "eb-garamond":"'EB Garamond', 'Cormorant Garamond', Georgia, serif",
+        };
+        document.documentElement.style.setProperty("--n-serif", stacks[t.serif] || stacks.instrument);
+      }, [t.serif]);
+
+      // accent palette override
+      React.useEffect(() => {
+        const map = {
+          "#5ec8d8": { t200: "#93dde6", t300: "#5ec8d8", t500: "#1a96aa", t600: "#1a7a8a", glow: "rgba(94,200,216,0.16)" },
+          "#6ec79c": { t200: "#9cd6b6", t300: "#6ec79c", t500: "#3fa274", t600: "#2f7a58", glow: "rgba(110,199,156,0.16)" },
+          "#a497d6": { t200: "#c6b8e6", t300: "#a497d6", t500: "#7a6db3", t600: "#5e528f", glow: "rgba(164,151,214,0.16)" },
+        };
+        const c = map[t.accent] || map["#5ec8d8"];
+        const root = document.documentElement;
+        root.style.setProperty("--n-teal-200", c.t200);
+        root.style.setProperty("--n-teal-300", c.t300);
+        root.style.setProperty("--n-teal-500", c.t500);
+        root.style.setProperty("--n-teal-600", c.t600);
+        root.style.setProperty("--n-teal-glow", c.glow);
+      }, [t.accent]);
+
+      return (
+        <>
+          <DesignCanvas defaultZoom={0.7}>
+            <DCSection
+              id="dashboards"
+              title="Dashboards"
+              subtitle="Hauptansicht für Visu, Tablet und Smartphone — alle Status, alle Aktionen auf einem Blick."
+            >
+              <DCArtboard id="tablet" label={"01 · Visu / Tablet · 1920 × 1080 · " + (t.embed ? "Embed-Modus" : "Stand-alone")} width={1920} height={1080}>
+                <NaiadTabletDashboard theme={t.theme} embed={t.embed} />
+              </DCArtboard>
+              <DCArtboard id="mobile" label="02 · Smartphone · 430 × 932" width={430} height={932}>
+                <NaiadMobileDashboard theme={t.theme} />
+              </DCArtboard>
+            </DCSection>
+
+            <DCSection
+              id="components"
+              title="Komponenten"
+              subtitle="Isolierte Bausteine. Die SequenceCard zeigt alle vier Statusvarianten nebeneinander; das ValveGrid drei Layout-Dichten."
+            >
+              <DCArtboard id="seq" label="03 · SequenceCard · 4 States (Rich)" width={1280} height={880}>
+                <SequenceStates theme={t.theme} />
+              </DCArtboard>
+              <DCArtboard id="valves" label="04 · ValveGrid · 8×1 / 4×2 / 2×4" width={1020} height={820}>
+                <ValveGridArtboard theme={t.theme} />
+              </DCArtboard>
+            </DCSection>
+
+            <DCSection
+              id="dialog"
+              title="Dialoge"
+              subtitle="Bestätigungs-Dialog für „Sofort starten“ mit optionalem Dauer-Override-Slider."
+            >
+              <DCArtboard id="confirm" label="05 · Confirm „Jetzt starten“" width={560} height={720}>
+                <ConfirmStartDialog seq={{...NAIAD_DATA.sequences[1], perZone: 42}} theme={t.theme} />
+              </DCArtboard>
+              <DCArtboard id="confirm-hb" label="06 · Confirm · Hochbeet (Single-Zone)" width={560} height={720}>
+                <ConfirmStartDialog seq={{...NAIAD_DATA.sequences[3], status: "idle"}} theme={t.theme} />
+              </DCArtboard>
+            </DCSection>
+          </DesignCanvas>
+
+          <TweaksPanel title="Tweaks">
+            <TweakSection label="Theme" />
+            <TweakRadio
+              label="Helligkeit"
+              value={t.theme}
+              onChange={(v) => setTweak("theme", v)}
+              options={[
+                { value: "dark", label: "Dark" },
+                { value: "light", label: "Light" },
+              ]}
+            />
+            <TweakRadio
+              label="Tablet-Modus"
+              value={t.embed ? "embed" : "standalone"}
+              onChange={(v) => setTweak("embed", v === "embed")}
+              options={[
+                { value: "standalone", label: "Solo" },
+                { value: "embed", label: "HA-Embed" },
+              ]}
+            />
+            <TweakSection label="Akzent" />
+            <TweakColor
+              label="Palette"
+              value={t.accent}
+              onChange={(v) => setTweak("accent", v)}
+              options={["#5ec8d8", "#6ec79c", "#a497d6"]}
+            />
+            <TweakSection label="Editorial Serif" />
+            <TweakSelect
+              label="Zahlen-Serif"
+              value={t.serif}
+              onChange={(v) => setTweak("serif", v)}
+              options={[
+                { value: "instrument",  label: "Instrument Serif (Editorial, modern)" },
+                { value: "baskerville", label: "Libre Baskerville (Klassisch, transitional)" },
+                { value: "cormorant",   label: "Cormorant Garamond (Elegant, hoher Kontrast)" },
+                { value: "eb-garamond", label: "EB Garamond (Old-style, Herbarium)" },
+              ]}
+            />
+          </TweaksPanel>
+        </>
+      );
+    };
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
