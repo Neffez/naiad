@@ -29,6 +29,7 @@ class AutoLoginConfig(BaseModel):
 
 class AuthConfig(BaseModel):
     mode: Literal["password", "forward_header", "none"] = "password"
+    password: str = ""  # plain text or bcrypt hash ($2b$...)
     auto_login: AutoLoginConfig = AutoLoginConfig()
     frame_ancestors: list[str] = ["'self'"]
 
