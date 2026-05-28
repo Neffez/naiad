@@ -1,0 +1,19 @@
+services:
+  naiad:
+    build: .
+    container_name: naiad
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      HA_URL: ws://homeassistant.local:8123/api/websocket
+      HA_TOKEN: ${HA_TOKEN}
+      NAIAD_PASSWORD_HASH: ${NAIAD_PASSWORD_HASH}
+      TZ: Europe/Berlin
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

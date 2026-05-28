@@ -1,0 +1,687 @@
+openapi: "3.1.0"
+info:
+  title: Naiad API
+  version: "1.0.0"
+  description: Garden irrigation controller — REST API
+
+servers:
+  - url: /api
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+
+    # ── Enums ────────────────────────────────────────────────────────────────
+
+    SequenceStatus:
+      type: string
+      enum: [idle, running, paused, disabled]
+
+    TriggerSource:
+      type: string
+      enum: [cron, manual, plan, resume]
+
+    AbortReason:
+      type: string
+      enum: [rain, watchdog, manual_stop, ha_disconnect]
+
+    ValveStateEnum:
+      type: string
+      enum: [on, off, unknown]
+
+    # ── Valve ─────────────────────────────────────────────────────────────────
+
+    ValveState:
+      type: object
+      required: [id, zone_id, label, state]
+      properties:
+        id:          { type: string }
+        zone_id:     { type: string }
+        label:       { type: string }
+        state:       { $ref: '#/components/schemas/ValveStateEnum' }
+        on_since:    { type: string, format: date-time, nullable: true }
+        runtime_min: { type: number, nullable: true }
+
+    # ── Sequences ─────────────────────────────────────────────────────────────
+
+    ZoneSummary:
+      type: object
+      required: [id, label, valve_state]
+      properties:
+        id:          { type: string }
+        label:       { type: string }
+        valve_state: { $ref: '#/components/schemas/ValveStateEnum' }
+
+    CurrentRun:
+      type: object
+      required: [zone_id, zone_label, started_at, elapsed_min, remaining_min, total_min, triggered_by]
+      properties:
+        zone_id:       { type: string }
+        zone_label:    { type: string }
+        started_at:    { type: string, format: date-time }
+        elapsed_min:   { type: number }
+        remaining_min: { type: number }
+        total_min:     { type: number }
+        triggered_by:  { $ref: '#/components/schemas/TriggerSource' }
+
+    SequenceState:
+      type: object
+      required: [id, label, status, enabled, paused, factor_pct, schedule_label, zones, basis_min_per_zone]
+      properties:
+        id:                 { type: string }
+        label:              { type: string }
+        status:             { $ref: '#/components/schemas/SequenceStatus' }
+        enabled:            { type: boolean }
+        paused:             { type: boolean }
+        factor_pct:         { type: integer }
+        factor_note:        { type: string, nullable: true }
+        schedule_label:     { type: string }
+        next_run_at:        { type: string, format: date-time, nullable: true }
+        zones:
+          type: array
+          items: { $ref: '#/components/schemas/ZoneSummary' }
+        basis_min_per_zone: { type: integer }
+        current_run:
+          nullable: true
+          oneOf:
+            - { $ref: '#/components/schemas/CurrentRun' }
+            - { type: 'null' }
+
+    StartSequenceRequest:
+      type: object
+      properties:
+        duration_min:
+          type: integer
+          nullable: true
+          description: "Override in minutes. null = use config default with factor applied."
+
+    # ── Status ────────────────────────────────────────────────────────────────
+
+    WeatherSummary:
+      type: object
+      required: [temp_c, rain_24h_mm, wind_label, season_active]
+      properties:
+        temp_c:        { type: number }
+        rain_24h_mm:   { type: number }
+        wind_label:    { type: string }
+        season_active: { type: boolean }
+
+    FactorBreakdown:
+      type: object
+      required: [temp_pct, rain_pct, combined_pct, wind_blocking_sequences]
+      properties:
+        temp_pct:                 { type: integer }
+        rain_pct:                 { type: integer }
+        combined_pct:             { type: integer }
+        wind_blocking_sequences:
+          type: array
+          items: { type: string }
+
+    NextRunSummary:
+      type: object
+      required: [sequence_id, sequence_label, scheduled_at, duration_min]
+      properties:
+        sequence_id:    { type: string }
+        sequence_label: { type: string }
+        scheduled_at:   { type: string, format: date-time }
+        duration_min:   { type: integer }
+
+    SystemStatus:
+      type: object
+      required: [master_on, ha_connected, weather, today_factor, liters_today, liters_week]
+      properties:
+        master_on:    { type: boolean }
+        ha_connected: { type: boolean }
+        weather:      { $ref: '#/components/schemas/WeatherSummary' }
+        today_factor: { $ref: '#/components/schemas/FactorBreakdown' }
+        next_run:
+          nullable: true
+          oneOf:
+            - { $ref: '#/components/schemas/NextRunSummary' }
+            - { type: 'null' }
+        after_next:
+          nullable: true
+          oneOf:
+            - { $ref: '#/components/schemas/NextRunSummary' }
+            - { type: 'null' }
+        liters_today: { type: number }
+        liters_week:  { type: number }
+
+    # ── Plans ─────────────────────────────────────────────────────────────────
+
+    Plan:
+      type: object
+      required: [id, sequence_id, sequence_label, scheduled_at, created_at]
+      properties:
+        id:               { type: string, format: uuid }
+        sequence_id:      { type: string }
+        sequence_label:   { type: string }
+        scheduled_at:     { type: string, format: date-time }
+        duration_min:     { type: integer, nullable: true }
+        estimated_liters: { type: number, nullable: true }
+        created_at:       { type: string, format: date-time }
+
+    CreatePlanRequest:
+      type: object
+      required: [sequence_id, mode, value]
+      properties:
+        sequence_id:  { type: string }
+        mode:
+          type: string
+          enum: [in_hours, at_datetime]
+        value:
+          description: "Hours from now (in_hours) or ISO 8601 datetime string (at_datetime)"
+          oneOf:
+            - { type: number }
+            - { type: string }
+        duration_min:
+          type: integer
+          nullable: true
+          description: "null = use config default"
+
+    # ── History ───────────────────────────────────────────────────────────────
+
+    HistoryEntry:
+      type: object
+      required: [id, zone_id, zone_label, sequence_id, sequence_label, started_at, triggered_by, aborted]
+      properties:
+        id:             { type: integer }
+        zone_id:        { type: string }
+        zone_label:     { type: string }
+        sequence_id:    { type: string }
+        sequence_label: { type: string }
+        started_at:     { type: string, format: date-time }
+        ended_at:       { type: string, format: date-time, nullable: true }
+        duration_min:   { type: number, nullable: true }
+        liters:         { type: number, nullable: true }
+        triggered_by:   { $ref: '#/components/schemas/TriggerSource' }
+        aborted:        { type: boolean }
+        abort_reason:
+          nullable: true
+          oneOf:
+            - { $ref: '#/components/schemas/AbortReason' }
+            - { type: 'null' }
+
+    PaginatedHistory:
+      type: object
+      required: [items, total, page, per_page]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/HistoryEntry' }
+        total:    { type: integer }
+        page:     { type: integer }
+        per_page: { type: integer }
+
+    # ── Settings ──────────────────────────────────────────────────────────────
+
+    TempFactorSettings:
+      type: object
+      properties:
+        basis_c:    { type: number }
+        pct_per_c:  { type: number }
+        min_pct:    { type: integer }
+        max_pct:    { type: integer }
+
+    RainFactorSettings:
+      type: object
+      properties:
+        forecast_days:     { type: integer }
+        threshold_prob:    { type: integer }
+        reduce_above_mm:   { type: number }
+        zero_above_mm:     { type: number }
+        forecast_decay:    { type: number }
+
+    SequenceOverride:
+      type: object
+      properties:
+        basis_min_per_zone: { type: integer, nullable: true }
+        watchdog_min:       { type: integer, nullable: true }
+        paused:             { type: boolean }
+
+    AppSettings:
+      type: object
+      properties:
+        sequences:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/SequenceOverride' }
+        factors:
+          type: object
+          properties:
+            temp: { $ref: '#/components/schemas/TempFactorSettings' }
+            rain: { $ref: '#/components/schemas/RainFactorSettings' }
+        notify_targets:
+          type: array
+          items: { type: string }
+        token_lifetime_days:  { type: integer }
+        auto_login_enabled:   { type: boolean }
+
+    UserPreferences:
+      type: object
+      properties:
+        theme:
+          type: string
+          enum: [dark, light]
+        language:
+          type: string
+          enum: [de, en]
+
+    # ── Auth ──────────────────────────────────────────────────────────────────
+
+    LoginRequest:
+      type: object
+      required: [password]
+      properties:
+        password:     { type: string }
+        device_label: { type: string, description: "Optional label shown in token list" }
+
+    LoginResponse:
+      type: object
+      required: [token, expires_at]
+      properties:
+        token:      { type: string }
+        expires_at: { type: string, format: date-time }
+
+    AuthToken:
+      type: object
+      required: [token_prefix, created_at, expires_at]
+      properties:
+        token_prefix: { type: string, description: "First 8 chars, for identification only" }
+        device_label: { type: string, nullable: true }
+        created_at:   { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time, nullable: true }
+        expires_at:   { type: string, format: date-time }
+
+    # ── Errors ────────────────────────────────────────────────────────────────
+
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string }
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+
+paths:
+
+  /health:
+    get:
+      operationId: getHealth
+      summary: Health check (no auth required)
+      security: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:       { type: string, enum: [ok] }
+                  ha_connected: { type: boolean }
+                  version:      { type: string }
+
+  # ── Auth ────────────────────────────────────────────────────────────────────
+
+  /auth/login:
+    post:
+      operationId: login
+      summary: Authenticate with password, receive Bearer token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '401':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/auto-login:
+    post:
+      operationId: autoLogin
+      summary: Auto-login for trusted embedding contexts (?embed=1)
+      security: []
+      description: |
+        Issues a token when all configured trigger conditions match:
+        Referer in trusted_referers AND (optionally) client IP in trusted_ips.
+        The client must assert that ?embed=1 was present in the URL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [embed_param_present]
+              properties:
+                embed_param_present: { type: boolean }
+                device_label:        { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '403':
+          description: Trigger conditions not met
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/verify:
+    get:
+      operationId: verifyToken
+      summary: Check if current Bearer token is valid
+      responses:
+        '200':
+          description: Token is valid
+        '401':
+          description: Token invalid or expired
+
+  /auth/tokens:
+    get:
+      operationId: listTokens
+      summary: List all active tokens
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AuthToken' }
+
+  /auth/tokens/{token_prefix}:
+    delete:
+      operationId: revokeToken
+      summary: Revoke a token by its prefix
+      parameters:
+        - name: token_prefix
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Token revoked }
+        '404':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ── Status ──────────────────────────────────────────────────────────────────
+
+  /status:
+    get:
+      operationId: getStatus
+      summary: Full system status snapshot
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SystemStatus' }
+
+  /status/master:
+    patch:
+      operationId: setMaster
+      summary: Toggle master switch on/off
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [on]
+              properties:
+                on: { type: boolean }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  master_on: { type: boolean }
+
+  # ── Sequences ───────────────────────────────────────────────────────────────
+
+  /sequences:
+    get:
+      operationId: listSequences
+      summary: List all sequences with current state
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SequenceState' }
+
+  /sequences/{sequence_id}:
+    get:
+      operationId: getSequence
+      summary: Get a single sequence
+      parameters:
+        - name: sequence_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SequenceState' }
+        '404':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /sequences/{sequence_id}/start:
+    post:
+      operationId: startSequence
+      summary: Start a sequence — resumes from snapshot if one exists, otherwise fresh start
+      parameters:
+        - name: sequence_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StartSequenceRequest' }
+      responses:
+        '202': { description: Start accepted }
+        '409':
+          description: Mutex conflict — another sequence is already running
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: Sequence is disabled or master switch is off
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /sequences/{sequence_id}/pause:
+    post:
+      operationId: pauseSequence
+      summary: Pause a running sequence — writes resume_snapshot with remaining_min
+      parameters:
+        - name: sequence_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '202': { description: Pause accepted }
+        '409':
+          description: Sequence is not currently running
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /sequences/{sequence_id}/stop:
+    post:
+      operationId: stopSequence
+      summary: Abort a running sequence — no snapshot, no resume
+      parameters:
+        - name: sequence_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '202': { description: Stop accepted }
+        '409':
+          description: Sequence is not currently running
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ── Valves ──────────────────────────────────────────────────────────────────
+
+  /valves:
+    get:
+      operationId: listValves
+      summary: Live state of all configured valves
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ValveState' }
+
+  # ── Plans ───────────────────────────────────────────────────────────────────
+
+  /plans:
+    get:
+      operationId: listPlans
+      summary: List all pending scheduled runs
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Plan' }
+    post:
+      operationId: createPlan
+      summary: Schedule a future run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePlanRequest' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Plan' }
+        '422':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /plans/{plan_id}:
+    delete:
+      operationId: deletePlan
+      summary: Cancel a scheduled plan
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Plan deleted }
+        '404':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ── History ─────────────────────────────────────────────────────────────────
+
+  /history:
+    get:
+      operationId: getHistory
+      summary: Paginated run history
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, default: 50, maximum: 200 }
+        - name: sequence_id
+          in: query
+          schema: { type: string }
+        - name: zone_id
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedHistory' }
+
+  # ── Settings ────────────────────────────────────────────────────────────────
+
+  /settings:
+    get:
+      operationId: getSettings
+      summary: Effective settings (YAML defaults merged with DB overrides)
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppSettings' }
+    patch:
+      operationId: updateSettings
+      summary: Update settings (partial — only provided fields are overwritten)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AppSettings' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppSettings' }
+
+  # ── User preferences ────────────────────────────────────────────────────────
+
+  /preferences:
+    get:
+      operationId: getPreferences
+      summary: Get user preferences (theme, language) — global, not per-token
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserPreferences' }
+    patch:
+      operationId: updatePreferences
+      summary: Update user preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserPreferences' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserPreferences' }
