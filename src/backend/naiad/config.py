@@ -63,8 +63,8 @@ class ScheduleConfig(BaseModel):
 class SequenceConfig(BaseModel):
     label: str
     zones: list[str]
-    basis_min_per_zone: int
-    range: tuple[int, int] = (5, 240)
+    basis_min_per_zone: float
+    range: tuple[float, float] = (5.0, 240.0)
     watchdog_min: int
     schedule: ScheduleConfig
     enabled: bool = True
