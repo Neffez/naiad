@@ -108,7 +108,12 @@ class SequenceRunner:
             sequence_id=self._running,
         )
 
-    async def start(self, sequence_id: str, factor_pct: float = 100.0) -> None:
+    async def start(
+        self,
+        sequence_id: str,
+        factor_pct: float = 100.0,
+        override_min: float | None = None,
+    ) -> None:
         if sequence_id not in self._config.sequences:
             raise SequenceNotFound(sequence_id)
         if self._running is not None:
@@ -119,7 +124,7 @@ class SequenceRunner:
         self._pause_event.clear()
 
         self._task = asyncio.create_task(
-            self._execute(sequence_id, factor_pct),
+            self._execute(sequence_id, factor_pct, override_min),
             name=f"seq-{sequence_id}",
         )
 
@@ -139,7 +144,9 @@ class SequenceRunner:
         if self._task:
             await self._task
 
-    async def _execute(self, sequence_id: str, factor_pct: float) -> None:
+    async def _execute(
+        self, sequence_id: str, factor_pct: float, override_min: float | None = None
+    ) -> None:
         seq = self._config.sequences[sequence_id]
         try:
             with self._session_factory() as session:
@@ -154,7 +161,7 @@ class SequenceRunner:
                     clear_snapshot(session, sequence_id)
 
             await self._run_zones(
-                sequence_id, seq, factor_pct, start_index, start_remaining
+                sequence_id, seq, factor_pct, start_index, start_remaining, override_min
             )
         except asyncio.CancelledError:
             raise
@@ -171,10 +178,14 @@ class SequenceRunner:
         factor_pct: float,
         start_index: int,
         start_remaining: float | None,
+        override_min: float | None = None,
     ) -> None:
-        lo, hi = seq.range
-        basis = seq.basis_min_per_zone * factor_pct / 100.0
-        duration_min = max(float(lo), min(float(hi), basis))
+        if override_min is not None:
+            duration_min = override_min
+        else:
+            lo, hi = seq.range
+            basis = seq.basis_min_per_zone * factor_pct / 100.0
+            duration_min = max(float(lo), min(float(hi), basis))
 
         for i, zone_id in enumerate(seq.zones):
             if i < start_index:

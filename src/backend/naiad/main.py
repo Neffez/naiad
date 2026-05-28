@@ -10,10 +10,14 @@ from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
+from sqlmodel import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from naiad.config import load_config
-from naiad.database import create_tables
+from naiad.database import create_tables, get_engine
+from naiad.domain.sequences import SequenceRunner
+from naiad.domain.tracking import LiterTracker
+from naiad.drivers.ha_driver import HAEntityDriver
 from naiad.ha_client import HAClient
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -45,7 +49,6 @@ def _setup_logging() -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(_JSONFormatter())
     logging.basicConfig(level=level, handlers=[handler], force=True)
-    # Silence noisy third-party loggers
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 
@@ -71,11 +74,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[type-arg]
 
     config = load_config()
     logger.info(
-        "Config loaded",
-        extra={
-            "zones": len(config.zones),
-            "sequences": len(config.sequences),
-        },
+        "Config loaded", extra={"zones": len(config.zones), "sequences": len(config.sequences)}
     )
 
     create_tables()
@@ -85,9 +84,18 @@ async def _lifespan(app: FastAPI):  # type: ignore[type-arg]
     await ha.start()
     logger.info("HA client started", extra={"url": config.ha.url})
 
+    def _session_factory() -> Session:
+        return Session(get_engine())
+
+    driver = HAEntityDriver(ha)
+    runner = SequenceRunner(config, driver, _session_factory)
+    _tracker = LiterTracker(ha, config, _session_factory, runner.is_managed)
+
     app.state.config = config
     app.state.ha_client = ha
+    app.state.runner = runner
 
+    logger.info("Naiad ready")
     yield
 
     await ha.stop()
@@ -108,9 +116,17 @@ app = FastAPI(
 
 app.add_middleware(_RequestIDMiddleware)
 
-from naiad.api import status as _status  # noqa: E402 — after app definition
+from naiad.api import auth, history, plans, preferences, sequences, settings, system  # noqa: E402
+from naiad.api import status as _status  # noqa: E402
 
 app.include_router(_status.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
+app.include_router(sequences.router, prefix="/api")
+app.include_router(system.router, prefix="/api")
+app.include_router(history.router, prefix="/api")
+app.include_router(plans.router, prefix="/api")
+app.include_router(settings.router, prefix="/api")
+app.include_router(preferences.router, prefix="/api")
 
 # Serve built frontend (present in Docker image, absent in dev)
 _static = Path(__file__).parent.parent / "static"

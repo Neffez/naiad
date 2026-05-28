@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
