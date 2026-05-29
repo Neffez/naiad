@@ -6,7 +6,7 @@ from typing import Any
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from naiad.api.ws import broadcast_notification, broadcast_sequence_changed
 from naiad.config import AppConfig
@@ -46,34 +46,46 @@ async def _run_sequence_job(
     session_factory: SessionFactory,
     triggered_by: str = "cron",
     override_min: float | None = None,
-) -> None:
+) -> str:
+    """Attempt to start a sequence. Returns "started", "skipped" or "conflict".
+
+    A "conflict" is transient (another sequence is running) and the caller may
+    retry; "skipped" is a deterministic refusal (disabled/paused/master/wind/season).
+    """
     seq_cfg = config.sequences.get(sequence_id)
     if seq_cfg is None or not seq_cfg.enabled:
-        return
+        return "skipped"
 
     with session_factory() as session:
         seq_override = session.get(SequenceOverride, sequence_id)
     if seq_override and seq_override.paused:
         logger.info("Skipped (%s): paused via override", sequence_id)
-        return
+        return "skipped"
 
     if not _master_on(session_factory):
         logger.info("Skipped (%s): master off", sequence_id)
-        return
+        return "skipped"
 
     snapshot = read_sensor_snapshot(ha, config)
 
     if seq_cfg.wind_blocks and snapshot.wind_on:
         logger.info("Skipped (%s): wind blocked", sequence_id)
         await _notify(ha, config, f"⚠️ {seq_cfg.label}: Wind — Lauf übersprungen")
-        return
+        return "skipped"
 
     with session_factory() as session:
         factors = compute_factors(snapshot, config, session)
 
     if factors.season_off:
         logger.info("Skipped (%s): season off", sequence_id)
-        return
+        return "skipped"
+
+    if factors.sensors_unavailable:
+        logger.warning(
+            "Starting '%s' with unavailable sensors %s — rain/temp adjustment may be incomplete",
+            sequence_id,
+            factors.sensors_unavailable,
+        )
 
     try:
         await runner.start(
@@ -82,17 +94,21 @@ async def _run_sequence_job(
             override_min=override_min,
             triggered_by=triggered_by,
         )
-        label_pct = int(round(factors.factor_pct))
-        note = f"🌿 {seq_cfg.label} gestartet ({triggered_by}, Faktor {label_pct} %)"
-        await _notify(ha, config, note)
-        await broadcast_sequence_changed(sequence_id, "running", triggered_by)
-        await broadcast_notification(note)
-        logger.info("Started '%s' via %s (factor=%d%%)", sequence_id, triggered_by, label_pct)
     except MutexConflict as e:
         logger.warning("Conflict for '%s': %s", sequence_id, e)
         conflict_note = f"⚠️ Zeitplan-Konflikt: {seq_cfg.label} — läuft bereits"
         await _notify(ha, config, conflict_note)
         await broadcast_notification(conflict_note, level="warning")
+        return "conflict"
+
+    label_pct = int(round(factors.factor_pct))
+    note = f"🌿 {seq_cfg.label} gestartet ({triggered_by}, Faktor {label_pct} %)"
+    await _notify(ha, config, note)
+    # The "running" status is broadcast by the runner's on_started callback once a
+    # valve actually opens, so clients never see a run that failed to start.
+    await broadcast_notification(note)
+    logger.info("Started '%s' via %s (factor=%d%%)", sequence_id, triggered_by, label_pct)
+    return "started"
 
 
 async def _plan_tick(
@@ -104,23 +120,37 @@ async def _plan_tick(
     now = datetime.now(UTC)
 
     with session_factory() as session:
-        due: list[Plan] = list(session.exec(
-            select(Plan).where(Plan.scheduled_at <= now).order_by(Plan.scheduled_at)
-        ).all())
+        due: list[Plan] = list(
+            session.exec(
+                select(Plan).where(Plan.scheduled_at <= now).order_by(col(Plan.scheduled_at))
+            ).all()
+        )
 
     for plan in due:
         with session_factory() as session:
-            db_plan = session.get(Plan, plan.id)
-            if db_plan is None:
-                continue
-            session.delete(db_plan)
-            session.commit()
+            if session.get(Plan, plan.id) is None:
+                continue  # already consumed
 
         override_min = float(plan.duration_min) if plan.duration_min is not None else None
-        await _run_sequence_job(
-            plan.sequence_id, runner, ha, config, session_factory,
-            triggered_by="plan", override_min=override_min,
+        result = await _run_sequence_job(
+            plan.sequence_id,
+            runner,
+            ha,
+            config,
+            session_factory,
+            triggered_by="plan",
+            override_min=override_min,
         )
+
+        # Keep the plan on a transient conflict so the next tick retries it;
+        # drop it once it has started or was deterministically skipped.
+        if result == "conflict":
+            continue
+        with session_factory() as session:
+            db_plan = session.get(Plan, plan.id)
+            if db_plan is not None:
+                session.delete(db_plan)
+                session.commit()
 
 
 async def _on_rain(
@@ -160,12 +190,20 @@ def setup_scheduler(
     ha: HAClient,
     session_factory: SessionFactory,
 ) -> AsyncIOScheduler:
-    scheduler = AsyncIOScheduler(timezone="Europe/Berlin")
+    scheduler = AsyncIOScheduler(timezone=config.timezone)
 
     for seq_id, seq_cfg in config.sequences.items():
         if not seq_cfg.enabled:
             continue
-        trigger = CronTrigger.from_crontab(seq_cfg.schedule.cron, timezone="Europe/Berlin")
+        if seq_cfg.watchdog_min <= seq_cfg.basis_min_per_zone:
+            logger.warning(
+                "Sequence '%s': watchdog_min (%s) <= basis_min_per_zone (%s) — the watchdog "
+                "will abort normal runs before they finish. Raise watchdog_min.",
+                seq_id,
+                seq_cfg.watchdog_min,
+                seq_cfg.basis_min_per_zone,
+            )
+        trigger = CronTrigger.from_crontab(seq_cfg.schedule.cron, timezone=config.timezone)
         scheduler.add_job(
             _run_sequence_job,
             trigger=trigger,

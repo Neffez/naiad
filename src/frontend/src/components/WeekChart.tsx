@@ -1,5 +1,3 @@
-import { useTranslation } from 'react-i18next'
-
 interface DayData {
   day: string
   liters: number
@@ -12,7 +10,6 @@ interface WeekChartProps {
 }
 
 export function WeekChart({ data, height = 130 }: WeekChartProps) {
-  const { t: _t } = useTranslation()
   const maxTotal = Math.max(...data.map((d) => d.liters), 1)
   const niceMax = Math.ceil(maxTotal / 100) * 100 || 100
 

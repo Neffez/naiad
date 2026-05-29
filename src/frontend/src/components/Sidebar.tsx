@@ -48,7 +48,7 @@ export function Sidebar() {
         </NavLink>
       ))}
       <div style={{ flex: 1 }} />
-      <button className="n-iconbtn" style={{ width: 56, height: 56 }} title="Theme" onClick={toggleTheme}>
+      <button className="n-iconbtn" style={{ width: 56, height: 56 }} title={t('nav.theme')} onClick={toggleTheme}>
         <IMoon size={20} />
       </button>
     </div>

@@ -1,10 +1,12 @@
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, func, select
+from fastapi import APIRouter, Depends
+from sqlmodel import Session, col, func, select
 
 from naiad.api.schemas import (
     FactorBreakdownResponse,
+    MasterToggleRequest,
     NextRunResponse,
     SystemStatusResponse,
     ValveStateResponse,
@@ -17,6 +19,7 @@ from naiad.domain.factors import compute_factors
 from naiad.domain.models import Plan, RunHistory, UserPreference
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.ha_client import HAClient
+from naiad.timeutil import local_day_start_utc, now_utc_naive
 
 router = APIRouter(tags=["system"])
 
@@ -36,6 +39,28 @@ def _set_master(session: Session, value: bool) -> None:
     session.commit()
 
 
+def _week_series(session: Session, tz_name: str) -> list[float]:
+    """Liters per local weekday (Mon..Sun) for the current local week."""
+    tz = ZoneInfo(tz_name)
+    now_local = datetime.now(tz)
+    monday_local = (now_local - timedelta(days=now_local.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    monday_utc = monday_local.astimezone(UTC).replace(tzinfo=None)
+
+    rows = session.exec(
+        select(RunHistory.started_at, RunHistory.liters).where(RunHistory.started_at >= monday_utc)
+    ).all()
+
+    buckets = [0.0] * 7
+    for started_at, liters in rows:
+        if liters is None:
+            continue
+        local = started_at.replace(tzinfo=UTC).astimezone(tz)
+        buckets[local.weekday()] += liters
+    return [round(b, 1) for b in buckets]
+
+
 def _liters_since(session: Session, since: datetime) -> float:
     result = session.exec(
         select(func.sum(RunHistory.liters)).where(RunHistory.started_at >= since)
@@ -46,10 +71,7 @@ def _liters_since(session: Session, since: datetime) -> float:
 def _next_plans(session: Session, config: AppConfig, limit: int) -> list[NextRunResponse]:
     now = datetime.now(UTC)
     plans = session.exec(
-        select(Plan)
-        .where(Plan.scheduled_at >= now)
-        .order_by(Plan.scheduled_at)
-        .limit(limit)
+        select(Plan).where(Plan.scheduled_at >= now).order_by(col(Plan.scheduled_at)).limit(limit)
     ).all()
     result = []
     for p in plans:
@@ -57,12 +79,14 @@ def _next_plans(session: Session, config: AppConfig, limit: int) -> list[NextRun
         if seq_cfg is None:
             continue
         basis = p.duration_min if p.duration_min is not None else int(seq_cfg.basis_min_per_zone)
-        result.append(NextRunResponse(
-            sequence_id=p.sequence_id,
-            sequence_label=seq_cfg.label,
-            scheduled_at=p.scheduled_at,
-            duration_min=basis,
-        ))
+        result.append(
+            NextRunResponse(
+                sequence_id=p.sequence_id,
+                sequence_label=seq_cfg.label,
+                scheduled_at=p.scheduled_at,
+                duration_min=basis,
+            )
+        )
     return result[:limit]
 
 
@@ -74,17 +98,16 @@ async def get_status(
     session: Session = Depends(get_session),
 ) -> SystemStatusResponse:
     snapshot = read_sensor_snapshot(ha, config)
-    factors = compute_factors(snapshot, config)
+    factors = compute_factors(snapshot, config, session)
 
     wind_blocking = [
-        seq_id
-        for seq_id, seq in config.sequences.items()
-        if seq.wind_blocks and snapshot.wind_on
+        seq_id for seq_id, seq in config.sequences.items() if seq.wind_blocks and snapshot.wind_on
     ]
 
-    now = datetime.now(UTC)
-    today_start = datetime(now.year, now.month, now.day, tzinfo=UTC)
-    week_start = now - timedelta(days=7)
+    # RunHistory.started_at is stored as naive UTC; bucket by *local* day so
+    # "today"/"this week" reset at local midnight, not UTC midnight.
+    today_start = local_day_start_utc(config.timezone)
+    week_start = now_utc_naive() - timedelta(days=7)
 
     next_runs = _next_plans(session, config, 2)
 
@@ -107,19 +130,18 @@ async def get_status(
         after_next=next_runs[1] if len(next_runs) > 1 else None,
         liters_today=_liters_since(session, today_start),
         liters_week=_liters_since(session, week_start),
+        week_series=_week_series(session, config.timezone),
     )
 
 
 @router.patch("/status/master")
 async def set_master(
-    body: dict,
+    body: MasterToggleRequest,
     _: None = Depends(require_auth),
     session: Session = Depends(get_session),
-) -> dict:
-    if "on" not in body or not isinstance(body["on"], bool):
-        raise HTTPException(422, "Body must contain {\"on\": bool}")
-    _set_master(session, body["on"])
-    return {"master_on": body["on"]}
+) -> dict[str, bool]:
+    _set_master(session, body.on)
+    return {"master_on": body.on}
 
 
 @router.get("/valves", response_model=list[ValveStateResponse])
@@ -149,12 +171,14 @@ async def list_valves(
         if on_since is not None:
             runtime_min = (datetime.now(UTC) - on_since).total_seconds() / 60.0
 
-        result.append(ValveStateResponse(
-            id=zone.switch,
-            zone_id=zone_id,
-            label=zone.label,
-            state=state,
-            on_since=on_since,
-            runtime_min=runtime_min,
-        ))
+        result.append(
+            ValveStateResponse(
+                id=zone.switch,
+                zone_id=zone_id,
+                label=zone.label,
+                state=state,
+                on_since=on_since,
+                runtime_min=runtime_min,
+            )
+        )
     return result

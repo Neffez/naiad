@@ -8,6 +8,8 @@ from naiad.config import AppConfig, RainFactorConfig, TempFactorConfig
 if TYPE_CHECKING:
     from sqlmodel import Session
 
+    from naiad.domain.models import FactorOverride
+
 
 @dataclass
 class SensorSnapshot:
@@ -57,19 +59,19 @@ def _compute_rain_factor(
     return 1.0 - (rain_mm - cfg.reduce_above_mm) / span
 
 
-def _effective_factor_config(
-    config: AppConfig, session: Session | None,
+def merge_factor_config(
+    config: AppConfig,
+    fo: FactorOverride | None,
 ) -> tuple[TempFactorConfig, RainFactorConfig]:
-    """Merge YAML factor config with DB overrides (if any)."""
+    """Merge YAML factor config with a FactorOverride row (if any).
+
+    The merged values are run through the pydantic validators, so an override
+    that violates a cross-field constraint (e.g. reduce_above_mm >= zero_above_mm)
+    raises a ValidationError here.
+    """
     temp_cfg = config.factors.temp
     rain_cfg = config.factors.rain
 
-    if session is None:
-        return temp_cfg, rain_cfg
-
-    from naiad.domain.models import FactorOverride
-
-    fo = session.get(FactorOverride, 1)
     if fo is None:
         return temp_cfg, rain_cfg
 
@@ -99,6 +101,19 @@ def _effective_factor_config(
     eff_rain = RainFactorConfig.model_validate(rain_data)
 
     return eff_temp, eff_rain
+
+
+def _effective_factor_config(
+    config: AppConfig,
+    session: Session | None,
+) -> tuple[TempFactorConfig, RainFactorConfig]:
+    """Merge YAML factor config with DB overrides (if any)."""
+    if session is None:
+        return config.factors.temp, config.factors.rain
+
+    from naiad.domain.models import FactorOverride
+
+    return merge_factor_config(config, session.get(FactorOverride, 1))
 
 
 def compute_factors(

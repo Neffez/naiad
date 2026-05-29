@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import type { ValveState } from '../api/client'
 
 interface ValveGridProps {
@@ -7,6 +8,7 @@ interface ValveGridProps {
 }
 
 export function ValveGrid({ valves, cols = 4, dense = false }: ValveGridProps) {
+  const { t } = useTranslation()
   return (
     <div
       style={{
@@ -43,7 +45,7 @@ export function ValveGrid({ valves, cols = 4, dense = false }: ValveGridProps) {
                 {v.label}
               </span>
               <span className="n-eyebrow" style={{ fontSize: 9 }}>
-                {state === 'on' ? 'Live' : 'Aus'}
+                {state === 'on' ? t('valve.live') : t('valve.off')}
               </span>
             </div>
           </div>

@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlmodel import Session
 
+from naiad.auth_rules import forward_header_ok
 from naiad.config import AppConfig
 from naiad.domain.factors import compute_factors
 from naiad.domain.models import AuthToken
@@ -20,31 +21,48 @@ router = APIRouter(tags=["ws"])
 
 # ── Connection manager ────────────────────────────────────────────────────────
 
+
 class WsManager:
     def __init__(self) -> None:
-        self._connections: set[WebSocket] = set()
+        # Each connection gets its own lock: Starlette's WebSocket.send_text is
+        # not safe to call concurrently, and the heartbeat, run-tick and
+        # broadcast tasks can all target the same socket at once.
+        self._locks: dict[WebSocket, asyncio.Lock] = {}
 
     def connect(self, ws: WebSocket) -> None:
-        self._connections.add(ws)
+        self._locks[ws] = asyncio.Lock()
 
     def disconnect(self, ws: WebSocket) -> None:
-        self._connections.discard(ws)
+        self._locks.pop(ws, None)
 
-    async def broadcast(self, msg: dict[str, Any]) -> None:
-        if not self._connections:
-            return
-        data = json.dumps(msg, default=str)
-        dead: list[WebSocket] = []
-        for ws in self._connections:
+    async def _send_text(self, ws: WebSocket, data: str) -> bool:
+        """Serialize writes to a single socket. Returns False on failure / unknown ws."""
+        lock = self._locks.get(ws)
+        if lock is None:
+            return False  # already disconnected
+        async with lock:
             try:
                 await ws.send_text(data)
+                return True
             except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self._connections.discard(ws)
+                return False
 
-    async def send(self, ws: WebSocket, msg: dict[str, Any]) -> None:
-        await ws.send_text(json.dumps(msg, default=str))
+    async def broadcast(self, msg: dict[str, Any]) -> None:
+        if not self._locks:
+            return
+        data = json.dumps(msg, default=str)
+        # Snapshot the targets: _send_text awaits, so the dict could be mutated
+        # by a concurrent connect()/disconnect(). Send concurrently across
+        # connections (each serialized by its own lock).
+        targets = list(self._locks)
+        results = await asyncio.gather(*(self._send_text(ws, data) for ws in targets))
+        for ws, ok in zip(targets, results, strict=True):
+            if not ok:
+                self.disconnect(ws)
+
+    async def send(self, ws: WebSocket, msg: dict[str, Any]) -> bool:
+        """Send one message to one socket. Returns False if the send failed."""
+        return await self._send_text(ws, json.dumps(msg, default=str))
 
 
 manager = WsManager()
@@ -52,61 +70,75 @@ manager = WsManager()
 
 # ── Broadcast helpers (called from other modules) ─────────────────────────────
 
+
 async def broadcast_sequence_changed(
-    sequence_id: str, status: str, triggered_by: str = "manual",
+    sequence_id: str,
+    status: str,
+    triggered_by: str = "manual",
 ) -> None:
-    await manager.broadcast({
-        "type": "sequence_changed",
-        "data": {
-            "sequence_id": sequence_id,
-            "status": status,
-            "triggered_by": triggered_by,
-            "ts": datetime.now(UTC).isoformat(),
-        },
-    })
+    await manager.broadcast(
+        {
+            "type": "sequence_changed",
+            "data": {
+                "sequence_id": sequence_id,
+                "status": status,
+                "triggered_by": triggered_by,
+                "ts": datetime.now(UTC).isoformat(),
+            },
+        }
+    )
 
 
 async def broadcast_valve_changed(zone_id: str, state: str, entity_id: str) -> None:
-    await manager.broadcast({
-        "type": "valve_changed",
-        "data": {
-            "zone_id": zone_id,
-            "state": state,
-            "entity_id": entity_id,
-            "ts": datetime.now(UTC).isoformat(),
-        },
-    })
+    await manager.broadcast(
+        {
+            "type": "valve_changed",
+            "data": {
+                "zone_id": zone_id,
+                "state": state,
+                "entity_id": entity_id,
+                "ts": datetime.now(UTC).isoformat(),
+            },
+        }
+    )
 
 
 async def broadcast_notification(message: str, level: str = "info") -> None:
-    await manager.broadcast({
-        "type": "notification",
-        "data": {
-            "message": message,
-            "level": level,
-            "ts": datetime.now(UTC).isoformat(),
-        },
-    })
+    await manager.broadcast(
+        {
+            "type": "notification",
+            "data": {
+                "message": message,
+                "level": level,
+                "ts": datetime.now(UTC).isoformat(),
+            },
+        }
+    )
 
 
 async def broadcast_factor_updated() -> None:
-    await manager.broadcast({
-        "type": "factor_updated",
-        "data": {"ts": datetime.now(UTC).isoformat()},
-    })
+    await manager.broadcast(
+        {
+            "type": "factor_updated",
+            "data": {"ts": datetime.now(UTC).isoformat()},
+        }
+    )
 
 
 async def broadcast_ha_state(connected: bool) -> None:
-    await manager.broadcast({
-        "type": "ha_state",
-        "data": {
-            "connected": connected,
-            "ts": datetime.now(UTC).isoformat(),
-        },
-    })
+    await manager.broadcast(
+        {
+            "type": "ha_state",
+            "data": {
+                "connected": connected,
+                "ts": datetime.now(UTC).isoformat(),
+            },
+        }
+    )
 
 
 # ── Auth helper ───────────────────────────────────────────────────────────────
+
 
 def _authenticate(token_str: str, session: Session) -> bool:
     db_token = session.get(AuthToken, token_str)
@@ -121,13 +153,15 @@ def _authenticate(token_str: str, session: Session) -> bool:
 
 # ── Snapshot builders ─────────────────────────────────────────────────────────
 
+
 def _status_snapshot(
     runner: SequenceRunner,
     ha: HAClient,
     config: AppConfig,
+    session: Session,
 ) -> dict[str, Any]:
     snapshot = read_sensor_snapshot(ha, config)
-    factors = compute_factors(snapshot, config)
+    factors = compute_factors(snapshot, config, session)
     status = runner.status()
     return {
         "type": "status_snapshot",
@@ -145,6 +179,7 @@ def _status_snapshot(
 
 
 # ── Endpoint ──────────────────────────────────────────────────────────────────
+
 
 @router.websocket("/ws")
 async def websocket_endpoint(
@@ -174,13 +209,17 @@ async def websocket_endpoint(
 
     token_str: str = msg.get("token", "")
 
-    app = websocket.app  # type: ignore[attr-defined]
+    app = websocket.app
     config: AppConfig = app.state.config
     runner: SequenceRunner = app.state.runner
     ha: HAClient = app.state.ha_client
 
     if config.auth.mode == "none":
         authed = True
+    elif config.auth.mode == "forward_header":
+        client_ip = websocket.client.host if websocket.client else ""
+        header_value = websocket.headers.get(config.auth.forward_header.header, "")
+        authed = forward_header_ok(header_value, client_ip, config.auth.forward_header)
     else:
         with _Session(get_engine()) as session:
             authed = _authenticate(token_str, session)
@@ -196,7 +235,7 @@ async def websocket_endpoint(
     manager.connect(websocket)
 
     with _Session(get_engine()) as session:
-        snapshot_msg = _status_snapshot(runner, ha, config)
+        snapshot_msg = _status_snapshot(runner, ha, config, session)
     await manager.send(websocket, snapshot_msg)
 
     heartbeat_task = asyncio.create_task(_heartbeat(websocket, runner, ha, config))
@@ -227,12 +266,16 @@ async def _heartbeat(
     ha: HAClient,
     config: AppConfig,
 ) -> None:
+    from naiad.database import get_engine
+
     while True:
         await asyncio.sleep(30)
         try:
-            msg = _status_snapshot(runner, ha, config)
-            await manager.send(ws, msg)
+            with Session(get_engine()) as session:
+                msg = _status_snapshot(runner, ha, config, session)
         except Exception:
+            break
+        if not await manager.send(ws, msg):
             break
 
 
@@ -245,8 +288,9 @@ async def _run_tick(ws: WebSocket, runner: SequenceRunner) -> None:
         z = status.current_zone
         elapsed = (datetime.now(UTC) - z.started_at).total_seconds() / 60.0
         remaining = max(0.0, z.duration_min - elapsed)
-        try:
-            await manager.send(ws, {
+        ok = await manager.send(
+            ws,
+            {
                 "type": "run_tick",
                 "data": {
                     "sequence_id": status.sequence_id,
@@ -254,6 +298,7 @@ async def _run_tick(ws: WebSocket, runner: SequenceRunner) -> None:
                     "elapsed_min": round(elapsed, 2),
                     "remaining_min": round(remaining, 2),
                 },
-            })
-        except Exception:
+            },
+        )
+        if not ok:
             break

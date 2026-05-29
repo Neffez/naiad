@@ -20,9 +20,7 @@ class HAEntityDriver:
     async def turn_off(self, zone: ZoneConfig) -> None:
         await self._ha.call_service("switch", "turn_off", entity_id=zone.switch)
 
-    def subscribe_state(
-        self, zone: ZoneConfig, cb: Callable[[bool, datetime], None]
-    ) -> None:
+    def subscribe_state(self, zone: ZoneConfig, cb: Callable[[bool, datetime], None]) -> None:
         entity_id = zone.switch
 
         async def _handle(eid: str, state: dict[str, Any]) -> None:
@@ -59,9 +57,7 @@ class HAEntitySensorSource:
             attributes=state.get("attributes", {}),
         )
 
-    def subscribe(
-        self, sensor_id: str, cb: Callable[[SensorReading], None]
-    ) -> None:
+    def subscribe(self, sensor_id: str, cb: Callable[[SensorReading], None]) -> None:
         async def _handle(eid: str, state: dict[str, Any]) -> None:
             if eid != sensor_id:
                 return
@@ -70,11 +66,13 @@ class HAEntitySensorSource:
                 ts = datetime.fromisoformat(raw_ts)
             except (ValueError, TypeError):
                 ts = datetime.now(UTC)
-            cb(SensorReading(
-                entity_id=eid,
-                state=state["state"],
-                timestamp=ts,
-                attributes=state.get("attributes", {}),
-            ))
+            cb(
+                SensorReading(
+                    entity_id=eid,
+                    state=state["state"],
+                    timestamp=ts,
+                    attributes=state.get("attributes", {}),
+                )
+            )
 
         self._ha.subscribe_state_changes(_handle)

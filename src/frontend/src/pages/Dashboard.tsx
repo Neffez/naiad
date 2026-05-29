@@ -14,7 +14,7 @@ import {
 } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { EmergencyStop } from '../components/EmergencyStop'
-import { IAlert, ILogo } from '../components/icons'
+import { ILogo } from '../components/icons'
 import { MasterToggle } from '../components/MasterToggle'
 import { SequenceCard } from '../components/SequenceCard'
 import { TodayBlock } from '../components/TodayBlock'
@@ -68,26 +68,38 @@ export default function Dashboard() {
   }
 
   async function handleStop(id: string) {
-    await stopSequence(id)
-    qc.invalidateQueries({ queryKey: ['sequences'] })
+    try {
+      await stopSequence(id)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e))
+    } finally {
+      qc.invalidateQueries({ queryKey: ['sequences'] })
+    }
   }
 
   async function handlePause(id: string) {
-    await pauseSequence(id)
-    qc.invalidateQueries({ queryKey: ['sequences'] })
+    try {
+      await pauseSequence(id)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e))
+    } finally {
+      qc.invalidateQueries({ queryKey: ['sequences'] })
+    }
   }
 
   async function handleEmergency() {
+    // Master off is the authoritative kill; stop every running sequence even if
+    // some individual stop calls fail (e.g. a sequence already ended → 409).
     await masterMut.mutateAsync(false)
-    for (const seq of sequences.filter((s) => s.status === 'running')) {
-      await stopSequence(seq.id)
-    }
+    await Promise.allSettled(
+      sequences.filter((s) => s.status === 'running').map((seq) => stopSequence(seq.id)),
+    )
     qc.invalidateQueries({ queryKey: ['sequences'] })
   }
 
   const masterOn = status?.master_on ?? true
 
-  const weekData = buildWeekData(status)
+  const weekData = buildWeekData(status, t('weekdaysShort', { returnObjects: true }) as string[])
   const running = sequences.filter((s) => s.status === 'running').length
   const idle = sequences.filter((s) => s.status === 'idle').length
 
@@ -116,7 +128,7 @@ export default function Dashboard() {
 
           <div className="desktop-only" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span className="n-eyebrow">{t('nav.dashboard')}</span>
-            <span style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.01em' }}>Garten</span>
+            <span style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.01em' }}>{t('dashboard.title')}</span>
           </div>
 
           <div className="desktop-only">
@@ -168,19 +180,19 @@ export default function Dashboard() {
         <section style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '0 2px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span className="n-eyebrow">{t('sequence.zones', { defaultValue: 'Sequenzen' })}</span>
-              <span style={{ fontSize: 16, fontWeight: 500 }}>{sequences.length} konfiguriert</span>
+              <span className="n-eyebrow">{t('dashboard.sequences')}</span>
+              <span style={{ fontSize: 16, fontWeight: 500 }}>{sequences.length} {t('dashboard.configured')}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12.5 }}>
               {running > 0 && (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--n-teal-200)' }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
-                  {running} läuft
+                  {running} {t('dashboard.running')}
                 </span>
               )}
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--n-fg-muted)' }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-fg-dim)' }} />
-                {idle} bereit
+                {idle} {t('dashboard.ready')}
               </span>
             </div>
           </div>
@@ -197,6 +209,7 @@ export default function Dashboard() {
                 size="rich"
                 onStart={() => setConfirmSeq(seq)}
                 onPause={() => (seq.status === 'running' ? handlePause(seq.id) : handleStart(seq))}
+                onStop={() => handleStop(seq.id)}
               />
             ))}
           </div>
@@ -208,13 +221,13 @@ export default function Dashboard() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span className="n-eyebrow">Ventile · Live</span>
-                  <span style={{ fontSize: 16, fontWeight: 500 }}>{valves.length} Zonen</span>
+                  <span className="n-eyebrow">{t('dashboard.valvesLive')}</span>
+                  <span style={{ fontSize: 16, fontWeight: 500 }}>{valves.length} {t('sequence.zones')}</span>
                 </div>
                 {valves.some((v) => v.state === 'on') && (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--n-teal-200)', fontSize: 12.5 }}>
                     <span className="n-drop" />
-                    {valves.filter((v) => v.state === 'on').length} live
+                    {valves.filter((v) => v.state === 'on').length} {t('dashboard.live')}
                   </span>
                 )}
               </div>
@@ -225,7 +238,7 @@ export default function Dashboard() {
           <div className="n-card" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span className="n-eyebrow">Verbrauch · 7 Tage</span>
+                <span className="n-eyebrow">{t('dashboard.usage7d')}</span>
                 <span className="mono" style={{ fontSize: 22, fontWeight: 500 }}>
                   {status?.liters_week.toFixed(0) ?? '—'} L
                 </span>
@@ -252,10 +265,10 @@ export default function Dashboard() {
 
         <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '0 2px' }}>
-            <span className="n-eyebrow">Sequenzen</span>
+            <span className="n-eyebrow">{t('dashboard.sequences')}</span>
             <span className="n-label" style={{ fontSize: 11 }}>
-              {running > 0 && <span style={{ color: 'var(--n-teal-200)' }}>{running} läuft · </span>}
-              {idle} bereit
+              {running > 0 && <span style={{ color: 'var(--n-teal-200)' }}>{running} {t('dashboard.running')} · </span>}
+              {idle} {t('dashboard.ready')}
             </span>
           </div>
           {sequences.map((seq) => (
@@ -264,6 +277,7 @@ export default function Dashboard() {
               seq={seq}
               onStart={() => setConfirmSeq(seq)}
               onPause={() => (seq.status === 'running' ? handlePause(seq.id) : handleStart(seq))}
+              onStop={() => handleStop(seq.id)}
             />
           ))}
         </section>
@@ -271,10 +285,10 @@ export default function Dashboard() {
         {valves.length > 0 && (
           <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '0 2px' }}>
-              <span className="n-eyebrow">Ventile</span>
+              <span className="n-eyebrow">{t('dashboard.valves')}</span>
               {valves.some((v) => v.state === 'on') && (
                 <span className="n-label" style={{ fontSize: 11, color: 'var(--n-teal-200)' }}>
-                  {valves.filter((v) => v.state === 'on').length} live
+                  {valves.filter((v) => v.state === 'on').length} {t('dashboard.live')}
                 </span>
               )}
             </div>
@@ -285,17 +299,17 @@ export default function Dashboard() {
         <div className="n-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
             <div>
-              <span className="n-eyebrow">Verbrauch</span>
+              <span className="n-eyebrow">{t('dashboard.usage')}</span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
                 <span className="n-bignum" style={{ fontSize: 26 }}>{status?.liters_week.toFixed(0) ?? '—'} L</span>
-                <span style={{ fontSize: 12, color: 'var(--n-fg-muted)' }}>diese Woche</span>
+                <span style={{ fontSize: 12, color: 'var(--n-fg-muted)' }}>{t('dashboard.thisWeek')}</span>
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <span className="mono" style={{ fontSize: 14, color: 'var(--n-teal-200)' }}>
                 {status?.liters_today.toFixed(0) ?? '—'} L
               </span>
-              <div className="n-label" style={{ fontSize: 11 }}>heute</div>
+              <div className="n-label" style={{ fontSize: 11 }}>{t('dashboard.today')}</div>
             </div>
           </div>
           <WeekChart data={weekData} height={100} />
@@ -321,14 +335,15 @@ export default function Dashboard() {
   )
 }
 
-function buildWeekData(status: SystemStatus | undefined) {
-  const days = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+function buildWeekData(status: SystemStatus | undefined, days: string[]) {
+  // Real per-day liters from the backend (Mon..Sun of the current local week).
+  const series = status?.week_series ?? []
   const todayIdx = new Date().getDay()
   const adjustedIdx = todayIdx === 0 ? 6 : todayIdx - 1
 
   return days.map((day, i) => ({
     day,
-    liters: i === adjustedIdx ? (status?.liters_today ?? 0) : 0,
+    liters: series[i] ?? 0,
     today: i === adjustedIdx,
   }))
 }

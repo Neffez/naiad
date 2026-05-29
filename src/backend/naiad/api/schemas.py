@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
+
 class LoginRequest(BaseModel):
     password: str
     device_label: str | None = None
@@ -28,6 +29,7 @@ class AuthTokenResponse(BaseModel):
 
 
 # ── Sequences ─────────────────────────────────────────────────────────────────
+
 
 class StartSequenceRequest(BaseModel):
     duration_min: int | None = None
@@ -66,6 +68,7 @@ class SequenceStateResponse(BaseModel):
 
 # ── System status ─────────────────────────────────────────────────────────────
 
+
 class WeatherSummaryResponse(BaseModel):
     temp_c: float | None
     rain_24h_mm: float
@@ -96,6 +99,11 @@ class SystemStatusResponse(BaseModel):
     after_next: NextRunResponse | None
     liters_today: float
     liters_week: float
+    week_series: list[float]  # liters per local weekday Mon..Sun of the current week
+
+
+class MasterToggleRequest(BaseModel):
+    on: bool
 
 
 class ValveStateResponse(BaseModel):
@@ -108,6 +116,7 @@ class ValveStateResponse(BaseModel):
 
 
 # ── History ───────────────────────────────────────────────────────────────────
+
 
 class HistoryEntryResponse(BaseModel):
     id: int
@@ -133,6 +142,7 @@ class PaginatedHistoryResponse(BaseModel):
 
 # ── Plans ─────────────────────────────────────────────────────────────────────
 
+
 class CreatePlanRequest(BaseModel):
     sequence_id: str
     mode: str  # in_hours | at_datetime
@@ -151,6 +161,7 @@ class PlanResponse(BaseModel):
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────
+
 
 class TempFactorSettingsInput(BaseModel):
     basis_c: float | None = None
@@ -219,6 +230,7 @@ class AppSettingsResponse(BaseModel):
 
 
 # ── Preferences ───────────────────────────────────────────────────────────────
+
 
 class UserPreferencesResponse(BaseModel):
     theme: str

@@ -8,7 +8,7 @@ router = APIRouter(tags=["meta"])
 
 
 @router.get("/health")
-async def health(ha: HAClient = Depends(get_ha_client)) -> dict:
+async def health(ha: HAClient = Depends(get_ha_client)) -> dict[str, object]:
     return {
         "status": "ok",
         "version": __version__,
