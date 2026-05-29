@@ -117,6 +117,7 @@
     "addZone": "Add zone",
     "noZones": "No zones",
     "label": "Label",
+    "namePlaceholder": "Name",
     "switch": "Switch",
     "flowLph": "Flow (L/h)",
     "sequences": "Sequences",
