@@ -190,6 +190,15 @@ async def start_sequence(
     if not seq_cfg.enabled:
         raise HTTPException(422, "Sequence is disabled")
 
+    # A zone without a switch entity would "start" but never open a valve. Reject
+    # early with a clear message instead of failing silently mid-run.
+    no_switch = [z for z in seq_cfg.zones if not config.zones.get(z) or not config.zones[z].switch]
+    if no_switch:
+        raise HTTPException(
+            422,
+            f"Zone(s) without a switch entity: {', '.join(no_switch)}. Set it in the config.",
+        )
+
     seq_override = session.get(SequenceOverride, sequence_id)
     if seq_override and seq_override.paused:
         raise HTTPException(422, "Sequence is paused (skipped)")

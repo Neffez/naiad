@@ -55,3 +55,41 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Keep the Home Assistant add-on (separate repo) in lockstep with the app: when
+  # naiad is tagged vX.Y.Z, bump the add-on's config.yaml version so the Supervisor
+  # offers an update and rebuilds against the new :latest image.
+  #
+  # Requires a repo secret APP_NAIAD_TOKEN: a (fine-grained) PAT with
+  # contents:write on Neffez/app-naiad. Without it this job is a no-op.
+  bump-addon-version:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for cross-repo token
+        id: gate
+        env:
+          TOKEN: ${{ secrets.APP_NAIAD_TOKEN }}
+        run: echo "have=${TOKEN:+yes}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout app-naiad
+        if: steps.gate.outputs.have == 'yes'
+        uses: actions/checkout@v4
+        with:
+          repository: Neffez/app-naiad
+          token: ${{ secrets.APP_NAIAD_TOKEN }}
+
+      - name: Bump add-on version
+        if: steps.gate.outputs.have == 'yes'
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version: .*/version: \"${VERSION}\"/" naiad/config.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add naiad/config.yaml
+          if git diff --cached --quiet; then
+            echo "Add-on already at ${VERSION}; nothing to do."
+          else
+            git commit -m "chore: bump add-on to ${VERSION} (naiad ${GITHUB_REF_NAME})"
+            git push
+          fi
