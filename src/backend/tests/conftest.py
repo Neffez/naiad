@@ -7,6 +7,10 @@ MINIMAL_CONFIG_DATA = {
         "url": "ws://localhost:8123/api/websocket",
         "token": "test_token",
     },
+    # Explicit, reachable auth state. The AuthConfig default is mode="password"
+    # with an empty password, which is a permanently-locked-out config (login
+    # returns 503, require_auth rejects everything) — not a realistic fixture.
+    "auth": {"mode": "none"},
     "sensors": {
         "rain": "binary_sensor.regen",
         "wind": "binary_sensor.windalarm",
