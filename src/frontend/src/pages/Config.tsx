@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import {
   type ConfigDoc,
@@ -116,12 +117,15 @@ export default function Config() {
 
   const zoneIds = Object.keys(draft.zones)
 
+  // HA entities grouped by domain, for the searchable entity pickers.
+  const entitiesByDomain: Record<string, EntityInfo[] | undefined> = {
+    switch: switches.data?.entities,
+    sensor: sensors.data?.entities,
+    binary_sensor: binarySensors.data?.entities,
+  }
+
   return (
     <div className="config-page" style={{ maxWidth: 940, display: 'flex', flexDirection: 'column', gap: 22, paddingBottom: 88 }}>
-      {/* Entity datalists for the pickers */}
-      <EntityDatalist id="ents-switch" entities={switches.data?.entities} />
-      <EntityDatalist id="ents-sensor" entities={sensors.data?.entities} />
-      <EntityDatalist id="ents-binary_sensor" entities={binarySensors.data?.entities} />
 
       {/* HA connection */}
       <Section title={t('config.ha', { defaultValue: 'Home Assistant' })}>
@@ -145,11 +149,11 @@ export default function Config() {
       <Section title={t('config.sensors', { defaultValue: 'Sensoren' })}>
         {SENSOR_FIELDS.map((f, i) => (
           <Row key={f.key} label={t(`config.sensor.${f.key}`, { defaultValue: f.fallback })} last={i === SENSOR_FIELDS.length - 1}>
-            <input
-              style={{ ...inputStyle, width: 320 }}
-              list={`ents-${f.domain}`}
+            <EntityCombobox
               value={draft.sensors[f.key]}
-              onChange={(e) => patch((d) => { d.sensors[f.key] = e.target.value })}
+              onChange={(v) => patch((d) => { d.sensors[f.key] = v })}
+              entities={entitiesByDomain[f.domain]}
+              domain={f.domain}
             />
           </Row>
         ))}
@@ -177,8 +181,13 @@ export default function Config() {
                   onChange={(e) => patch((d) => { d.zones[id].label = e.target.value })} />
               </Labeled>
               <Labeled label={t('config.switch', { defaultValue: 'Switch' })}>
-                <input style={{ ...inputStyle, width: 240 }} list="ents-switch" value={z.switch}
-                  onChange={(e) => patch((d) => { d.zones[id].switch = e.target.value })} />
+                <EntityCombobox
+                  value={z.switch}
+                  onChange={(v) => patch((d) => { d.zones[id].switch = v })}
+                  entities={entitiesByDomain.switch}
+                  domain="switch"
+                  width={240}
+                />
               </Labeled>
               <Labeled label={t('config.flowLph', { defaultValue: 'Durchfluss (L/h)' })}>
                 <input type="number" style={{ ...inputStyle, width: 90, textAlign: 'right' }} value={z.flow_lph}
@@ -590,15 +599,137 @@ function DeleteButton({ onClick }: { onClick: () => void }) {
   )
 }
 
-function EntityDatalist({ id, entities }: { id: string; entities?: EntityInfo[] }) {
+// Searchable entity picker populated from Home Assistant. Filters by friendly
+// name or entity_id as you type, shows a type hint, and still accepts a pasted /
+// typed entity_id that isn't in the list. The dropdown is portalled to <body> so
+// the Section's `overflow: hidden` can't clip it.
+function EntityCombobox({ value, onChange, entities, domain, width = 320 }: {
+  value: string
+  onChange: (v: string) => void
+  entities?: EntityInfo[]
+  domain: string
+  width?: number
+}) {
+  const { t } = useTranslation()
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [active, setActive] = useState(0)
+  const [rect, setRect] = useState<DOMRect | null>(null)
+
+  const list = entities ?? []
+  const q = query.trim().toLowerCase()
+  const matches = (
+    q
+      ? list.filter(
+          (e) =>
+            e.entity_id.toLowerCase().includes(q) ||
+            (e.friendly_name?.toLowerCase().includes(q) ?? false),
+        )
+      : list
+  ).slice(0, 50)
+
+  function reposition() {
+    if (inputRef.current) setRect(inputRef.current.getBoundingClientRect())
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const onScroll = () => reposition()
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (wrapRef.current?.contains(target)) return
+      if (document.getElementById('entity-combobox-pop')?.contains(target)) return
+      setOpen(false)
+    }
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onScroll)
+    document.addEventListener('mousedown', onDown)
+    return () => {
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onScroll)
+      document.removeEventListener('mousedown', onDown)
+    }
+  }, [open])
+
+  function choose(e: EntityInfo) {
+    onChange(e.entity_id)
+    setQuery('')
+    setOpen(false)
+  }
+
+  // Commit free text only if it looks like an entity id (so an abandoned search
+  // term doesn't overwrite the saved value).
+  function commitFreeText() {
+    if (query && query.includes('.') && query !== value) onChange(query)
+    setOpen(false)
+  }
+
+  const looksLikeId = q.includes('.')
+
   return (
-    <datalist id={id}>
-      {(entities ?? []).map((e) => (
-        <option key={e.entity_id} value={e.entity_id}>
-          {e.friendly_name ? `${e.friendly_name} (${e.entity_id})` : e.entity_id}
-        </option>
-      ))}
-    </datalist>
+    <div ref={wrapRef} style={{ width, maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <input
+        ref={inputRef}
+        style={{ ...inputStyle, width: '100%' }}
+        value={open ? query : value}
+        placeholder={
+          open && value ? value : t('config.entitySearch', { defaultValue: 'Suchen oder Entity-ID…' })
+        }
+        onFocus={() => { setQuery(''); setActive(0); reposition(); setOpen(true) }}
+        onChange={(e) => { setQuery(e.target.value); setActive(0); if (!open) { reposition(); setOpen(true) } }}
+        onBlur={() => { if (open) commitFreeText() }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, matches.length - 1)) }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)) }
+          else if (e.key === 'Enter') {
+            if (open && matches[active]) { e.preventDefault(); choose(matches[active]) }
+            else if (looksLikeId) { e.preventDefault(); commitFreeText() }
+          } else if (e.key === 'Escape') { setQuery(''); setOpen(false) }
+        }}
+      />
+      <span style={{ fontSize: 10.5, color: 'var(--n-fg-dim)', letterSpacing: '0.02em' }}>
+        {t('config.expects', { defaultValue: 'Erwartet' })}:{' '}
+        {t(`config.entityType.${domain}`, { defaultValue: domain })}
+      </span>
+      {open && rect && createPortal(
+        <div
+          id="entity-combobox-pop"
+          className="n-card"
+          style={{
+            position: 'fixed', top: rect.bottom + 4, left: rect.left, width: rect.width,
+            maxHeight: 260, overflowY: 'auto', padding: 4, zIndex: 1000,
+          }}
+        >
+          {matches.length === 0 ? (
+            <div style={{ padding: '8px 10px', fontSize: 12.5, color: 'var(--n-fg-muted)' }}>
+              {t('config.noEntities', { defaultValue: 'Keine passenden Entitäten' })}
+            </div>
+          ) : (
+            matches.map((e, i) => (
+              <button
+                key={e.entity_id}
+                type="button"
+                onMouseEnter={() => setActive(i)}
+                onMouseDown={(ev) => { ev.preventDefault(); choose(e) }}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px',
+                  background: i === active ? 'var(--n-teal-glow)' : 'transparent',
+                  border: 0, borderRadius: 6, cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontSize: 13, color: 'var(--n-fg)' }}>{e.friendly_name || e.entity_id}</div>
+                {e.friendly_name && (
+                  <div className="mono" style={{ fontSize: 11, color: 'var(--n-fg-muted)' }}>{e.entity_id}</div>
+                )}
+              </button>
+            ))
+          )}
+        </div>,
+        document.body,
+      )}
+    </div>
   )
 }
 

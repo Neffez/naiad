@@ -121,6 +121,14 @@
     "noZones": "No zones",
     "label": "Label",
     "namePlaceholder": "Name",
+    "entitySearch": "Search or entity id…",
+    "expects": "Expects",
+    "noEntities": "No matching entities",
+    "entityType": {
+      "switch": "Switch (on/off)",
+      "sensor": "Sensor (measured value)",
+      "binary_sensor": "Binary sensor (on/off)"
+    },
     "switch": "Switch",
     "flowLph": "Flow (L/h)",
     "sequences": "Sequences",
