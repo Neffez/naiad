@@ -1,6 +1,16 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
+
+from naiad.config import (
+    AutoLoginConfig,
+    FactorsConfig,
+    ForwardHeaderConfig,
+    SensorsConfig,
+    SequenceConfig,
+    ZoneConfig,
+)
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -240,3 +250,62 @@ class UserPreferencesResponse(BaseModel):
 class UpdatePreferencesRequest(BaseModel):
     theme: str | None = None
     language: str | None = None
+
+
+# ── Configuration ───────────────────────────────────────────────────────────────
+
+
+class HAConfigPublic(BaseModel):
+    """HA connection without the secret token."""
+
+    url: str
+    notify_targets: list[str] = []
+
+
+class AuthConfigResponse(BaseModel):
+    mode: Literal["password", "forward_header", "none"]
+    forward_header: ForwardHeaderConfig
+    auto_login: AutoLoginConfig
+    frame_ancestors: list[str]
+    password_set: bool  # whether a password is configured (the value is never exposed)
+
+
+class AuthConfigInput(BaseModel):
+    mode: Literal["password", "forward_header", "none"] = "password"
+    forward_header: ForwardHeaderConfig = ForwardHeaderConfig()
+    auto_login: AutoLoginConfig = AutoLoginConfig()
+    frame_ancestors: list[str] = ["'self'"]
+
+
+class ConfigResponse(BaseModel):
+    ha: HAConfigPublic
+    auth: AuthConfigResponse
+    sensors: SensorsConfig
+    zones: dict[str, ZoneConfig]
+    sequences: dict[str, SequenceConfig]
+    factors: FactorsConfig
+    timezone: str
+    # True after an update that changed ha.url/token: the live HA socket is not
+    # reconnected automatically, so a restart is needed for the connection change.
+    restart_required: bool = False
+
+
+class ConfigUpdateRequest(BaseModel):
+    ha: HAConfigPublic
+    auth: AuthConfigInput
+    sensors: SensorsConfig
+    zones: dict[str, ZoneConfig]
+    sequences: dict[str, SequenceConfig]
+    factors: FactorsConfig
+    timezone: str = "Europe/Berlin"
+
+
+class EntityInfo(BaseModel):
+    entity_id: str
+    friendly_name: str | None
+    state: str
+    domain: str
+
+
+class EntitiesResponse(BaseModel):
+    entities: list[EntityInfo]

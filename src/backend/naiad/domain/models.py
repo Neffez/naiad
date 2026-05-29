@@ -78,6 +78,21 @@ class ActiveRun(SQLModel, table=True):
     triggered_by: str
 
 
+class ConfigDocument(SQLModel, table=True):
+    """Full Naiad configuration persisted as a single JSON document (singleton id=1).
+
+    The database — not config.yaml — is the source of truth once seeded. Secrets
+    (ha.token, auth.password) are stripped before persistence and re-injected from
+    the environment on load; they must come from environment variables only.
+    """
+
+    __tablename__ = "config_document"
+
+    id: int = Field(default=1, primary_key=True)
+    data: str  # JSON-serialized AppConfig with secret fields blanked
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class SequenceOverride(SQLModel, table=True):
     """Per-sequence user overrides. NULL = use YAML default."""
 
