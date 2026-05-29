@@ -33,6 +33,13 @@ auth:
       trusted_referers:
         - "http://homeassistant.local:8123"
       trusted_ips: []  # optional: ["192.168.178.50/32"]
+  # HA add-on ingress trust: requests proxied by the Supervisor ingress are already
+  # authenticated by Home Assistant, so the sidebar needs no Naiad login. This is
+  # additive — it coexists with `mode`, so the direct port still requires a password.
+  # Inert outside the add-on (the trusted source IP never matches).
+  ingress:
+    enabled: true
+    trusted_ip: "172.30.32.2"  # the Supervisor's fixed internal ingress IP
   frame_ancestors:
     - "'self'"
     - "http://homeassistant.local:8123"
