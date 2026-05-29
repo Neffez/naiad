@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import type { SystemStatus } from '../api/client'
 
@@ -6,17 +7,17 @@ interface TodayBlockProps {
   dense?: boolean
 }
 
-function formatRelative(isoDate: string): string {
+function formatRelative(isoDate: string, t: TFunction): string {
   const diff = new Date(isoDate).getTime() - Date.now()
-  if (diff < 0) return 'jetzt'
+  if (diff < 0) return t('time.now')
   const mins = Math.floor(diff / 60_000)
-  if (mins < 60) return `in ${mins} min`
+  if (mins < 60) return t('time.inMin', { n: mins })
   const h = Math.floor(mins / 60)
   const m = mins % 60
-  return m > 0 ? `in ${h} h ${m} min` : `in ${h} h`
+  return m > 0 ? t('time.inHM', { h, m }) : t('time.inH', { h })
 }
 
-function formatWhen(isoDate: string): string {
+function formatWhen(isoDate: string, t: TFunction, lng: string): string {
   const d = new Date(isoDate)
   const now = new Date()
   const isToday = d.toDateString() === now.toDateString()
@@ -24,14 +25,14 @@ function formatWhen(isoDate: string): string {
   tomorrow.setDate(tomorrow.getDate() + 1)
   const isTomorrow = d.toDateString() === tomorrow.toDateString()
 
-  const time = d.toLocaleString('de', { hour: '2-digit', minute: '2-digit' })
-  if (isToday) return `Heute ${time}`
-  if (isTomorrow) return `Morgen ${time}`
-  return d.toLocaleString('de', { weekday: 'short', hour: '2-digit', minute: '2-digit' })
+  const time = d.toLocaleString(lng, { hour: '2-digit', minute: '2-digit' })
+  if (isToday) return t('time.todayAt', { time })
+  if (isTomorrow) return t('time.tomorrowAt', { time })
+  return d.toLocaleString(lng, { weekday: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
 export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const f = sys.today_factor
 
   const breakdown = [
@@ -42,7 +43,7 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
   if (f.wind_blocking_sequences.length > 0) {
     breakdown.push({
       label: t('weather.wind'),
-      delta: `${f.wind_blocking_sequences.join(', ')} blockiert`,
+      delta: t('today.blocked', { seqs: f.wind_blocking_sequences.join(', ') }),
       positive: false,
     })
   }
@@ -66,7 +67,7 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
     >
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span className="n-eyebrow">Nächste Bewässerungen</span>
+        <span className="n-eyebrow">{t('today.title')}</span>
       </div>
 
       {/* Next run — hero card */}
@@ -87,12 +88,12 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
               {sys.next_run.sequence_label}
             </span>
             <span className="mono" style={{ fontSize: 13, color: 'var(--n-teal-300)', fontWeight: 500 }}>
-              {formatRelative(sys.next_run.scheduled_at)}
+              {formatRelative(sys.next_run.scheduled_at, t)}
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <span className="mono" style={{ fontSize: 18, color: 'var(--n-teal-200)', fontWeight: 500 }}>
-              {formatWhen(sys.next_run.scheduled_at)}
+              {formatWhen(sys.next_run.scheduled_at, t, i18n.language)}
             </span>
             <span className="mono" style={{ fontSize: 14, color: 'var(--n-fg-soft)' }}>
               {sys.next_run.duration_min} min
@@ -101,7 +102,7 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
         </div>
       ) : (
         <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--n-line)' }}>
-          <span style={{ fontSize: 14, color: 'var(--n-fg-muted)' }}>Kein Lauf geplant</span>
+          <span style={{ fontSize: 14, color: 'var(--n-fg-muted)' }}>{t('today.noRun')}</span>
         </div>
       )}
 
@@ -119,11 +120,11 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
           }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span className="n-eyebrow" style={{ fontSize: 9.5 }}>Danach</span>
+            <span className="n-eyebrow" style={{ fontSize: 9.5 }}>{t('today.after')}</span>
             <span style={{ fontSize: 16, fontWeight: 500 }}>{sys.after_next.sequence_label}</span>
           </div>
           <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>
-            {formatWhen(sys.after_next.scheduled_at)} · {sys.after_next.duration_min} min
+            {formatWhen(sys.after_next.scheduled_at, t, i18n.language)} · {sys.after_next.duration_min} min
           </span>
         </div>
       )}
@@ -136,7 +137,7 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="n-eyebrow">Anpassung</span>
+            <span className="n-eyebrow">{t('today.adjustment')}</span>
             <span
               style={{
                 fontSize: 10,
@@ -147,7 +148,7 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
               }}
             >
               <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
-              auto
+              {t('today.auto')}
             </span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -187,6 +188,7 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
 }
 
 function DenseTodayBlock({ sys, breakdown }: { sys: SystemStatus; breakdown: { label: string; delta: string; positive: boolean }[] }) {
+  const { t, i18n } = useTranslation()
   const f = sys.today_factor
 
   return (
@@ -207,11 +209,11 @@ function DenseTodayBlock({ sys, breakdown }: { sys: SystemStatus; breakdown: { l
           <div>
             <div style={{ fontSize: 16, fontWeight: 600 }}>{sys.next_run.sequence_label}</div>
             <span className="mono" style={{ fontSize: 12, color: 'var(--n-teal-200)' }}>
-              {formatWhen(sys.next_run.scheduled_at)} · {sys.next_run.duration_min} min
+              {formatWhen(sys.next_run.scheduled_at, t, i18n.language)} · {sys.next_run.duration_min} min
             </span>
           </div>
           <span className="mono" style={{ fontSize: 12, color: 'var(--n-teal-300)', fontWeight: 500 }}>
-            {formatRelative(sys.next_run.scheduled_at)}
+            {formatRelative(sys.next_run.scheduled_at, t)}
           </span>
         </div>
       )}
@@ -221,7 +223,7 @@ function DenseTodayBlock({ sys, breakdown }: { sys: SystemStatus; breakdown: { l
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, opacity: 0.7, padding: '0 2px' }}>
           <span style={{ color: 'var(--n-fg-soft)' }}>{sys.after_next.sequence_label}</span>
           <span className="mono" style={{ color: 'var(--n-fg-muted)' }}>
-            {formatWhen(sys.after_next.scheduled_at)} · {sys.after_next.duration_min} min
+            {formatWhen(sys.after_next.scheduled_at, t, i18n.language)} · {sys.after_next.duration_min} min
           </span>
         </div>
       )}

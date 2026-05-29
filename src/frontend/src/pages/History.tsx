@@ -3,22 +3,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getHistory, type HistoryEntry } from '../api/client'
 import { IClock, IPlay } from '../components/icons'
-
-const SEQUENCE_COLORS: Record<string, string> = {
-  beete: '#7fc8a8',
-  rasen: '#7fc8a8',
-  hochbeet: '#c8a87f',
-  hecke: '#a87fc8',
-  lichtschacht: '#8a9ea6',
-  topf: '#8a9ea6',
-}
-
-function seqColor(id: string): string {
-  for (const [key, color] of Object.entries(SEQUENCE_COLORS)) {
-    if (id.toLowerCase().includes(key)) return color
-  }
-  return 'var(--n-fg-dim)'
-}
+import { seqColor } from '../theme/sequenceColors'
 
 function fmtDur(min: number | null): string {
   if (min == null) return '—'
@@ -26,24 +11,24 @@ function fmtDur(min: number | null): string {
   return `${(min / 60).toFixed(1)} h`
 }
 
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleString('de', {
+function fmtDate(iso: string, lng: string): string {
+  return new Date(iso).toLocaleString(lng, {
     day: '2-digit', month: '2-digit',
     hour: '2-digit', minute: '2-digit',
   })
 }
 
 const COLS = [
-  { key: 'zone', label: 'Zone', flex: 1.3 },
-  { key: 'seq', label: 'Sequenz', flex: 1 },
-  { key: 'started', label: 'Gestartet', flex: 1.2 },
-  { key: 'dur', label: 'Dauer', flex: 0.7 },
-  { key: 'liters', label: 'Liter', flex: 0.7 },
-  { key: 'trigger', label: 'Auslöser', flex: 0.8 },
+  { key: 'zone', labelKey: 'history.zone', flex: 1.3 },
+  { key: 'seq', labelKey: 'history.sequence', flex: 1 },
+  { key: 'started', labelKey: 'history.started', flex: 1.2 },
+  { key: 'dur', labelKey: 'history.duration', flex: 0.7 },
+  { key: 'liters', labelKey: 'history.liters', flex: 0.7 },
+  { key: 'trigger', labelKey: 'history.trigger', flex: 0.8 },
 ] as const
 
 export default function History() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [page, setPage] = useState(1)
 
   const { data } = useQuery({
@@ -63,7 +48,7 @@ export default function History() {
       <div style={{ display: 'flex', gap: 32, marginBottom: 22, flexWrap: 'wrap' }}>
         <SummaryBlock
           label={t('history.last7days', { defaultValue: 'Letzte 7 Tage' })}
-          value={`${Math.round(totalLiters).toLocaleString('de')} L`}
+          value={`${Math.round(totalLiters).toLocaleString(i18n.language)} L`}
         />
         <div className="n-vdivider" style={{ height: 44 }} />
         <SummaryBlock
@@ -87,7 +72,7 @@ export default function History() {
           <span key={c.key} className="n-eyebrow" style={{
             flex: c.flex, fontSize: 11, letterSpacing: '0.05em',
           }}>
-            {c.label}
+            {t(c.labelKey)}
           </span>
         ))}
       </div>
@@ -150,8 +135,9 @@ function SummaryBlock({ label, value }: { label: string; value: string }) {
 }
 
 function HistoryRow({ row }: { row: HistoryEntry }) {
+  const { t, i18n } = useTranslation()
   const isManual = row.triggered_by === 'manual'
-  const triggerLabel = isManual ? 'Manuell' : 'Zeitplan'
+  const triggerLabel = isManual ? t('history.manual') : t('history.scheduled')
 
   return (
     <div
@@ -168,7 +154,7 @@ function HistoryRow({ row }: { row: HistoryEntry }) {
       }}>
         <span style={{
           width: 4, height: 22, borderRadius: 2,
-          background: seqColor(row.sequence_id),
+          background: seqColor(row.sequence_id, 'var(--n-fg-dim)'),
         }} />
         {row.zone_label}
       </span>
@@ -176,7 +162,7 @@ function HistoryRow({ row }: { row: HistoryEntry }) {
         {row.sequence_label}
       </span>
       <span className="mono" style={{ flex: COLS[2].flex, fontSize: 13, color: 'var(--n-fg-soft)' }}>
-        {fmtDate(row.started_at)}
+        {fmtDate(row.started_at, i18n.language)}
       </span>
       <span className="mono" style={{ flex: COLS[3].flex, fontSize: 13, color: 'var(--n-fg-soft)' }}>
         {fmtDur(row.duration_min)}
@@ -194,7 +180,7 @@ function HistoryRow({ row }: { row: HistoryEntry }) {
             color: 'var(--n-danger, #ff6464)',
             fontSize: 11.5, fontWeight: 500,
           }}>
-            ⚠ {row.abort_reason ?? 'aborted'}
+            ⚠ {row.abort_reason ? t(`abortReason.${row.abort_reason}`, { defaultValue: row.abort_reason }) : t('history.aborted')}
           </span>
         ) : (
           <span style={{

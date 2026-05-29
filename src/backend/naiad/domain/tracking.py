@@ -24,14 +24,10 @@ class LiterTracker:
         self._session_factory = session_factory
         self._is_managed = is_managed
         self._on_times: dict[str, datetime] = {}
-        self._entity_to_zone: dict[str, str] = {
-            z.switch: z_id for z_id, z in config.zones.items()
-        }
+        self._entity_to_zone: dict[str, str] = {z.switch: z_id for z_id, z in config.zones.items()}
         ha.subscribe_state_changes(self._handle_state_change)
 
-    async def _handle_state_change(
-        self, entity_id: str, state: dict[str, Any]
-    ) -> None:
+    async def _handle_state_change(self, entity_id: str, state: dict[str, Any]) -> None:
         if entity_id not in self._entity_to_zone:
             return
 
@@ -62,18 +58,22 @@ class LiterTracker:
 
             logger.info(
                 "External valve activity: zone=%s %.1f min %.1f L",
-                zone_id, duration_min, liters,
+                zone_id,
+                duration_min,
+                liters,
             )
 
             with self._session_factory() as session:
-                session.add(RunHistory(
-                    zone_id=zone_id,
-                    sequence_id="",
-                    started_at=on_time,
-                    ended_at=off_time,
-                    duration_min=duration_min,
-                    liters=liters,
-                    triggered_by="external",
-                    aborted=False,
-                ))
+                session.add(
+                    RunHistory(
+                        zone_id=zone_id,
+                        sequence_id="",
+                        started_at=on_time,
+                        ended_at=off_time,
+                        duration_min=duration_min,
+                        liters=liters,
+                        triggered_by="external",
+                        aborted=False,
+                    )
+                )
                 session.commit()

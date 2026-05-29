@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import type { SequenceState } from '../api/client'
-import { ICal, IClock, IPause, IPlay } from './icons'
+import { seqColor } from '../theme/sequenceColors'
+import { ICal, IPause, IPlay, IStop } from './icons'
 import { StatusChip } from './StatusChip'
 
 interface SequenceCardProps {
@@ -8,40 +9,35 @@ interface SequenceCardProps {
   size?: 'regular' | 'rich'
   onStart?: () => void
   onPause?: () => void
+  onStop?: () => void
   onSchedule?: () => void
 }
 
-const SEQUENCE_COLORS: Record<string, string> = {
-  beete: '#7fc8a8',
-  rasen: '#7fc8a8',
-  hochbeet: '#c8a87f',
-  hecke: '#a87fc8',
-  topf: '#8a9ea6',
+function runProgress(run: { elapsed_min: number; remaining_min: number } | null | undefined): number {
+  if (!run) return 0
+  const total = run.elapsed_min + run.remaining_min
+  if (total <= 0) return 0
+  return Math.min(100, (run.elapsed_min / total) * 100)
 }
 
-function seqColor(id: string): string {
-  for (const [key, color] of Object.entries(SEQUENCE_COLORS)) {
-    if (id.toLowerCase().includes(key)) return color
-  }
-  return 'var(--n-teal-500)'
-}
-
-export function SequenceCard({ seq, size = 'regular', onStart, onPause, onSchedule }: SequenceCardProps) {
+export function SequenceCard({ seq, size = 'regular', onStart, onPause, onStop, onSchedule }: SequenceCardProps) {
   if (size === 'rich') {
-    return <SequenceCardRich seq={seq} onStart={onStart} onPause={onPause} onSchedule={onSchedule} />
+    return (
+      <SequenceCardRich seq={seq} onStart={onStart} onPause={onPause} onStop={onStop} onSchedule={onSchedule} />
+    )
   }
-  return <SequenceCardRegular seq={seq} onStart={onStart} onPause={onPause} onSchedule={onSchedule} />
+  return (
+    <SequenceCardRegular seq={seq} onStart={onStart} onPause={onPause} onStop={onStop} onSchedule={onSchedule} />
+  )
 }
 
-function SequenceCardRegular({ seq, onStart, onPause, onSchedule }: Omit<SequenceCardProps, 'size'>) {
-  const { t } = useTranslation()
+function SequenceCardRegular({ seq, onStart, onPause, onStop, onSchedule }: Omit<SequenceCardProps, 'size'>) {
+  const { t, i18n } = useTranslation()
   const isRunning = seq.status === 'running'
   const isPaused = seq.status === 'paused'
   const isDisabled = seq.status === 'disabled' || !seq.enabled
 
-  const progress = seq.current_run
-    ? Math.min(100, (seq.current_run.elapsed_min / (seq.current_run.elapsed_min + seq.current_run.remaining_min)) * 100)
-    : 0
+  const progress = runProgress(seq.current_run)
   const color = seqColor(seq.id)
 
   return (
@@ -78,19 +74,19 @@ function SequenceCardRegular({ seq, onStart, onPause, onSchedule }: Omit<Sequenc
           <div className="n-label" style={{ fontSize: 12 }}>
             {isRunning && seq.current_run && (
               <span>
-                {t('sequence.running', { defaultValue: 'Läuft' })} · {seq.zones.length}{' '}
+                {t('status.running')} · {seq.zones.length}{' '}
                 {seq.zones.length === 1 ? t('sequence.zone') : t('sequence.zones')}
               </span>
             )}
             {isPaused && seq.current_run && (
               <span>
-                {t('status.paused')} · {seq.current_run.remaining_min.toFixed(0)} min Rest
+                {t('status.paused')} · {seq.current_run.remaining_min.toFixed(0)} {t('sequence.minLeft')}
               </span>
             )}
             {seq.status === 'idle' && (
               <span>
                 {seq.next_run_at
-                  ? `${t('sequence.nextRun')} · ${new Date(seq.next_run_at).toLocaleString('de', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`
+                  ? `${t('sequence.nextRun')} · ${new Date(seq.next_run_at).toLocaleString(i18n.language, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`
                   : seq.schedule_label}{' '}
                 · {seq.zones.length} × {seq.basis_min_per_zone} min
               </span>
@@ -130,7 +126,7 @@ function SequenceCardRegular({ seq, onStart, onPause, onSchedule }: Omit<Sequenc
             <i style={{ width: `${progress}%` }} />
           </div>
           <span className="mono" style={{ fontSize: 13, color: 'var(--n-teal-200)', letterSpacing: '-0.01em', fontWeight: 500 }}>
-            {seq.current_run.remaining_min.toFixed(0)} min Rest
+            {seq.current_run.remaining_min.toFixed(0)} {t('sequence.minLeft')}
           </span>
         </div>
       )}
@@ -156,11 +152,13 @@ function SequenceCardRegular({ seq, onStart, onPause, onSchedule }: Omit<Sequenc
         </button>
         <button
           className="n-iconbtn"
+          onClick={onStop}
           disabled={isDisabled || !isRunning}
+          title={t('sequence.stop')}
           style={{
             flex: 1,
             height: 44,
-            opacity: isDisabled ? 0.4 : 1,
+            opacity: isDisabled || !isRunning ? 0.4 : 1,
             gap: 8,
             fontSize: 12.5,
             color: 'var(--n-fg-soft)',
@@ -168,23 +166,21 @@ function SequenceCardRegular({ seq, onStart, onPause, onSchedule }: Omit<Sequenc
             justifyContent: 'flex-start',
           }}
         >
-          <IClock size={15} />
+          <IStop size={15} />
         </button>
       </div>
     </div>
   )
 }
 
-function SequenceCardRich({ seq, onStart, onPause, onSchedule }: Omit<SequenceCardProps, 'size'>) {
-  const { t } = useTranslation()
+function SequenceCardRich({ seq, onStart, onPause, onStop, onSchedule }: Omit<SequenceCardProps, 'size'>) {
+  const { t, i18n } = useTranslation()
   const isRunning = seq.status === 'running'
   const isPaused = seq.status === 'paused'
   const isDisabled = seq.status === 'disabled' || !seq.enabled
   const color = seqColor(seq.id)
 
-  const progress = seq.current_run
-    ? Math.min(100, (seq.current_run.elapsed_min / (seq.current_run.elapsed_min + seq.current_run.remaining_min)) * 100)
-    : 0
+  const progress = runProgress(seq.current_run)
 
   return (
     <div
@@ -223,7 +219,9 @@ function SequenceCardRich({ seq, onStart, onPause, onSchedule }: Omit<SequenceCa
           <span className="n-label" style={{ fontSize: 13 }}>
             {seq.schedule_label} · {seq.zones.length}{' '}
             {seq.zones.length === 1 ? t('sequence.zone') : t('sequence.zones')}
-            {seq.basis_min_per_zone ? ` · regulär ${seq.basis_min_per_zone} min/Zone` : ''}
+            {seq.basis_min_per_zone
+              ? ` · ${t('sequence.regularPerZone', { min: seq.basis_min_per_zone })}`
+              : ''}
           </span>
         </div>
         {!isDisabled && (
@@ -259,7 +257,7 @@ function SequenceCardRich({ seq, onStart, onPause, onSchedule }: Omit<SequenceCa
               <span className="n-bignum" style={{ fontSize: 38, color: 'var(--n-teal-200)' }}>
                 {seq.current_run.remaining_min.toFixed(0)}
               </span>
-              <span style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>min Rest</span>
+              <span style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>{t('sequence.minLeft')}</span>
             </div>
             <span className="mono" style={{ fontSize: 12, color: 'var(--n-fg-muted)' }}>
               {seq.current_run.elapsed_min.toFixed(0)} /{' '}
@@ -280,7 +278,7 @@ function SequenceCardRich({ seq, onStart, onPause, onSchedule }: Omit<SequenceCa
             <span className="mono" style={{ fontSize: 24, fontWeight: 500, color: 'var(--n-paused)' }}>
               {seq.current_run.remaining_min.toFixed(0)} min
             </span>
-            <span style={{ fontSize: 12.5, color: 'var(--n-fg-muted)' }}>Rest, pausiert</span>
+            <span style={{ fontSize: 12.5, color: 'var(--n-fg-muted)' }}>{t('sequence.remainingPaused')}</span>
           </div>
         </div>
       )}
@@ -307,7 +305,7 @@ function SequenceCardRich({ seq, onStart, onPause, onSchedule }: Omit<SequenceCa
               style={{ fontSize: 15, color: seq.factor_pct === 0 ? 'var(--n-paused)' : 'var(--n-fg)', fontWeight: 500 }}
             >
               {seq.next_run_at
-                ? new Date(seq.next_run_at).toLocaleString('de', { weekday: 'short', hour: '2-digit', minute: '2-digit' })
+                ? new Date(seq.next_run_at).toLocaleString(i18n.language, { weekday: 'short', hour: '2-digit', minute: '2-digit' })
                 : seq.schedule_label}
             </span>
           </div>
@@ -403,10 +401,12 @@ function SequenceCardRich({ seq, onStart, onPause, onSchedule }: Omit<SequenceCa
         </button>
         <button
           className="n-iconbtn"
-          disabled={isDisabled}
-          style={{ width: 44, height: 44, flex: '0 0 44px', opacity: isDisabled ? 0.4 : 1 }}
+          onClick={onStop}
+          disabled={isDisabled || !isRunning}
+          title={t('sequence.stop')}
+          style={{ width: 44, height: 44, flex: '0 0 44px', opacity: isDisabled || !isRunning ? 0.4 : 1 }}
         >
-          <IClock size={16} />
+          <IStop size={16} />
         </button>
       </div>
     </div>

@@ -3,7 +3,8 @@
     "dashboard": "Dashboard",
     "planner": "Planner",
     "history": "History",
-    "settings": "Settings"
+    "settings": "Settings",
+    "theme": "Theme"
   },
   "status": {
     "running": "Running",
@@ -15,7 +16,8 @@
   },
   "master": {
     "on": "Active",
-    "off": "Off"
+    "off": "Off",
+    "system": "System"
   },
   "sequence": {
     "start": "Start",
@@ -29,7 +31,10 @@
     "duration": "Duration",
     "confirmStart": "Start now?",
     "startNow": "Start now",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "minLeft": "min left",
+    "remainingPaused": "left, paused",
+    "regularPerZone": "regular {{min}} min/zone"
   },
   "weather": {
     "temp": "Temperature",
@@ -37,7 +42,11 @@
     "wind": "Wind",
     "season": "Season",
     "seasonOff": "Season off",
-    "windOn": "Wind alert"
+    "windOn": "Wind alert",
+    "windActive": "active",
+    "windCalm": "calm",
+    "seasonActive": "active",
+    "seasonPaused": "paused"
   },
   "history": {
     "title": "History",
@@ -47,7 +56,15 @@
     "duration": "Duration",
     "liters": "Liters",
     "trigger": "Trigger",
-    "aborted": "Aborted"
+    "aborted": "Aborted",
+    "manual": "Manual",
+    "scheduled": "Schedule",
+    "last7days": "Last 7 days",
+    "totalRuns": "Total runs",
+    "avgDuration": "Avg. duration / run",
+    "empty": "No runs recorded yet",
+    "prev": "Back",
+    "next": "Next"
   },
   "settings": {
     "title": "Settings",
@@ -57,7 +74,26 @@
     "factorRain": "Rain factor",
     "tokens": "Active tokens",
     "revokeToken": "Revoke",
-    "save": "Save"
+    "save": "Save",
+    "loading": "Loading…",
+    "saved": "Saved",
+    "sequences": "Sequences",
+    "pause": "Pause",
+    "system": "System",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "basisC": "Basis °C",
+    "pctPerC": "% per °C",
+    "minPct": "Min %",
+    "maxPct": "Max %",
+    "thresholdProb": "Threshold prob %",
+    "reduceAbove": "Reduce above mm",
+    "zeroAbove": "Zero above mm",
+    "forecastDecay": "Forecast decay",
+    "version": "Version",
+    "haIntegration": "HA integration",
+    "language": "Language",
+    "logout": "Log out"
   },
   "planner": {
     "title": "Planner",
@@ -88,6 +124,47 @@
     "cancel": "Cancel",
     "start": "Start now"
   },
+  "dashboard": {
+    "title": "Garden",
+    "sequences": "Sequences",
+    "configured": "configured",
+    "running": "running",
+    "ready": "ready",
+    "valvesLive": "Valves · Live",
+    "valves": "Valves",
+    "live": "live",
+    "usage7d": "Usage · 7 days",
+    "usage": "Usage",
+    "thisWeek": "this week",
+    "today": "today"
+  },
+  "today": {
+    "title": "Upcoming waterings",
+    "noRun": "No run scheduled",
+    "after": "Next up",
+    "adjustment": "Adjustment",
+    "auto": "auto",
+    "blocked": "{{seqs}} blocked"
+  },
+  "time": {
+    "now": "now",
+    "inMin": "in {{n}} min",
+    "inH": "in {{h}} h",
+    "inHM": "in {{h}} h {{m}} min",
+    "todayAt": "Today {{time}}",
+    "tomorrowAt": "Tomorrow {{time}}"
+  },
+  "valve": {
+    "live": "Live",
+    "off": "Off"
+  },
+  "abortReason": {
+    "rain": "Rain",
+    "watchdog": "Watchdog",
+    "manual_stop": "Manual stop",
+    "ha_disconnect": "HA disconnected"
+  },
+  "weekdaysShort": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
   "errors": {
     "windBlocked": "Wind alert — sequence blocked",
     "masterOff": "Master switch is off",

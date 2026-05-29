@@ -1,14 +1,22 @@
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
 from naiad.config import AppConfig, SequenceConfig
-from naiad.domain.models import RunHistory
-from naiad.domain.resume import clear_snapshot, load_snapshot, save_pause_snapshot
+from naiad.domain.models import ActiveRun, RunHistory
+from naiad.domain.resume import (
+    clear_active_run,
+    clear_orphan_snapshot,
+    clear_snapshot,
+    load_active_run,
+    load_snapshot,
+    save_active_run,
+    save_pause_snapshot,
+)
 from naiad.drivers.protocol import IValveDriver
 
 logger = logging.getLogger(__name__)
@@ -29,6 +37,9 @@ class NotRunning(Exception):
 class SequenceState(StrEnum):
     IDLE = "idle"
     RUNNING = "running"
+    # NOTE: PAUSED is never returned by SequenceRunner.status() — on pause the run
+    # task ends and the runner goes IDLE. "Paused" is derived at the API layer from
+    # the persisted ResumeSnapshot (see api/sequences.py:_sequence_status).
     PAUSED = "paused"
 
 
@@ -97,6 +108,9 @@ class SequenceRunner:
         self._task: asyncio.Task[None] | None = None
         self._stop_reason: str = "manual_stop"
         self._triggered_by: str = "manual"
+        # Invoked once a run actually opens its first valve (sequence_id, triggered_by),
+        # so "running" is broadcast only after the run is confirmed, not when it's scheduled.
+        self.on_started: Callable[[str, str], Awaitable[None]] | None = None
 
     def is_managed(self, zone_id: str) -> bool:
         if self._running is None:
@@ -105,6 +119,9 @@ class SequenceRunner:
         return seq is not None and zone_id in seq.zones
 
     def status(self) -> SequenceStatus:
+        """Live in-memory state: only IDLE or RUNNING. A paused run reads as IDLE
+        here; the PAUSED state is reconstructed from the ResumeSnapshot at the API
+        layer."""
         if self._running is None:
             return SequenceStatus(state=SequenceState.IDLE)
         return SequenceStatus(
@@ -164,6 +181,7 @@ class SequenceRunner:
         seq = self._config.sequences[sequence_id]
         try:
             with self._session_factory() as session:
+                clear_orphan_snapshot(session, sequence_id)  # abandon a different paused seq
                 snapshot = load_snapshot(session, sequence_id)
 
             start_index = 0
@@ -176,13 +194,21 @@ class SequenceRunner:
                     clear_snapshot(session, sequence_id)
 
             await self._run_zones(
-                sequence_id, seq, factor_pct, start_index, start_remaining, override_min,
+                sequence_id,
+                seq,
+                factor_pct,
+                start_index,
+                start_remaining,
+                override_min,
                 triggered_by,
             )
         except asyncio.CancelledError:
+            # Process shutdown/restart — keep the ActiveRun record so the run can
+            # be recovered on the next boot. Re-raise without clearing it.
             raise
         except Exception:
             logger.exception("Unhandled error in sequence '%s'", sequence_id)
+            self._clear_active_run()
         finally:
             self._running = None
             self._current_zone = None
@@ -205,6 +231,144 @@ class SequenceRunner:
 
         return basis, watchdog
 
+    async def _safe_turn_off(
+        self, zone_cfg: Any, zone_id: str, attempts: int = 3, backoff_s: float = 1.0
+    ) -> bool:
+        """Turn a zone off, retrying on failure. Never raises.
+
+        A failing turn_off (e.g. HA disconnected) must not abort the run loop
+        before history is recorded, and must not leave the loop in a state where
+        the valve is silently assumed off. Returns True if HA confirmed the
+        command, False if the valve may still be physically open.
+        """
+        for attempt in range(1, attempts + 1):
+            try:
+                await self._driver.turn_off(zone_cfg)
+                return True
+            except Exception:
+                logger.warning(
+                    "turn_off failed for zone %s (attempt %d/%d)",
+                    zone_id,
+                    attempt,
+                    attempts,
+                    exc_info=True,
+                )
+                if attempt < attempts:
+                    await asyncio.sleep(backoff_s)
+        logger.error(
+            "Could not turn off zone %s after %d attempts — valve may still be open; "
+            "it will be closed by reconciliation once HA is reachable",
+            zone_id,
+            attempts,
+        )
+        return False
+
+    async def reconcile_valves(self, exclude: str | None = None) -> None:
+        """Turn off every configured zone except the live/excluded one.
+
+        Safety net for valves left ON by a previous process / crash, and for
+        closing a zone after an HA disconnect aborted its run. ``exclude`` keeps
+        a specific zone open (used when resuming a run owns that zone).
+        Idempotent: turning off an already-off switch is harmless.
+        """
+        running_zone = self._current_zone.zone_id if self._current_zone else None
+        for zone_id, zone_cfg in self._config.zones.items():
+            if zone_id in (running_zone, exclude):
+                continue
+            await self._safe_turn_off(zone_cfg, zone_id, attempts=1)
+
+    def _clear_active_run(self) -> None:
+        with self._session_factory() as session:
+            clear_active_run(session)
+
+    async def recover_run(self) -> str:
+        """Recover (or clean up) an in-flight run after a crash/restart.
+
+        Called once when HA first becomes reachable. Policy ("zone duration as
+        the bound"): if the current zone's planned window has **not** elapsed,
+        resume it for the remaining time and continue the following zones;
+        otherwise the run is stale → close all valves and discard it. In every
+        non-resume branch any orphaned valve is also closed. Returns the action
+        taken (for logging/tests).
+        """
+        with self._session_factory() as session:
+            record = load_active_run(session)
+
+        if record is None:
+            await self.reconcile_valves()
+            return "reconciled"
+
+        seq = self._config.sequences.get(record.sequence_id)
+        if seq is None or record.zone_index >= len(seq.zones):
+            logger.warning(
+                "Crash recovery: discarding active run for unknown sequence/zone '%s'",
+                record.sequence_id,
+            )
+            self._clear_active_run()
+            await self.reconcile_valves()
+            return "discarded"
+
+        started = record.zone_started_at
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        elapsed = (datetime.now(UTC) - started).total_seconds() / 60.0
+
+        if elapsed >= record.zone_planned_min:
+            logger.warning(
+                "Crash recovery: run '%s' is stale (zone elapsed %.1f >= planned %.1f min) "
+                "— closing valves and discarding",
+                record.sequence_id,
+                elapsed,
+                record.zone_planned_min,
+            )
+            self._clear_active_run()
+            await self.reconcile_valves()
+            return "closed_stale"
+
+        remaining = max(0.0, min(record.zone_planned_min, record.zone_planned_min - elapsed))
+        resuming_zone = seq.zones[record.zone_index]
+        logger.info(
+            "Crash recovery: resuming '%s' at zone '%s' (#%d) for %.1f more min",
+            record.sequence_id,
+            resuming_zone,
+            record.zone_index,
+            remaining,
+        )
+
+        self._running = record.sequence_id  # claim the mutex before awaiting
+        await self.reconcile_valves(exclude=resuming_zone)  # close any other orphan valves
+        self._stop_event.clear()
+        self._pause_event.clear()
+        self._stop_reason = "manual_stop"
+        self._triggered_by = "resume"
+        self._task = asyncio.create_task(
+            self._recover_execute(record, remaining),
+            name=f"seq-resume-{record.sequence_id}",
+        )
+        return "resumed"
+
+    async def _recover_execute(self, record: ActiveRun, remaining_min: float) -> None:
+        seq = self._config.sequences[record.sequence_id]
+        try:
+            await self._run_zones(
+                record.sequence_id,
+                seq,
+                factor_pct=100.0,
+                start_index=record.zone_index,
+                start_remaining=remaining_min,
+                override_min=record.run_duration_min,
+                triggered_by="resume",
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Unhandled error during crash recovery of '%s'", record.sequence_id)
+            self._clear_active_run()
+        finally:
+            self._running = None
+            self._current_zone = None
+            self._task = None
+
     async def _run_zones(
         self,
         sequence_id: str,
@@ -224,6 +388,7 @@ class SequenceRunner:
             basis = effective_basis * factor_pct / 100.0
             duration_min = max(float(lo), min(float(hi), basis))
 
+        announced = False
         for i, zone_id in enumerate(seq.zones):
             if i < start_index:
                 continue
@@ -240,15 +405,27 @@ class SequenceRunner:
             self._current_zone = ZoneProgress(
                 zone_id=zone_id, started_at=started_at, duration_min=zone_duration
             )
+            # Persist the in-flight state so a hard crash can recover (see ActiveRun).
+            with self._session_factory() as session:
+                save_active_run(
+                    session, sequence_id, i, started_at, zone_duration, duration_min, triggered_by
+                )
             await self._driver.turn_on(zone_cfg)
             logger.info("zone %s ON  (%.1f min)", zone_id, zone_duration)
+
+            if not announced and self.on_started is not None:
+                announced = True
+                try:
+                    await self.on_started(sequence_id, triggered_by)
+                except Exception:
+                    logger.exception("on_started callback failed for '%s'", sequence_id)
 
             result = await _wait_zone(
                 zone_duration, effective_watchdog, self._stop_event, self._pause_event
             )
 
             off_time = datetime.now(UTC)
-            await self._driver.turn_off(zone_cfg)
+            await self._safe_turn_off(zone_cfg, zone_id)
             logger.info("zone %s OFF result=%s", zone_id, result)
 
             actual_min = (off_time - started_at).total_seconds() / 60.0
@@ -262,26 +439,34 @@ class SequenceRunner:
                 abort_reason = self._stop_reason
 
             with self._session_factory() as session:
-                session.add(RunHistory(
-                    zone_id=zone_id,
-                    sequence_id=sequence_id,
-                    started_at=started_at,
-                    ended_at=off_time,
-                    duration_min=actual_min,
-                    liters=liters,
-                    triggered_by=triggered_by,
-                    aborted=aborted,
-                    abort_reason=abort_reason,
-                ))
+                session.add(
+                    RunHistory(
+                        zone_id=zone_id,
+                        sequence_id=sequence_id,
+                        started_at=started_at,
+                        ended_at=off_time,
+                        duration_min=actual_min,
+                        liters=liters,
+                        triggered_by=triggered_by,
+                        aborted=aborted,
+                        abort_reason=abort_reason,
+                    )
+                )
                 session.commit()
 
             if result == _STOP:
+                self._clear_active_run()
                 return
             if result == _WATCHDOG:
                 logger.warning("Watchdog triggered for zone %s", zone_id)
+                self._clear_active_run()
                 return
             if result == _PAUSE:
                 remaining = zone_duration - actual_min
                 with self._session_factory() as session:
                     save_pause_snapshot(session, sequence_id, zone_id, i, max(0.0, remaining))
+                self._clear_active_run()
                 return
+
+        # All zones completed normally.
+        self._clear_active_run()

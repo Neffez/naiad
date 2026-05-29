@@ -141,3 +141,41 @@ def test_no_factor_override_uses_yaml(minimal_config: AppConfig, factor_engine) 
     with Session(factor_engine) as session:
         result = compute_factors(_snap(), minimal_config, session)
     assert result.factor_pct == pytest.approx(100.0)
+
+
+# ── Override validation (C-2 regression) ──────────────────────────────────────
+
+
+def test_merge_factor_config_rejects_inverted_rain_thresholds(
+    minimal_config: AppConfig,
+) -> None:
+    """An override with reduce_above_mm >= zero_above_mm must raise, so the
+    settings endpoint can reject it instead of bricking compute_factors."""
+    from pydantic import ValidationError
+
+    from naiad.domain.factors import merge_factor_config
+
+    bad = FactorOverride(id=1, rain_reduce_above_mm=30.0, rain_zero_above_mm=20.0)
+    with pytest.raises(ValidationError):
+        merge_factor_config(minimal_config, bad)
+
+
+def test_merge_factor_config_rejects_out_of_range_decay(
+    minimal_config: AppConfig,
+) -> None:
+    from pydantic import ValidationError
+
+    from naiad.domain.factors import merge_factor_config
+
+    bad = FactorOverride(id=1, rain_forecast_decay=2.0)
+    with pytest.raises(ValidationError):
+        merge_factor_config(minimal_config, bad)
+
+
+def test_merge_factor_config_accepts_valid_override(minimal_config: AppConfig) -> None:
+    from naiad.domain.factors import merge_factor_config
+
+    good = FactorOverride(id=1, rain_reduce_above_mm=2.0, rain_zero_above_mm=15.0)
+    temp, rain = merge_factor_config(minimal_config, good)
+    assert rain.reduce_above_mm == 2.0
+    assert rain.zero_above_mm == 15.0

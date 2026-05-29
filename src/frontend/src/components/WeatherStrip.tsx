@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import type { SystemStatus } from '../api/client'
 import { ICloud, IDrop, ISun, IWind } from './icons'
 
@@ -7,12 +8,13 @@ interface WeatherStripProps {
 }
 
 export function WeatherStrip({ sys, compact = false }: WeatherStripProps) {
+  const { t } = useTranslation()
   const w = sys.weather
   const items = [
     { icon: <ISun size={14} />, value: w.temp_c != null ? `${w.temp_c.toFixed(1)}°` : '—' },
     { icon: <IDrop size={14} />, value: `${w.rain_24h_mm.toFixed(1)} mm` },
-    { icon: <IWind size={14} />, value: w.wind_label === 'on' ? 'aktiv' : 'ruhig' },
-    { icon: <ICloud size={14} />, value: w.season_active ? 'aktiv' : 'Pause' },
+    { icon: <IWind size={14} />, value: w.wind_label === 'on' ? t('weather.windActive') : t('weather.windCalm') },
+    { icon: <ICloud size={14} />, value: w.season_active ? t('weather.seasonActive') : t('weather.seasonPaused') },
   ]
 
   return (

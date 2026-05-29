@@ -5,6 +5,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session
 
+from naiad.auth_rules import forward_header_ok
 from naiad.config import AppConfig
 from naiad.database import get_session
 from naiad.domain.models import AuthToken
@@ -27,16 +28,24 @@ def get_runner(request: Request) -> SequenceRunner:
 
 
 def get_scheduler(request: Request) -> AsyncIOScheduler:
-    return request.app.state.scheduler  # type: ignore[no-any-return]
+    return request.app.state.scheduler
 
 
 async def require_auth(
+    request: Request,
     config: AppConfig = Depends(get_config),
     session: Session = Depends(get_session),
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> None:
     if config.auth.mode == "none":
         return
+
+    if config.auth.mode == "forward_header":
+        client_ip = request.client.host if request.client else ""
+        header_value = request.headers.get(config.auth.forward_header.header, "")
+        if forward_header_ok(header_value, client_ip, config.auth.forward_header):
+            return
+        raise HTTPException(status_code=401, detail="Forward-auth header missing or untrusted")
 
     if credentials is None:
         raise HTTPException(status_code=401, detail="Missing Bearer token")

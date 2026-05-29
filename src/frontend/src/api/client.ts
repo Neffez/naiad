@@ -12,6 +12,11 @@ export function clearToken(): void {
   localStorage.removeItem('naiad_token')
 }
 
+export function logout(): void {
+  clearToken()
+  window.dispatchEvent(new Event('naiad:unauthorized'))
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -29,8 +34,10 @@ async function request<T>(
   })
 
   if (res.status === 401 && !opts?.skipReloadOn401) {
+    // Surface re-login via app state instead of a hard reload, so unsaved input
+    // (Settings/Planner) isn't silently discarded. useAuth listens for this.
     clearToken()
-    window.location.reload()
+    window.dispatchEvent(new Event('naiad:unauthorized'))
   }
 
   if (!res.ok) {
@@ -126,6 +133,7 @@ export interface SystemStatus {
   after_next: NextRun | null
   liters_today: number
   liters_week: number
+  week_series: number[]
 }
 
 export interface NextRun {
@@ -177,8 +185,10 @@ export interface HistoryParams {
 export interface Plan {
   id: string
   sequence_id: string
+  sequence_label: string
   scheduled_at: string
   duration_min: number | null
+  estimated_liters: number | null
   created_at: string
 }
 

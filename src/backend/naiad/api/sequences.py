@@ -10,22 +10,22 @@ from naiad.api.schemas import (
     StartSequenceRequest,
     ZoneSummaryResponse,
 )
+from naiad.api.ws import broadcast_sequence_changed
 from naiad.config import AppConfig
 from naiad.database import get_session
 from naiad.dependencies import get_config, get_ha_client, get_runner, get_scheduler, require_auth
-from naiad.domain.factors import compute_factors
+from naiad.domain.factors import FactorResult, compute_factors
 from naiad.domain.models import ResumeSnapshot, SequenceOverride
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.domain.sequences import MutexConflict, NotRunning, SequenceRunner, SequenceState
 from naiad.ha_client import HAClient
-
-from naiad.api.ws import broadcast_sequence_changed
 
 router = APIRouter(prefix="/sequences", tags=["sequences"])
 
 
 def _master_on(session: Session) -> bool:
     from naiad.domain.models import UserPreference
+
     pref = session.get(UserPreference, "master_on")
     return pref is None or pref.value == "1"
 
@@ -54,7 +54,8 @@ def _get_next_run_at(scheduler: AsyncIOScheduler, seq_id: str) -> datetime | Non
     job = scheduler.get_job(f"cron-{seq_id}")
     if job is None:
         return None
-    return job.next_run_time
+    next_run: datetime | None = job.next_run_time
+    return next_run
 
 
 def _build_current_run(
@@ -91,13 +92,12 @@ def _build_state(
     config: AppConfig,
     ha: HAClient,
     scheduler: AsyncIOScheduler,
+    factors: FactorResult,
 ) -> SequenceStateResponse:
     seq_cfg = config.sequences[seq_id]
     status = _sequence_status(seq_id, runner, session, config)
     override = session.get(SequenceOverride, seq_id)
 
-    snapshot = read_sensor_snapshot(ha, config)
-    factors = compute_factors(snapshot, config, session)
     factor_pct = int(round(factors.factor_pct))
 
     notes: list[str] = []
@@ -149,8 +149,10 @@ async def list_sequences(
     session: Session = Depends(get_session),
     scheduler: AsyncIOScheduler = Depends(get_scheduler),
 ) -> list[SequenceStateResponse]:
+    # Factors are sequence-independent — compute the sensor snapshot once.
+    factors = compute_factors(read_sensor_snapshot(ha, config), config, session)
     return [
-        _build_state(seq_id, runner, session, config, ha, scheduler)
+        _build_state(seq_id, runner, session, config, ha, scheduler, factors)
         for seq_id in config.sequences
     ]
 
@@ -167,7 +169,8 @@ async def get_sequence(
 ) -> SequenceStateResponse:
     if sequence_id not in config.sequences:
         raise HTTPException(404, f"Sequence '{sequence_id}' not found")
-    return _build_state(sequence_id, runner, session, config, ha, scheduler)
+    factors = compute_factors(read_sensor_snapshot(ha, config), config, session)
+    return _build_state(sequence_id, runner, session, config, ha, scheduler, factors)
 
 
 @router.post("/{sequence_id}/start", status_code=202)
@@ -179,7 +182,7 @@ async def start_sequence(
     runner: SequenceRunner = Depends(get_runner),
     ha: HAClient = Depends(get_ha_client),
     session: Session = Depends(get_session),
-) -> dict:
+) -> dict[str, str]:
     if sequence_id not in config.sequences:
         raise HTTPException(404, f"Sequence '{sequence_id}' not found")
 
@@ -198,7 +201,7 @@ async def start_sequence(
     if seq_cfg.wind_blocks and snapshot.wind_on:
         raise HTTPException(422, "Wind sensor active — sequence is wind-blocked")
 
-    factors = compute_factors(snapshot, config)
+    factors = compute_factors(snapshot, config, session)
     override_min = float(body.duration_min) if body and body.duration_min is not None else None
 
     try:
@@ -206,7 +209,7 @@ async def start_sequence(
     except MutexConflict as e:
         raise HTTPException(409, str(e)) from e
 
-    await broadcast_sequence_changed(sequence_id, "running", "manual")
+    # "running" is broadcast by the runner's on_started callback once a valve opens.
     return {"started": sequence_id}
 
 
@@ -215,7 +218,7 @@ async def pause_sequence(
     sequence_id: str,
     _: None = Depends(require_auth),
     runner: SequenceRunner = Depends(get_runner),
-) -> dict:
+) -> dict[str, str]:
     status = runner.status()
     if status.sequence_id != sequence_id:
         raise HTTPException(409, f"Sequence '{sequence_id}' is not currently running")
@@ -232,7 +235,7 @@ async def stop_sequence(
     sequence_id: str,
     _: None = Depends(require_auth),
     runner: SequenceRunner = Depends(get_runner),
-) -> dict:
+) -> dict[str, str]:
     status = runner.status()
     if status.sequence_id != sequence_id:
         raise HTTPException(409, f"Sequence '{sequence_id}' is not currently running")
