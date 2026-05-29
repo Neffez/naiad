@@ -1,4 +1,7 @@
+import asyncio
+import copy
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -6,7 +9,9 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from naiad.api.auth import _auto_login_enabled, _check_password, _match_by_prefix
 from naiad.config import AppConfig
+from naiad.dependencies import require_auth
 from naiad.domain.models import AuthToken, UserPreference
+from tests.conftest import MINIMAL_CONFIG_DATA
 
 
 def _token(value: str) -> AuthToken:
@@ -82,3 +87,34 @@ def test_check_password_bcrypt_and_plain() -> None:
     assert _check_password("wrong", hashed) is False
     assert _check_password("plain", "plain") is True
     assert _check_password("plain", "") is False
+
+
+# ── require_auth ingress trust (Phase 6d) ─────────────────────────────────────
+
+
+def _password_config() -> AppConfig:
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["auth"] = {"mode": "password", "password": ""}  # locked-out without ingress
+    return AppConfig.model_validate(data)
+
+
+def _fake_request(client_ip: str, headers: dict[str, str]) -> SimpleNamespace:
+    return SimpleNamespace(client=SimpleNamespace(host=client_ip), headers=headers)
+
+
+def test_require_auth_passes_for_ingress_request() -> None:
+    """A Supervisor-proxied request is accepted in password mode without a token."""
+    config = _password_config()
+    request = _fake_request("172.30.32.2", {"X-Ingress-Path": "/api/hassio_ingress/tok"})
+    with _mem_session() as session:
+        # Should not raise despite mode=password and no credentials.
+        assert asyncio.run(require_auth(request, config, session, None)) is None
+
+
+def test_require_auth_rejects_direct_request_without_token() -> None:
+    """The direct port (no ingress headers, real client IP) still needs a token."""
+    config = _password_config()
+    request = _fake_request("192.168.1.50", {})
+    with _mem_session() as session, pytest.raises(HTTPException) as exc:
+        asyncio.run(require_auth(request, config, session, None))
+    assert exc.value.status_code == 401
