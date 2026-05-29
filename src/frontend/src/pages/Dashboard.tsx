@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import {
   getSequences,
   getStatus,
@@ -26,6 +27,7 @@ import { useWebSocket } from '../hooks/useWebSocket'
 export default function Dashboard() {
   const { t } = useTranslation()
   const qc = useQueryClient()
+  const navigate = useNavigate()
 
   const { data: status } = useQuery<SystemStatus>({
     queryKey: ['status'],
@@ -149,8 +151,9 @@ export default function Dashboard() {
             <EmergencyStop onFire={handleEmergency} />
           </div>
 
-          <div className="mobile-only">
+          <div className="mobile-only" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <MasterToggle on={masterOn} onToggle={() => masterMut.mutate(!masterOn)} compact />
+            <EmergencyStop onFire={handleEmergency} compact />
           </div>
         </div>
       </header>
@@ -210,6 +213,7 @@ export default function Dashboard() {
                 onStart={() => setConfirmSeq(seq)}
                 onPause={() => (seq.status === 'running' ? handlePause(seq.id) : handleStart(seq))}
                 onStop={() => handleStop(seq.id)}
+                onSchedule={() => navigate(`/planner?seq=${seq.id}`)}
               />
             ))}
           </div>
@@ -278,6 +282,7 @@ export default function Dashboard() {
               onStart={() => setConfirmSeq(seq)}
               onPause={() => (seq.status === 'running' ? handlePause(seq.id) : handleStart(seq))}
               onStop={() => handleStop(seq.id)}
+              onSchedule={() => navigate(`/planner?seq=${seq.id}`)}
             />
           ))}
         </section>
