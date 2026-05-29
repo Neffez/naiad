@@ -121,6 +121,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info(
         "Config loaded", extra={"zones": len(config.zones), "sequences": len(config.sequences)}
     )
+    if config.auth.mode == "none":
+        logger.warning(
+            "Authentication is DISABLED (auth.mode='none'): the API is open to anyone who "
+            "can reach it. This is only safe behind Home Assistant ingress or a trusted "
+            "reverse proxy. Configure password or forward_header auth before exposing Naiad."
+        )
 
     ha = HAClient(url=config.ha.url, token=config.ha.token)
     await ha.start()
