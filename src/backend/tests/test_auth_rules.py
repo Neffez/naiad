@@ -1,5 +1,5 @@
-from naiad.auth_rules import forward_header_ok, referer_matches
-from naiad.config import ForwardHeaderConfig
+from naiad.auth_rules import forward_header_ok, ingress_request_ok, referer_matches
+from naiad.config import ForwardHeaderConfig, IngressConfig
 
 
 def test_forward_header_requires_header() -> None:
@@ -32,3 +32,34 @@ def test_referer_origin_match() -> None:
 def test_referer_empty_inputs() -> None:
     assert referer_matches("", ["naiad.local"]) is False
     assert referer_matches("https://naiad.local/", []) is False
+
+
+# ── Ingress trust ──────────────────────────────────────────────────────────────
+
+
+def test_ingress_trusts_supervisor_with_header() -> None:
+    cfg = IngressConfig()  # enabled, trusted_ip = 172.30.32.2
+    assert ingress_request_ok("172.30.32.2", "/api/hassio_ingress/abc", cfg) is True
+
+
+def test_ingress_requires_header() -> None:
+    # The Supervisor always sets X-Ingress-Path; a bare request from that IP without
+    # it is not treated as ingress.
+    assert ingress_request_ok("172.30.32.2", "", IngressConfig()) is False
+
+
+def test_ingress_requires_supervisor_ip() -> None:
+    # A LAN client (e.g. the direct port) cannot spoof the source IP, so even with a
+    # forged header it is not trusted.
+    assert ingress_request_ok("192.168.1.50", "/api/hassio_ingress/abc", IngressConfig()) is False
+
+
+def test_ingress_can_be_disabled() -> None:
+    cfg = IngressConfig(enabled=False)
+    assert ingress_request_ok("172.30.32.2", "/api/hassio_ingress/abc", cfg) is False
+
+
+def test_ingress_custom_trusted_ip() -> None:
+    cfg = IngressConfig(trusted_ip="10.0.0.2")
+    assert ingress_request_ok("10.0.0.2", "/x", cfg) is True
+    assert ingress_request_ok("172.30.32.2", "/x", cfg) is False
