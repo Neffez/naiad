@@ -162,7 +162,7 @@ export default function Config() {
           <AddButton
             label={t('config.addZone', { defaultValue: 'Zone hinzufügen' })}
             existing={zoneIds}
-            onAdd={(id) => patch((d) => { d.zones[id] = { label: id, switch: '', flow_lph: 0 } })}
+            onAdd={(id, name) => patch((d) => { d.zones[id] = { label: name, switch: '', flow_lph: 0 } })}
           />
         }
       >
@@ -197,9 +197,9 @@ export default function Config() {
           <AddButton
             label={t('config.addSequence', { defaultValue: 'Sequenz hinzufügen' })}
             existing={Object.keys(draft.sequences)}
-            onAdd={(id) => patch((d) => {
+            onAdd={(id, name) => patch((d) => {
               d.sequences[id] = {
-                label: id, zones: [], basis_min_per_zone: 30, range: [5, 240],
+                label: name, zones: [], basis_min_per_zone: 30, range: [5, 240],
                 watchdog_min: 60, schedule: { cron: '0 6 * * *' }, enabled: false, wind_blocks: false,
               }
             })}
@@ -215,6 +215,7 @@ export default function Config() {
             id={id}
             seq={s}
             zoneIds={zoneIds}
+            zones={draft.zones}
             last={i === arr.length - 1}
             onChange={(mut) => patch((d) => mut(d.sequences[id]))}
             onDelete={() => patch((d) => { delete d.sequences[id] })}
@@ -344,10 +345,11 @@ const SENSOR_FIELDS: { key: keyof ConfigDoc['sensors']; domain: string; fallback
 
 // ── Sequence editor ─────────────────────────────────────────────────────────────
 
-function SequenceEditor({ id, seq, zoneIds, last, onChange, onDelete }: {
+function SequenceEditor({ id, seq, zoneIds, zones, last, onChange, onDelete }: {
   id: string
   seq: SequenceConfig
   zoneIds: string[]
+  zones: ConfigDoc['zones']
   last: boolean
   onChange: (mut: (s: SequenceConfig) => void) => void
   onDelete: () => void
@@ -384,7 +386,7 @@ function SequenceEditor({ id, seq, zoneIds, last, onChange, onDelete }: {
                 onClick={() => onChange((s) => {
                   s.zones = active ? s.zones.filter((z) => z !== zid) : [...s.zones, zid]
                 })}>
-                {active ? `${seq.zones.indexOf(zid) + 1}. ` : ''}{zid}
+                {active ? `${seq.zones.indexOf(zid) + 1}. ` : ''}{zones[zid]?.label || zid}
               </button>
             )
           })}
@@ -522,11 +524,40 @@ function StringList({ values, placeholder, onChange }: {
   )
 }
 
-function AddButton({ label, existing, onAdd }: { label: string; existing: string[]; onAdd: (id: string) => void }) {
+// Derive an internal snake_case id from a human name. Umlauts/diacritics are
+// stripped (NFKD), everything non-alphanumeric collapses to single underscores.
+function slugify(name: string): string {
+  return name
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
+// Ensure the generated id doesn't collide with an existing one.
+function uniqueId(base: string, existing: string[]): string {
+  const root = base || 'item'
+  if (!existing.includes(root)) return root
+  let n = 2
+  while (existing.includes(`${root}_${n}`)) n++
+  return `${root}_${n}`
+}
+
+function AddButton({ label, existing, onAdd }: {
+  label: string; existing: string[]; onAdd: (id: string, name: string) => void
+}) {
   const { t } = useTranslation()
   const [adding, setAdding] = useState(false)
-  const [id, setId] = useState('')
-  const valid = /^[a-z0-9_]+$/.test(id) && !existing.includes(id)
+  const [name, setName] = useState('')
+  // The user types a name; the id is generated for them. Valid as long as the
+  // name yields a non-empty slug.
+  const valid = slugify(name).length > 0
+  function submit() {
+    if (!valid) return
+    onAdd(uniqueId(slugify(name), existing), name.trim())
+    setName('')
+    setAdding(false)
+  }
   if (!adding) {
     return (
       <button className="n-btn" style={{ height: 32, padding: '0 12px', fontSize: 12.5 }} onClick={() => setAdding(true)}>
@@ -536,15 +567,16 @@ function AddButton({ label, existing, onAdd }: { label: string; existing: string
   }
   return (
     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-      <input autoFocus style={{ ...inputStyle, width: 150, height: 32 }} value={id} placeholder="id_snake_case"
-        onChange={(e) => setId(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && valid) { onAdd(id); setId(''); setAdding(false) } }} />
+      <input autoFocus style={{ ...inputStyle, width: 180, height: 32 }} value={name}
+        placeholder={t('config.namePlaceholder', { defaultValue: 'Bezeichnung' })}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />
       <button className="n-btn primary" disabled={!valid} style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
-        onClick={() => { onAdd(id); setId(''); setAdding(false) }}>
+        onClick={submit}>
         {t('config.add', { defaultValue: 'OK' })}
       </button>
       <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12.5 }}
-        onClick={() => { setId(''); setAdding(false) }}>✕</button>
+        onClick={() => { setName(''); setAdding(false) }}>✕</button>
     </div>
   )
 }
