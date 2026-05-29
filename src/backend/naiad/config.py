@@ -38,11 +38,27 @@ class ForwardHeaderConfig(BaseModel):
     trusted_proxies: list[str] = []
 
 
+class IngressConfig(BaseModel):
+    """Home Assistant ingress trust.
+
+    When enabled, requests proxied by the Supervisor ingress are treated as already
+    authenticated by Home Assistant — no Naiad login is needed for the sidebar.
+    This rule is additive: it coexists with the configured ``mode`` so the direct
+    port (which does not pass through HA auth) still requires a password.
+    """
+
+    enabled: bool = True
+    # The Supervisor's fixed internal IP for the ingress proxy. A LAN client cannot
+    # forge this source address over TCP, which is what makes the trust safe.
+    trusted_ip: str = "172.30.32.2"
+
+
 class AuthConfig(BaseModel):
     mode: Literal["password", "forward_header", "none"] = "password"
     password: str = ""  # plain text or bcrypt hash ($2b$...)
     forward_header: ForwardHeaderConfig = ForwardHeaderConfig()
     auto_login: AutoLoginConfig = AutoLoginConfig()
+    ingress: IngressConfig = IngressConfig()
     frame_ancestors: list[str] = ["'self'"]
 
 
