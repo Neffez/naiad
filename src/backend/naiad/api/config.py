@@ -73,7 +73,8 @@ def build_validated_config(data: dict[str, Any], current: AppConfig) -> AppConfi
     """Validate an incoming config dict, carrying secrets through from ``current``.
 
     Raises pydantic ValidationError on invalid input (shape or cross-field rules
-    such as unknown zone references / range / timezone).
+    such as unknown zone references / range / timezone), and ValueError when the
+    request would lock everyone out (see the password guard below).
     """
     data = dict(data)
     # Tolerate a naive GET→edit→PUT round-trip: drop response-only fields that
@@ -83,7 +84,19 @@ def build_validated_config(data: dict[str, Any], current: AppConfig) -> AppConfi
     auth = {**data.get("auth", {}), "password": current.auth.password}
     auth.pop("password_set", None)
     data["auth"] = auth
-    return AppConfig.model_validate(data)
+    config = AppConfig.model_validate(data)
+
+    # Lockout guard: password auth requires a password, but the password is
+    # environment-managed and never accepted from clients. Switching to
+    # mode=password without one configured would make /auth/login return 503 and
+    # require_auth reject every request — locking the user out of the UI (and the
+    # very endpoint needed to undo it). Reject it up front instead.
+    if config.auth.mode == "password" and not config.auth.password:
+        raise ValueError(
+            "auth.mode='password' requires a password, but none is configured. "
+            "Set NAIAD_PASSWORD_HASH in the environment before enabling password auth."
+        )
+    return config
 
 
 def _persist_and_reload(
@@ -97,7 +110,9 @@ def _persist_and_reload(
     tracker: LiterTracker,
 ) -> bool:
     """Persist a validated config and apply it live. Returns restart_required."""
-    restart_required = fresh.ha.url != current.ha.url or fresh.ha.token != current.ha.token
+    # The token is environment-managed and carried through unchanged, so only a
+    # URL change can require a reconnect (the live HA socket is not re-dialed).
+    restart_required = fresh.ha.url != current.ha.url
     with session_factory() as session:
         save_config_doc(session, fresh)
     apply_reloaded_config(
@@ -138,7 +153,7 @@ async def replace_configuration(
         raise HTTPException(409, "Cannot change configuration while a sequence is running")
     try:
         fresh = build_validated_config(body.model_dump(), config)
-    except ValidationError as e:
+    except (ValidationError, ValueError) as e:
         raise HTTPException(422, f"Invalid configuration: {e}") from e
 
     restart_required = _persist_and_reload(
@@ -188,7 +203,7 @@ async def import_configuration(
         raise HTTPException(400, "Uploaded config must be a YAML/JSON object")
     try:
         fresh = build_validated_config(data, config)
-    except ValidationError as e:
+    except (ValidationError, ValueError) as e:
         raise HTTPException(422, f"Invalid configuration: {e}") from e
 
     restart_required = _persist_and_reload(
