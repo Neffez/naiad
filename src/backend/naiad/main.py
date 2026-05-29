@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from naiad import __version__
 from naiad.config import is_addon_context, resolve_ha_connection
 from naiad.config_store import load_or_seed_config
 from naiad.database import create_tables, get_engine
@@ -221,7 +222,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="Naiad",
-    version="0.1.0",
+    version=__version__,
     description="Garden irrigation controller for Home Assistant",
     lifespan=_lifespan,
     docs_url="/api/docs",
