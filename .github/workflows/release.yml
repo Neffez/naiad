@@ -15,6 +15,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Stamp version from tag
+        # The git tag is the single source of truth for the app version. Bake it
+        # into the package before the image build (the Docker context has no .git),
+        # so the Settings UI / OpenAPI report the released version automatically.
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/^__version__ = .*/__version__ = \"${VERSION}\"/" src/backend/naiad/__init__.py
+          echo "Stamped __version__ = ${VERSION}"
+
       - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
