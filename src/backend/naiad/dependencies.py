@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -10,6 +11,7 @@ from naiad.config import AppConfig
 from naiad.database import get_session
 from naiad.domain.models import AuthToken
 from naiad.domain.sequences import SequenceRunner
+from naiad.domain.tracking import LiterTracker
 from naiad.ha_client import HAClient
 
 _bearer = HTTPBearer(auto_error=False)
@@ -31,12 +33,12 @@ def get_scheduler(request: Request) -> AsyncIOScheduler:
     return request.app.state.scheduler
 
 
-def get_tracker(request: Request):  # type: ignore[no-untyped-def]
-    return request.app.state.tracker
+def get_tracker(request: Request) -> LiterTracker:
+    return request.app.state.tracker  # type: ignore[no-any-return]
 
 
-def get_session_factory(request: Request):  # type: ignore[no-untyped-def]
-    return request.app.state.session_factory
+def get_session_factory(request: Request) -> Callable[[], Session]:
+    return request.app.state.session_factory  # type: ignore[no-any-return]
 
 
 async def require_auth(
