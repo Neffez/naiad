@@ -59,6 +59,25 @@ def test_update_accepts_added_zone_and_sequence(minimal_config: AppConfig) -> No
     assert fresh.sequences["seq_1"].zones == ["zone_a", "zone_c"]
 
 
+def test_update_rejects_password_mode_without_password(minimal_config: AppConfig) -> None:
+    # minimal_config has no password; enabling password auth would lock everyone out.
+    body = build_config_response(minimal_config).model_dump()
+    body["auth"]["mode"] = "password"
+    with pytest.raises(ValueError, match="requires a password"):
+        build_validated_config(body, minimal_config)
+
+
+def test_update_allows_password_mode_when_password_already_set(minimal_config: AppConfig) -> None:
+    data = minimal_config.model_dump()
+    data["auth"]["password"] = "$2b$12$hash"
+    current = AppConfig.model_validate(data)  # password is environment-managed → already present
+    body = build_config_response(current).model_dump()
+    body["auth"]["mode"] = "password"
+    fresh = build_validated_config(body, current)
+    assert fresh.auth.mode == "password"
+    assert fresh.auth.password == "$2b$12$hash"  # carried through from current
+
+
 # ── export ────────────────────────────────────────────────────────────────────
 
 

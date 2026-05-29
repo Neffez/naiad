@@ -14,8 +14,12 @@ ha:
 
 auth:
   mode: password  # password | forward_header | none
-  # Shared app password. Plain text for a quick start, or a bcrypt hash ($2b$...)
-  # for production. ${NAIAD_PASSWORD_HASH} reads the hash from the environment.
+  # Shared app password — environment-managed only. It is stripped before the
+  # config is persisted to the database and re-injected from the environment on
+  # load, so a literal value here is NOT durable: it works on first boot but is
+  # lost on the next restart. Always provide it via ${NAIAD_PASSWORD_HASH}
+  # (a bcrypt hash, $2b$...). With mode=password and no password set, the API
+  # rejects the change / login (503) to avoid locking you out.
   password: ${NAIAD_PASSWORD_HASH}
   # Used only when mode = forward_header: trust an authenticated user asserted by
   # a reverse proxy (e.g. Authelia/Authentik) via a request header.
