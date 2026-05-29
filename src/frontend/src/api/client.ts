@@ -84,6 +84,13 @@ export const stopSequence = (id: string) => api.post(`/sequences/${id}/stop`)
 export const pauseSequence = (id: string) => api.post(`/sequences/${id}/pause`)
 
 // System
+export interface HealthInfo {
+  status: string
+  version: string
+  ha_connected: boolean
+}
+export const getHealth = () => api.get<HealthInfo>('/health')
+
 export const getStatus = () => api.get<SystemStatus>('/status')
 export const setMaster = (on: boolean) => api.patch('/status/master', { on })
 export const getValves = () => api.get<ValveState[]>('/valves')
