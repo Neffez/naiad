@@ -66,30 +66,26 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Check for cross-repo token
-        id: gate
+      - name: Bump add-on version (app-naiad)
         env:
           TOKEN: ${{ secrets.APP_NAIAD_TOKEN }}
-        run: echo "have=${TOKEN:+yes}" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout app-naiad
-        if: steps.gate.outputs.have == 'yes'
-        uses: actions/checkout@v4
-        with:
-          repository: Neffez/app-naiad
-          token: ${{ secrets.APP_NAIAD_TOKEN }}
-
-      - name: Bump add-on version
-        if: steps.gate.outputs.have == 'yes'
+          VERSION_REF: ${{ github.ref_name }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::APP_NAIAD_TOKEN is empty — skipping add-on bump. Add a fine-grained PAT with contents:write on Neffez/app-naiad as an Actions secret named APP_NAIAD_TOKEN in THIS (naiad) repo, then re-run this job or push a new tag."
+            exit 0
+          fi
+          echo "APP_NAIAD_TOKEN detected — bumping add-on version."
+          VERSION="${VERSION_REF#v}"
+          git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/Neffez/app-naiad.git" addon
+          cd addon
           sed -i "s/^version: .*/version: \"${VERSION}\"/" naiad/config.yaml
+          if git diff --quiet -- naiad/config.yaml; then
+            echo "Add-on config.yaml already at ${VERSION}; nothing to do."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add naiad/config.yaml
-          if git diff --cached --quiet; then
-            echo "Add-on already at ${VERSION}; nothing to do."
-          else
-            git commit -m "chore: bump add-on to ${VERSION} (naiad ${GITHUB_REF_NAME})"
-            git push
-          fi
+          git commit -am "chore: bump add-on to ${VERSION} (naiad ${VERSION_REF})"
+          git push
+          echo "Pushed add-on version ${VERSION}."
