@@ -3,7 +3,12 @@ import copy
 import pytest
 from pydantic import ValidationError
 
-from naiad.config import AppConfig
+from naiad.config import (
+    SUPERVISOR_WS_URL,
+    AppConfig,
+    is_addon_context,
+    resolve_ha_connection,
+)
 from tests.conftest import MINIMAL_CONFIG_DATA
 
 
@@ -61,3 +66,22 @@ def test_extra_fields_rejected() -> None:
     data["unknown_key"] = "value"
     with pytest.raises(ValidationError):
         AppConfig.model_validate(data)
+
+
+# ── Add-on / Supervisor context ───────────────────────────────────────────────
+
+
+def test_resolve_ha_connection_standalone(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)
+    url, token = resolve_ha_connection("ws://configured:8123/api/websocket", "llat-token")
+    assert url == "ws://configured:8123/api/websocket"
+    assert token == "llat-token"
+    assert is_addon_context() is False
+
+
+def test_resolve_ha_connection_addon(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SUPERVISOR_TOKEN", "supervisor-secret")
+    url, token = resolve_ha_connection("ws://configured:8123/api/websocket", "llat-token")
+    assert url == SUPERVISOR_WS_URL
+    assert token == "supervisor-secret"
+    assert is_addon_context() is True
