@@ -20,7 +20,7 @@ from typing import Any
 
 from sqlmodel import Session
 
-from naiad.config import AppConfig, load_config
+from naiad.config import AppConfig, is_addon_context, load_config
 from naiad.domain.models import ConfigDocument
 
 logger = logging.getLogger(__name__)
@@ -83,15 +83,34 @@ _SENSOR_KEYS = (
 )
 
 
+def _bootstrap_auth() -> dict[str, Any]:
+    """Choose the first-boot auth state for the detected deployment (Phase 6d).
+
+    - A password seeded via ``NAIAD_PASSWORD_HASH`` → ``password`` mode with it set.
+      This locks the direct port / standalone container from the first boot and
+      solves the first-login chicken-and-egg; ingress trust still lets the HA
+      sidebar in without it.
+    - Otherwise, in the add-on / ingress context → ``password`` mode with no
+      password yet. The sidebar works via ingress trust; the direct port stays
+      closed (401) until the user sets a password from the UI.
+    - Otherwise (standalone, no password) → ``none``, so the zero-config standalone
+      UI is reachable immediately (there is no ingress to fall back on). A startup
+      warning is emitted; the user sets a password afterwards.
+    """
+    password = os.environ.get("NAIAD_PASSWORD_HASH", "")
+    if password:
+        return {"mode": "password", "password": password}
+    if is_addon_context():
+        return {"mode": "password"}
+    return {"mode": "none"}
+
+
 def build_bootstrap_config() -> AppConfig:
     """A minimal valid configuration for a zero-config first boot.
 
-    HA connection comes from the environment (or the app's supervisor wiring);
-    sensors/zones/sequences start empty and are filled in via the UI.
-
-    Auth starts as ``none`` so the UI is reachable immediately without a password
-    (there is no password yet to log in with). The user secures it from the UI /
-    environment afterwards; the app (Phase 6c) uses ingress-trust instead.
+    HA connection comes from the environment (or the add-on's Supervisor wiring);
+    sensors/zones/sequences start empty and are filled in via the UI. The auth state
+    is chosen per deployment — see :func:`_bootstrap_auth`.
     """
     return AppConfig.model_validate(
         {
@@ -99,7 +118,7 @@ def build_bootstrap_config() -> AppConfig:
                 "url": os.environ.get("HA_URL", "ws://homeassistant.local:8123/api/websocket"),
                 "token": os.environ.get("HA_TOKEN", ""),
             },
-            "auth": {"mode": "none"},
+            "auth": _bootstrap_auth(),
             "sensors": dict.fromkeys(_SENSOR_KEYS, ""),
             "zones": {},
             "sequences": {},

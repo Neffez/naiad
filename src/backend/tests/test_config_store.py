@@ -6,6 +6,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from naiad.config import AppConfig
 from naiad.config_store import (
+    build_bootstrap_config,
     load_config_doc,
     load_or_seed_config,
     save_config_doc,
@@ -116,3 +117,34 @@ def test_load_or_seed_bootstraps_empty_by_default(session_factory, tmp_path, mon
     # Persisted, so the next boot loads it from the DB.
     with session_factory() as session:
         assert load_config_doc(session) is not None
+
+
+# ── Bootstrap auth per deployment (Phase 6d) ──────────────────────────────────
+
+
+def test_bootstrap_auth_standalone_is_open(monkeypatch) -> None:
+    """Standalone, no password env → mode 'none' so the zero-config UI is reachable."""
+    monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)
+    monkeypatch.delenv("NAIAD_PASSWORD_HASH", raising=False)
+    config = build_bootstrap_config()
+    assert config.auth.mode == "none"
+    assert config.auth.ingress.enabled is True
+
+
+def test_bootstrap_auth_addon_uses_password_with_ingress(monkeypatch) -> None:
+    """Add-on context, no password → 'password' mode (sidebar via ingress trust)."""
+    monkeypatch.setenv("SUPERVISOR_TOKEN", "supervisor-secret")
+    monkeypatch.delenv("NAIAD_PASSWORD_HASH", raising=False)
+    config = build_bootstrap_config()
+    assert config.auth.mode == "password"
+    assert config.auth.password == ""
+    assert config.auth.ingress.enabled is True
+
+
+def test_bootstrap_auth_seeds_password_from_env(monkeypatch) -> None:
+    """A seeded password locks the direct port from the first boot, in any context."""
+    monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)
+    monkeypatch.setenv("NAIAD_PASSWORD_HASH", "$2b$12$abcdefghijklmnopqrstuv")
+    config = build_bootstrap_config()
+    assert config.auth.mode == "password"
+    assert config.auth.password == "$2b$12$abcdefghijklmnopqrstuv"

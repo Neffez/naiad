@@ -3,7 +3,26 @@ dependency, the WebSocket endpoint, and the auto-login route — and unit-tested
 
 from urllib.parse import urlparse
 
-from naiad.config import ForwardHeaderConfig
+from naiad.config import ForwardHeaderConfig, IngressConfig
+
+# Header the Supervisor sets on every ingress-proxied request (the path prefix).
+INGRESS_HEADER = "X-Ingress-Path"
+
+
+def ingress_request_ok(client_ip: str, ingress_header: str, cfg: IngressConfig) -> bool:
+    """True if the request arrived through the Supervisor ingress proxy.
+
+    Ingress traffic originates from the Supervisor's fixed internal IP *and* carries
+    the ``X-Ingress-Path`` header. The source-IP check is load-bearing (a LAN client
+    cannot spoof it over TCP); the header corroborates that it is genuine ingress
+    traffic rather than some other call from that address. When this holds, Home
+    Assistant has already authenticated the user, so no Naiad login is required.
+    """
+    if not cfg.enabled:
+        return False
+    if not ingress_header:
+        return False
+    return client_ip == cfg.trusted_ip
 
 
 def forward_header_ok(header_value: str, client_ip: str, cfg: ForwardHeaderConfig) -> bool:
