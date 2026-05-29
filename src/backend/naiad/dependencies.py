@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session
 
-from naiad.auth_rules import forward_header_ok
+from naiad.auth_rules import INGRESS_HEADER, forward_header_ok, ingress_request_ok
 from naiad.config import AppConfig
 from naiad.database import get_session
 from naiad.domain.models import AuthToken
@@ -47,11 +47,18 @@ async def require_auth(
     session: Session = Depends(get_session),
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> None:
+    client_ip = request.client.host if request.client else ""
+
+    # Ingress trust applies on top of any mode: a request proxied by the Supervisor
+    # ingress is already authenticated by Home Assistant. The configured mode still
+    # governs the direct port, which does not pass through HA auth.
+    if ingress_request_ok(client_ip, request.headers.get(INGRESS_HEADER, ""), config.auth.ingress):
+        return
+
     if config.auth.mode == "none":
         return
 
     if config.auth.mode == "forward_header":
-        client_ip = request.client.host if request.client else ""
         header_value = request.headers.get(config.auth.forward_header.header, "")
         if forward_header_ok(header_value, client_ip, config.auth.forward_header):
             return

@@ -38,11 +38,27 @@ class ForwardHeaderConfig(BaseModel):
     trusted_proxies: list[str] = []
 
 
+class IngressConfig(BaseModel):
+    """Home Assistant ingress trust.
+
+    When enabled, requests proxied by the Supervisor ingress are treated as already
+    authenticated by Home Assistant — no Naiad login is needed for the sidebar.
+    This rule is additive: it coexists with the configured ``mode`` so the direct
+    port (which does not pass through HA auth) still requires a password.
+    """
+
+    enabled: bool = True
+    # The Supervisor's fixed internal IP for the ingress proxy. A LAN client cannot
+    # forge this source address over TCP, which is what makes the trust safe.
+    trusted_ip: str = "172.30.32.2"
+
+
 class AuthConfig(BaseModel):
     mode: Literal["password", "forward_header", "none"] = "password"
     password: str = ""  # plain text or bcrypt hash ($2b$...)
     forward_header: ForwardHeaderConfig = ForwardHeaderConfig()
     auto_login: AutoLoginConfig = AutoLoginConfig()
+    ingress: IngressConfig = IngressConfig()
     frame_ancestors: list[str] = ["'self'"]
 
 
@@ -158,6 +174,38 @@ class AppConfig(BaseModel):
                 if zone_id not in self.zones:
                     raise ValueError(f"Sequence '{seq_id}' references unknown zone '{zone_id}'")
         return self
+
+
+# ── Home Assistant add-on context ─────────────────────────────────────────────
+
+# When Naiad runs as a Home Assistant add-on, the Supervisor reaches Core through
+# an internal proxy and injects a short-lived token, so no long-lived access token
+# is needed (and none should be configured).
+SUPERVISOR_WS_URL = "ws://supervisor/core/websocket"
+
+
+def is_addon_context() -> bool:
+    """True when running as a Supervisor-managed Home Assistant add-on.
+
+    The Supervisor always injects ``SUPERVISOR_TOKEN`` into add-on containers; its
+    presence is the canonical signal that we are running inside the add-on.
+    """
+    return bool(os.environ.get("SUPERVISOR_TOKEN"))
+
+
+def resolve_ha_connection(url: str, token: str) -> tuple[str, str]:
+    """Resolve the effective HA WebSocket URL and access token.
+
+    In the add-on context, reach Core via the Supervisor proxy
+    (``ws://supervisor/core/websocket``) using the auto-provided
+    ``SUPERVISOR_TOKEN`` — the manual long-lived token is not required. Outside the
+    add-on (standalone container / LXC), the configured values from the database or
+    environment are used unchanged.
+    """
+    supervisor_token = os.environ.get("SUPERVISOR_TOKEN")
+    if supervisor_token:
+        return SUPERVISOR_WS_URL, supervisor_token
+    return url, token
 
 
 # ── Loader ───────────────────────────────────────────────────────────────────
