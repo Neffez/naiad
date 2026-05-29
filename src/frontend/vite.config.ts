@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
+  // Relative asset URLs so the built app loads under any path prefix — the
+  // server root (standalone) or a Home Assistant ingress prefix.
+  base: './',
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {

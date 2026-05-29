@@ -184,14 +184,15 @@ async def _on_rain(
         logger.exception("Error aborting sequence on rain")
 
 
-def setup_scheduler(
+def _register_sequence_jobs(
+    scheduler: AsyncIOScheduler,
     config: AppConfig,
     runner: SequenceRunner,
     ha: HAClient,
     session_factory: SessionFactory,
-) -> AsyncIOScheduler:
-    scheduler = AsyncIOScheduler(timezone=config.timezone)
-
+) -> None:
+    """(Re)register one cron job per enabled sequence. Existing cron jobs are
+    replaced (replace_existing=True), so this is safe to call on config reload."""
     for seq_id, seq_cfg in config.sequences.items():
         if not seq_cfg.enabled:
             continue
@@ -212,8 +213,39 @@ def setup_scheduler(
             id=f"cron-{seq_id}",
             name=f"Cron: {seq_cfg.label}",
             misfire_grace_time=300,
+            replace_existing=True,
         )
         logger.info("Cron job registered: '%s' (%s)", seq_id, seq_cfg.schedule.cron)
+
+
+def reschedule_sequences(
+    scheduler: AsyncIOScheduler,
+    config: AppConfig,
+    runner: SequenceRunner,
+    ha: HAClient,
+    session_factory: SessionFactory,
+) -> None:
+    """Drop all sequence cron jobs and re-register them from the current config.
+
+    Called after a configuration change so added/removed/rescheduled/disabled
+    sequences take effect without a restart. The plan-tick and rain listener are
+    left untouched (they read config by reference).
+    """
+    for job in scheduler.get_jobs():
+        if job.id.startswith("cron-"):
+            scheduler.remove_job(job.id)
+    _register_sequence_jobs(scheduler, config, runner, ha, session_factory)
+
+
+def setup_scheduler(
+    config: AppConfig,
+    runner: SequenceRunner,
+    ha: HAClient,
+    session_factory: SessionFactory,
+) -> AsyncIOScheduler:
+    scheduler = AsyncIOScheduler(timezone=config.timezone)
+
+    _register_sequence_jobs(scheduler, config, runner, ha, session_factory)
 
     scheduler.add_job(
         _plan_tick,

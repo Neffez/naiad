@@ -75,7 +75,8 @@ be added later without touching the core.
 git clone https://github.com/Neffez/naiad
 cd naiad
 cp .env.example .env          # add HA_TOKEN and NAIAD_PASSWORD_HASH
-cp config.example.yaml data/config.yaml  # adjust zones, sequences, sensors
+mkdir -p data
+cp config.example.yaml data/config.yaml  # first-boot seed; afterwards edit in the UI
 docker compose up -d
 ```
 
@@ -83,23 +84,30 @@ Open `http://<host>:8080` in your browser.
 
 ## Configuration
 
-Naiad reads a single `config.yaml` (mounted at `/data/config.yaml` in Docker,
-or pointed to by `NAIAD_CONFIG`). It is validated at startup with descriptive
-errors. Tunable values (base durations, watchdog minutes, factor parameters)
-can be overridden from the Settings UI; those overrides are stored in SQLite,
-while the YAML serves as the versioned default. Start from
-[`config.example.yaml`](config.example.yaml).
+The configuration lives in the SQLite database and is **edited in the UI**
+(Settings → System → *System configuration*): HA connection, sensor mapping,
+zones, sequences, factors, and auth. Changes are validated on save and applied
+live without a restart (a restart is only needed when the HA connection URL/token
+itself changes). Use **Export/Import** in the config editor for backup and
+git/vault versioning.
+
+`config.yaml` is **optional**. If no database config exists yet, Naiad starts
+empty and you configure everything in the UI. As a convenience you can instead
+seed the first boot from a `config.yaml` (mounted at `/data/config.yaml` in
+Docker, or pointed to by `NAIAD_CONFIG`) — start from
+[`config.example.yaml`](config.example.yaml). After seeding, the database is
+authoritative and the YAML is no longer read.
 
 ### Environment variables
 
-Secrets never live in the YAML — they are referenced as `${VAR}` and read from
-the environment (see [`.env.example`](.env.example)).
+Secrets are never stored in the database or YAML — they come from the
+environment only (see [`.env.example`](.env.example)).
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `HA_TOKEN` | yes | Home Assistant long-lived access token (HA → profile → Security). |
+| `HA_TOKEN` | yes (unless running as the HA app) | Home Assistant long-lived access token (HA → profile → Security). |
 | `NAIAD_PASSWORD_HASH` | when `auth.mode: password` | App password, bcrypt hash. Generate with `python -c "import bcrypt; print(bcrypt.hashpw(b'pw', bcrypt.gensalt()).decode())"`. |
-| `NAIAD_CONFIG` | no | Path to `config.yaml` (default `/data/config.yaml`). |
+| `NAIAD_CONFIG` | no | Path to an optional first-boot seed `config.yaml` (default `/data/config.yaml`). |
 | `NAIAD_DATA_DIR` | no | Directory for the SQLite database (default `/data`). |
 | `TZ` | recommended | Scheduler timezone, e.g. `Europe/Berlin`. |
 
@@ -136,9 +144,15 @@ Prerequisites: Python 3.12+, Node 20+.
 **One-time setup**
 
 ```bash
-# From the project root
+# From the project root — optional: seed the first boot from a config.yaml.
+# Skip this entirely to start empty and configure everything in the UI.
+mkdir -p data
 cp config.example.yaml data/config.yaml   # adjust zones, sequences, sensors
 ```
+
+If you do seed from YAML, it applies on first boot only — afterwards the
+database is the source of truth and you edit the config in the UI. To re-seed
+from YAML, delete `data/naiad.db` first.
 
 **Terminal 1 — Backend**
 
