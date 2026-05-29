@@ -1,0 +1,65 @@
+name: Tag on merge
+
+# Every push to main (i.e. every merged PR) creates the next patch tag — vX.Y.(Z+1) —
+# which then triggers the Release workflow (build + version stamp + add-on bump).
+#
+# The tag MUST be pushed with a PAT, not the default GITHUB_TOKEN: tags pushed by
+# GITHUB_TOKEN do not trigger other workflows, so Release would never run. Set a
+# fine-grained PAT with contents:write on Neffez/naiad (and Neffez/app-naiad, so the
+# same token can do the add-on bump) as the secret RELEASE_PAT. Without it this is a
+# no-op (with a warning). Add "[skip tag]" to the merge commit/PR title to opt out.
+
+on:
+  push:
+    branches: [main]
+
+concurrency: tag-on-merge
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for release token
+        id: gate
+        env:
+          TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::RELEASE_PAT not set — skipping auto-tag. Add a fine-grained PAT with contents:write on Neffez/naiad (+ Neffez/app-naiad) as the secret RELEASE_PAT to enable tag-on-merge."
+            echo "ok=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=yes" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.gate.outputs.ok == 'yes' && !contains(github.event.head_commit.message, '[skip tag]')
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Create next patch tag
+        if: steps.gate.outputs.ok == 'yes' && !contains(github.event.head_commit.message, '[skip tag]')
+        run: |
+          git fetch --tags --force
+          latest=$(git tag -l 'v[0-9]*' --sort=-v:refname | head -n1)
+          if [ -z "$latest" ]; then
+            next="v0.1.0"
+          else
+            v=${latest#v}
+            major=${v%%.*}; rest=${v#*.}; minor=${rest%%.*}; patch=${rest#*.}
+            next="v${major}.${minor}.$((patch + 1))"
+          fi
+          echo "Latest tag: ${latest:-none} -> next: $next"
+          if git rev-parse "$next" >/dev/null 2>&1; then
+            echo "Tag $next already exists; skipping."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$next" -m "Release $next"
+          git push origin "$next"
+          echo "Pushed $next — the Release workflow will build it."
