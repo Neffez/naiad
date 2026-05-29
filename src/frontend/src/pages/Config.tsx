@@ -117,7 +117,7 @@ export default function Config() {
   const zoneIds = Object.keys(draft.zones)
 
   return (
-    <div style={{ maxWidth: 940, display: 'flex', flexDirection: 'column', gap: 22, paddingBottom: 88 }}>
+    <div className="config-page" style={{ maxWidth: 940, display: 'flex', flexDirection: 'column', gap: 22, paddingBottom: 88 }}>
       {/* Entity datalists for the pickers */}
       <EntityDatalist id="ents-switch" entities={switches.data?.entities} />
       <EntityDatalist id="ents-sensor" entities={sensors.data?.entities} />
@@ -440,13 +440,13 @@ function Row({ label, children, last = false, align = 'center' }: {
   label: ReactNode; children: ReactNode; last?: boolean; align?: 'center' | 'start'
 }) {
   return (
-    <div style={{
+    <div className="n-cfg-row" style={{
       display: 'flex', alignItems: align === 'start' ? 'flex-start' : 'center',
       justifyContent: 'space-between', gap: 16,
       padding: '12px 20px', borderBottom: last ? 'none' : '1px solid var(--n-line)', minHeight: 52,
     }}>
       <span style={{ fontSize: 14, color: 'var(--n-fg-soft)', paddingTop: align === 'start' ? 6 : 0 }}>{label}</span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>{children}</div>
+      <div className="n-cfg-control" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>{children}</div>
     </div>
   )
 }

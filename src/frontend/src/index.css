@@ -399,21 +399,44 @@ svg { display: block; }
 /* ── Slider ──────────────────────────────────────────────────────────────── */
 .n-slider {
   -webkit-appearance: none;
+  appearance: none;
   width: 100%;
-  height: 36px;
+  height: 24px;
   background: transparent;
+  cursor: pointer;
 }
+/* WebKit / Blink (Chrome, Safari, most mobile) */
 .n-slider::-webkit-slider-runnable-track {
   height: 6px;
-  background: linear-gradient(90deg, var(--n-teal-500) 0%, var(--n-teal-300) var(--p, 50%), rgba(255,255,255,0.07) var(--p, 50%));
+  background: linear-gradient(90deg, var(--n-teal-500) 0%, var(--n-teal-300) var(--p, 50%), rgba(255,255,255,0.10) var(--p, 50%));
   border-radius: 999px;
 }
 .n-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 24px; height: 24px; border-radius: 50%;
+  appearance: none;
+  width: 22px; height: 22px; border-radius: 50%;
   background: #fff;
   border: 0;
-  margin-top: -9px;
+  margin-top: -8px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.6), 0 0 0 4px rgba(94,200,216,0.20);
+  cursor: grab;
+}
+/* Firefox: needs its own track/progress/thumb, otherwise the line is invisible
+   and only a bare thumb (a "dot without a line") shows. */
+.n-slider::-moz-range-track {
+  height: 6px;
+  background: rgba(255,255,255,0.10);
+  border-radius: 999px;
+}
+.n-slider::-moz-range-progress {
+  height: 6px;
+  background: linear-gradient(90deg, var(--n-teal-500), var(--n-teal-300));
+  border-radius: 999px;
+}
+.n-slider::-moz-range-thumb {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #fff;
+  border: 0;
   box-shadow: 0 2px 10px rgba(0,0,0,0.6), 0 0 0 4px rgba(94,200,216,0.20);
   cursor: grab;
 }
@@ -495,6 +518,15 @@ svg { display: block; }
 @media (max-width: 1023px) {
   .desktop-only { display: none !important; }
   .page-content { padding: 18px 20px 80px !important; }
+
+  /* Config: stack each row (label above control) and let inputs fill the width
+     instead of overflowing off-screen with no way to scroll to them. */
+  .config-page .n-cfg-row { flex-direction: column; align-items: stretch; }
+  .config-page .n-cfg-control { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+  .config-page .n-cfg-control > input,
+  .config-page .n-cfg-control > select { width: 100%; }
+  .config-page input:not([type="checkbox"]),
+  .config-page select { max-width: 100%; box-sizing: border-box; }
 }
 @media (min-width: 1024px) {
   .mobile-only { display: none !important; }
