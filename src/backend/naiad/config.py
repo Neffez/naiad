@@ -180,7 +180,7 @@ def _expand_env_vars(text: str) -> str:
     result = re.sub(r"\$\{(\w+)\}", replace, text)
     if missing:
         raise ValueError(
-            f"Config references required environment variable(s) that are not set: "
+            "Config references required environment variable(s) that are not set: "
             + ", ".join(f"${{{v}}}" for v in missing)
         )
     return result

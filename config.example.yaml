@@ -7,6 +7,9 @@ ha:
 
 auth:
   mode: password  # password | forward_header | none
+  # Shared app password. Plain text for a quick start, or a bcrypt hash ($2b$...)
+  # for production. ${NAIAD_PASSWORD_HASH} reads the hash from the environment.
+  password: ${NAIAD_PASSWORD_HASH}
   # Used only when mode = forward_header: trust an authenticated user asserted by
   # a reverse proxy (e.g. Authelia/Authentik) via a request header.
   forward_header:

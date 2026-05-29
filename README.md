@@ -30,6 +30,45 @@ The HA-native irrigation stack is powerful but spread across too many layers. A 
 - Real-time updates via WebSocket (sequence state, valve changes, factor updates, HA status)
 - Docker images published to GHCR for `amd64` + `arm64`
 
+## Architecture
+
+Naiad runs as a single container. The FastAPI backend serves the REST API, the
+live WebSocket, and the statically built React frontend. All irrigation logic
+lives in the backend; Home Assistant is reduced to a hardware driver and a
+sensor/weather source.
+
+```
+┌──────────────────────────────────────────────┐
+│        Browser (desktop tablet + phone)      │
+│             React SPA · PWA                  │
+└───────────────────┬──────────────────────────┘
+                    │ HTTPS + WebSocket
+┌───────────────────▼──────────────────────────┐
+│  Naiad container                             │
+│   FastAPI  →  REST API + live WebSocket      │
+│   APScheduler  →  sequence crons · watchdog  │
+│                   · plan tick                │
+│   Domain  →  sequences · factors · resume    │
+│              · liter tracking · mutex        │
+│   SQLite (SQLModel)  →  config overrides ·   │
+│                         plans · history ·    │
+│                         resume snapshot      │
+│   HA client (WebSocket)  →  auto-reconnect · │
+│                             state cache      │
+└───────────────────┬──────────────────────────┘
+                    │ WebSocket
+┌───────────────────▼──────────────────────────┐
+│              Home Assistant                  │
+│     switches · weather · notify              │
+└──────────────────────────────────────────────┘
+```
+
+The valve and sensor layers sit behind `IValveDriver` / `ISensorSource`
+protocols (`src/backend/naiad/drivers/`). v1 ships `HAEntityDriver` /
+`HAEntitySensorSource`, which talk to any `switch.*` / `sensor.*` /
+`binary_sensor.*` over the HA WebSocket API. A direct KNX/IP driver via xknx can
+be added later without touching the core.
+
 ## Quickstart
 
 ```bash
@@ -41,6 +80,54 @@ docker compose up -d
 ```
 
 Open `http://<host>:8080` in your browser.
+
+## Configuration
+
+Naiad reads a single `config.yaml` (mounted at `/data/config.yaml` in Docker,
+or pointed to by `NAIAD_CONFIG`). It is validated at startup with descriptive
+errors. Tunable values (base durations, watchdog minutes, factor parameters)
+can be overridden from the Settings UI; those overrides are stored in SQLite,
+while the YAML serves as the versioned default. Start from
+[`config.example.yaml`](config.example.yaml).
+
+### Environment variables
+
+Secrets never live in the YAML — they are referenced as `${VAR}` and read from
+the environment (see [`.env.example`](.env.example)).
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `HA_TOKEN` | yes | Home Assistant long-lived access token (HA → profile → Security). |
+| `NAIAD_PASSWORD_HASH` | when `auth.mode: password` | App password, bcrypt hash. Generate with `python -c "import bcrypt; print(bcrypt.hashpw(b'pw', bcrypt.gensalt()).decode())"`. |
+| `NAIAD_CONFIG` | no | Path to `config.yaml` (default `/data/config.yaml`). |
+| `NAIAD_DATA_DIR` | no | Directory for the SQLite database (default `/data`). |
+| `TZ` | recommended | Scheduler timezone, e.g. `Europe/Berlin`. |
+
+### Configuration sections
+
+| Section | Purpose |
+|---|---|
+| `ha` | HA WebSocket URL, token, and `notify_targets` for push notifications. |
+| `auth` | `mode` (`password` \| `forward_header` \| `none`), the shared `password`, optional `auto_login` for trusted embedding contexts, and `frame_ancestors` for the CSP header. |
+| `sensors` | Entity IDs for rain, wind, season, temperature, and the four precipitation forecast sensors. |
+| `zones` | Per-zone `label`, `switch` entity, and `flow_lph` (used for liter tracking). |
+| `sequences` | Ordered `zones`, `basis_min_per_zone`, allowed `range`, `watchdog_min`, `schedule.cron`, `enabled`, and `wind_blocks` (sets the factor to 0 on a wind alarm). |
+| `factors` | `temp` (linear scaling around `basis_c`) and `rain` (forecast-based reduction with `threshold_prob`, `reduce_above_mm`, `zero_above_mm`, `forecast_decay`). |
+
+## Hardware compatibility
+
+Naiad is developed and tested against a specific KNX setup. Anything that
+exposes the right entity types in Home Assistant should work, but only the
+combinations below are exercised in practice.
+
+| Component | Status | Notes |
+|---|---|---|
+| KNX switch actuators | ✅ tested | Any HA `switch.*` works. The actuator's 3 h staircase timer acts as an external hardware watchdog. |
+| Generic HA `switch.*` valves | 🟡 experimental | Supported by design via the driver layer; not tested on non-KNX hardware. |
+| KNX rain / wind / season `binary_sensor.*` | ✅ tested | Mapped through `sensors`. Any `binary_sensor.*` works. |
+| OpenWeatherMap precipitation sensors | ✅ tested | Probability + amount, today and tomorrow. |
+| Direct KNX/IP (xknx) driver | ⬜ planned (v2) | Designed for; not implemented. v1 talks to hardware only via the HA WebSocket API. |
+| Push via `notify.mobile_app_*` | ✅ tested | HA Companion app. |
 
 ## Local Development (without Docker)
 
