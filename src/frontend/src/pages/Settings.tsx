@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { getSequences, getSettings, getStatus, logout, updateSettings } from '../api/client'
 import { seqColor } from '../theme/sequenceColors'
 
 export default function Settings() {
   const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
   const qc = useQueryClient()
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
   const { data: sequences = [] } = useQuery({ queryKey: ['sequences'], queryFn: getSequences })
@@ -117,6 +119,15 @@ export default function Settings() {
 
       {/* System */}
       <SettingsSection title={t('settings.system', { defaultValue: 'System' })}>
+        <SettingsRow label={t('settings.configuration', { defaultValue: 'Anlagen-Konfiguration' })}>
+          <button
+            className="n-btn"
+            style={{ height: 32, padding: '0 14px', fontSize: 12.5 }}
+            onClick={() => navigate('/config')}
+          >
+            {t('settings.editConfig', { defaultValue: 'Bearbeiten →' })}
+          </button>
+        </SettingsRow>
         <SettingsRow label={t('settings.version')}>
           <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>v0.1.0</span>
         </SettingsRow>

@@ -24,8 +24,13 @@ class LiterTracker:
         self._session_factory = session_factory
         self._is_managed = is_managed
         self._on_times: dict[str, datetime] = {}
-        self._entity_to_zone: dict[str, str] = {z.switch: z_id for z_id, z in config.zones.items()}
+        self._entity_to_zone: dict[str, str] = {}
+        self.rebuild_zone_map()
         ha.subscribe_state_changes(self._handle_state_change)
+
+    def rebuild_zone_map(self) -> None:
+        """Rebuild the switch→zone lookup from the (possibly reloaded) config."""
+        self._entity_to_zone = {z.switch: z_id for z_id, z in self._config.zones.items()}
 
     async def _handle_state_change(self, entity_id: str, state: dict[str, Any]) -> None:
         if entity_id not in self._entity_to_zone:

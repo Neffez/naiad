@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from naiad.config import load_config
+from naiad.config_store import load_or_seed_config
 from naiad.database import create_tables, get_engine
 from naiad.domain.sequences import SequenceRunner
 from naiad.domain.tracking import LiterTracker
@@ -110,20 +110,21 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     _setup_logging()
     logger.info("Naiad starting")
 
-    config = load_config()
+    create_tables()
+    logger.info("Database tables ready")
+
+    def _session_factory() -> Session:
+        return Session(get_engine())
+
+    # Database is the source of truth; config.yaml seeds it on first boot only.
+    config = load_or_seed_config(_session_factory)
     logger.info(
         "Config loaded", extra={"zones": len(config.zones), "sequences": len(config.sequences)}
     )
 
-    create_tables()
-    logger.info("Database tables ready")
-
     ha = HAClient(url=config.ha.url, token=config.ha.token)
     await ha.start()
     logger.info("HA client started", extra={"url": config.ha.url})
-
-    def _session_factory() -> Session:
-        return Session(get_engine())
 
     driver = HAEntityDriver(ha)
     runner = SequenceRunner(config, driver, _session_factory)
@@ -194,6 +195,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ha_client = ha
     app.state.runner = runner
     app.state.scheduler = scheduler
+    app.state.tracker = _tracker
+    app.state.session_factory = _session_factory
     app.state.ws_manager = ws_manager
 
     logger.info("Naiad ready")
@@ -219,7 +222,16 @@ app = FastAPI(
 app.add_middleware(_RequestIDMiddleware)
 app.add_middleware(_SecurityHeadersMiddleware)
 
-from naiad.api import auth, history, plans, preferences, sequences, settings, system  # noqa: E402
+from naiad.api import (  # noqa: E402
+    auth,
+    history,
+    plans,
+    preferences,
+    sequences,
+    settings,
+    system,
+)
+from naiad.api import config as config_api  # noqa: E402
 from naiad.api import status as _status  # noqa: E402
 from naiad.api import ws as _ws  # noqa: E402
 
@@ -231,6 +243,7 @@ app.include_router(history.router, prefix="/api")
 app.include_router(plans.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(preferences.router, prefix="/api")
+app.include_router(config_api.router, prefix="/api")
 app.include_router(_ws.router, prefix="/api")
 
 # Serve built frontend (present in Docker image, absent in dev)

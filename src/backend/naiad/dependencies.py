@@ -31,6 +31,14 @@ def get_scheduler(request: Request) -> AsyncIOScheduler:
     return request.app.state.scheduler
 
 
+def get_tracker(request: Request):  # type: ignore[no-untyped-def]
+    return request.app.state.tracker
+
+
+def get_session_factory(request: Request):  # type: ignore[no-untyped-def]
+    return request.app.state.session_factory
+
+
 async def require_auth(
     request: Request,
     config: AppConfig = Depends(get_config),

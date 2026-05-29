@@ -1,3 +1,10 @@
+# Optional first-boot seed. config.yaml is not required: without it Naiad starts
+# empty and is configured entirely in the UI. If this file is present on the
+# first start (empty database), Naiad imports it once; afterwards the database is
+# the source of truth and the configuration is edited in the UI (Settings ->
+# System configuration), with Export/Import for backup.
+# Secrets (HA token, password) come from the environment only — never hardcoded.
+
 ha:
   url: ws://homeassistant.local:8123/api/websocket
   token: ${HA_TOKEN}  # read from environment
