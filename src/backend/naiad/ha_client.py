@@ -218,6 +218,25 @@ class HAClient:
         state = self._state_cache.get(entity_id)
         return state["state"] if state else None
 
+    def list_entities(self, domain: str | None = None) -> list[dict[str, Any]]:
+        """List cached entities (optionally filtered by domain) for the UI entity picker."""
+        entities: list[dict[str, Any]] = []
+        for entity_id, state in self._state_cache.items():
+            entity_domain = entity_id.split(".", 1)[0]
+            if domain is not None and entity_domain != domain:
+                continue
+            attributes = state.get("attributes", {})
+            entities.append(
+                {
+                    "entity_id": entity_id,
+                    "friendly_name": attributes.get("friendly_name"),
+                    "state": state.get("state", ""),
+                    "domain": entity_domain,
+                }
+            )
+        entities.sort(key=lambda e: e["entity_id"])
+        return entities
+
     def subscribe_state_changes(self, callback: StateCallback) -> None:
         self._state_callbacks.append(callback)
 
