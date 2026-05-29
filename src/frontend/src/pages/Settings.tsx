@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { getSequences, getSettings, getStatus, logout, updateSettings } from '../api/client'
+import { getHealth, getSequences, getSettings, getStatus, logout, updateSettings } from '../api/client'
 import { seqColor } from '../theme/sequenceColors'
 
 export default function Settings() {
@@ -12,7 +12,17 @@ export default function Settings() {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
   const { data: sequences = [] } = useQuery({ queryKey: ['sequences'], queryFn: getSequences })
   const { data: status } = useQuery({ queryKey: ['status'], queryFn: getStatus })
+  const { data: health } = useQuery({ queryKey: ['health'], queryFn: getHealth })
   const [saved, setSaved] = useState(false)
+  const [theme, setTheme] = useState<'dark' | 'light'>(
+    () => (localStorage.getItem('naiad_theme') === 'light' ? 'light' : 'dark'),
+  )
+
+  function applyTheme(next: 'dark' | 'light') {
+    setTheme(next)
+    localStorage.setItem('naiad_theme', next)
+    document.documentElement.setAttribute('data-theme', next)
+  }
 
   const mut = useMutation({
     mutationFn: updateSettings,
@@ -128,8 +138,24 @@ export default function Settings() {
             {t('settings.editConfig', { defaultValue: 'Bearbeiten →' })}
           </button>
         </SettingsRow>
+        <SettingsRow label={t('settings.theme', { defaultValue: 'Darstellung' })}>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {(['dark', 'light'] as const).map((mode) => (
+              <button
+                key={mode}
+                className={`n-btn${theme === mode ? ' primary' : ''}`}
+                style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
+                onClick={() => applyTheme(mode)}
+              >
+                {t(`settings.theme_${mode}`, { defaultValue: mode === 'dark' ? 'Dunkel' : 'Hell' })}
+              </button>
+            ))}
+          </div>
+        </SettingsRow>
         <SettingsRow label={t('settings.version')}>
-          <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>v0.1.0</span>
+          <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>
+            v{health?.version ?? '—'}
+          </span>
         </SettingsRow>
         <SettingsRow label={t('settings.haIntegration')}>
           {status?.ha_connected ? (

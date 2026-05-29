@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { createPlan, deletePlan, getPlans, getSequences, type CreatePlanRequest } from '../api/client'
 import { IChevDown, IX } from '../components/icons'
 import { seqColor } from '../theme/sequenceColors'
@@ -11,7 +12,9 @@ export default function Planner() {
   const { data: plans = [] } = useQuery({ queryKey: ['plans'], queryFn: getPlans })
   const { data: sequences = [] } = useQuery({ queryKey: ['sequences'], queryFn: getSequences })
 
-  const [seqId, setSeqId] = useState('')
+  // Preselect the sequence when arriving from a card's "schedule" button (?seq=…).
+  const [searchParams] = useSearchParams()
+  const [seqId, setSeqId] = useState(searchParams.get('seq') ?? '')
   const [mode, setMode] = useState<'in_hours' | 'at_datetime'>('in_hours')
   const [hoursValue, setHoursValue] = useState('4')
   const [dateValue, setDateValue] = useState('')
