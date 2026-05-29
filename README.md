@@ -116,7 +116,7 @@ environment only (see [`.env.example`](.env.example)).
 | Section | Purpose |
 |---|---|
 | `ha` | HA WebSocket URL, token, and `notify_targets` for push notifications. |
-| `auth` | `mode` (`password` \| `forward_header` \| `none`), the shared `password`, optional `auto_login` for trusted embedding contexts, and `frame_ancestors` for the CSP header. |
+| `auth` | `mode` (`password` \| `forward_header` \| `none`), the shared `password`, optional `auto_login` for trusted embedding contexts, `ingress` trust for the HA add-on sidebar (additive — coexists with `mode`), and `frame_ancestors` for the CSP header. |
 | `sensors` | Entity IDs for rain, wind, season, temperature, and the four precipitation forecast sensors. |
 | `zones` | Per-zone `label`, `switch` entity, and `flow_lph` (used for liter tracking). |
 | `sequences` | Ordered `zones`, `basis_min_per_zone`, allowed `range`, `watchdog_min`, `schedule.cron`, `enabled`, and `wind_blocks` (sets the factor to 0 on a wind alarm). |

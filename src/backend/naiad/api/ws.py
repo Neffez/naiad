@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlmodel import Session
 
-from naiad.auth_rules import forward_header_ok
+from naiad.auth_rules import INGRESS_HEADER, forward_header_ok, ingress_request_ok
 from naiad.config import AppConfig
 from naiad.domain.factors import compute_factors
 from naiad.domain.models import AuthToken
@@ -214,10 +214,16 @@ async def websocket_endpoint(
     runner: SequenceRunner = app.state.runner
     ha: HAClient = app.state.ha_client
 
-    if config.auth.mode == "none":
+    client_ip = websocket.client.host if websocket.client else ""
+
+    # Ingress trust covers the WebSocket too: a socket proxied by the Supervisor
+    # ingress is pre-authenticated by HA, so no Bearer token is required here.
+    ingress_ok = ingress_request_ok(
+        client_ip, websocket.headers.get(INGRESS_HEADER, ""), config.auth.ingress
+    )
+    if ingress_ok or config.auth.mode == "none":
         authed = True
     elif config.auth.mode == "forward_header":
-        client_ip = websocket.client.host if websocket.client else ""
         header_value = websocket.headers.get(config.auth.forward_header.header, "")
         authed = forward_header_ok(header_value, client_ip, config.auth.forward_header)
     else:
