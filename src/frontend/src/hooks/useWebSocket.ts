@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { wsUrl } from '../api/base'
 import { clearToken } from '../api/client'
 
 type WsMessage = { type: string; data?: unknown }
@@ -41,8 +42,7 @@ export function useWebSocket(onMessage: MessageHandler, options?: UseWebSocketOp
 
     function connect() {
       if (unmounted || stopped) return
-      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      const ws = new WebSocket(`${proto}://${window.location.host}/api/ws`)
+      const ws = new WebSocket(wsUrl('/api/ws'))
       wsRef.current = ws
 
       ws.onopen = () => {

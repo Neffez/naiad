@@ -9,7 +9,9 @@ import { WeatherStrip } from './components/WeatherStrip'
 import './i18n'
 import './index.css'
 import { useAuth } from './hooks/useAuth'
+import { BASE_PATH } from './api/base'
 import { getStatus, setMaster, type SystemStatus } from './api/client'
+import Config from './pages/Config'
 import Dashboard from './pages/Dashboard'
 import History from './pages/History'
 import Login from './pages/Login'
@@ -96,7 +98,7 @@ function AppShell() {
   if (!authed) return <Login onLogin={login} />
 
   return (
-    <Router>
+    <Router basename={BASE_PATH || undefined}>
       <div style={{ minHeight: '100vh', display: 'flex' }}>
         {/* Sidebar — visible on desktop (≥1024px), hidden on mobile */}
         <div className="desktop-only">
@@ -110,6 +112,7 @@ function AppShell() {
               <Route path="/planner" element={<PageShell title="Planen"><Planner /></PageShell>} />
               <Route path="/history" element={<PageShell title="Verlauf"><History /></PageShell>} />
               <Route path="/settings" element={<PageShell title="Einstellungen"><Settings /></PageShell>} />
+              <Route path="/config" element={<PageShell title="Konfiguration"><Config /></PageShell>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

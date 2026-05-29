@@ -1,4 +1,4 @@
-const BASE = '/api'
+import { API_BASE } from './base'
 
 function getToken(): string | null {
   return localStorage.getItem('naiad_token')
@@ -27,7 +27,7 @@ async function request<T>(
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -52,8 +52,21 @@ async function request<T>(
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
+  put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
   delete: <T>(path: string) => request<T>('DELETE', path),
+}
+
+async function authedFetch(path: string, init: RequestInit): Promise<Response> {
+  const token = getToken()
+  const headers = new Headers(init.headers)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers })
+  if (res.status === 401) {
+    clearToken()
+    window.dispatchEvent(new Event('naiad:unauthorized'))
+  }
+  return res
 }
 
 // Auth
@@ -95,6 +108,31 @@ export const deletePlan = (id: string) => api.delete(`/plans/${id}`)
 export const getSettings = () => api.get<AppSettings>('/settings')
 export const updateSettings = (body: Partial<UpdateSettingsRequest>) =>
   api.patch<AppSettings>('/settings', body)
+
+// Configuration
+export const getConfig = () => api.get<ConfigDoc>('/config')
+export const putConfig = (body: ConfigDoc) => api.put<ConfigDoc>('/config', body)
+export const getEntities = (domain?: string) =>
+  api.get<{ entities: EntityInfo[] }>(`/config/entities${domain ? `?domain=${domain}` : ''}`)
+
+export async function exportConfig(): Promise<string> {
+  const res = await authedFetch('/config/export', { method: 'GET' })
+  if (!res.ok) throw new Error(res.statusText)
+  return res.text()
+}
+
+export async function importConfig(text: string): Promise<ConfigDoc> {
+  const res = await authedFetch('/config/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-yaml' },
+    body: text,
+  })
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(detail?.detail ?? res.statusText)
+  }
+  return res.json() as Promise<ConfigDoc>
+}
 
 // Preferences
 export const getPreferences = () => api.get<UserPreferences>('/preferences')
@@ -222,4 +260,76 @@ export interface UpdateSettingsRequest {
 export interface UserPreferences {
   theme: 'dark' | 'light'
   language: 'de' | 'en'
+}
+
+// ── Configuration ───────────────────────────────────────────────────────────
+
+export interface ZoneConfig {
+  label: string
+  switch: string
+  flow_lph: number
+}
+
+export interface SequenceConfig {
+  label: string
+  zones: string[]
+  basis_min_per_zone: number
+  range: [number, number]
+  watchdog_min: number
+  schedule: { cron: string }
+  enabled: boolean
+  wind_blocks: boolean
+}
+
+export interface SensorsConfig {
+  rain: string
+  wind: string
+  season: string
+  temperature: string
+  precipitation_prob_today: string
+  precipitation_prob_tomorrow: string
+  precipitation_today: string
+  precipitation_tomorrow: string
+}
+
+export interface FactorsConfig {
+  temp: { formula: 'linear'; basis_c: number; pct_per_c: number; min_pct: number; max_pct: number }
+  rain: {
+    forecast_days: number
+    threshold_prob: number
+    reduce_above_mm: number
+    zero_above_mm: number
+    forecast_decay: number
+  }
+}
+
+export interface HAConfigPublic {
+  url: string
+  notify_targets: string[]
+}
+
+export interface AuthConfigResponse {
+  mode: 'password' | 'forward_header' | 'none'
+  forward_header: { header: string; trusted_proxies: string[] }
+  auto_login: { enabled: boolean; trigger: { url_param: string; trusted_referers: string[]; trusted_ips: string[] } }
+  frame_ancestors: string[]
+  password_set: boolean
+}
+
+export interface ConfigDoc {
+  ha: HAConfigPublic
+  auth: AuthConfigResponse
+  sensors: SensorsConfig
+  zones: Record<string, ZoneConfig>
+  sequences: Record<string, SequenceConfig>
+  factors: FactorsConfig
+  timezone: string
+  restart_required: boolean
+}
+
+export interface EntityInfo {
+  entity_id: string
+  friendly_name: string | null
+  state: string
+  domain: string
 }
