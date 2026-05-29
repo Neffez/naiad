@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from naiad.config import is_addon_context, resolve_ha_connection
 from naiad.config_store import load_or_seed_config
 from naiad.database import create_tables, get_engine
 from naiad.domain.sequences import SequenceRunner
@@ -128,9 +129,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             "reverse proxy. Configure password or forward_header auth before exposing Naiad."
         )
 
-    ha = HAClient(url=config.ha.url, token=config.ha.token)
+    # In the HA add-on context, reach Core through the Supervisor proxy with the
+    # auto-provided SUPERVISOR_TOKEN; standalone uses the configured URL/token.
+    ha_url, ha_token = resolve_ha_connection(config.ha.url, config.ha.token)
+    ha = HAClient(url=ha_url, token=ha_token)
     await ha.start()
-    logger.info("HA client started", extra={"url": config.ha.url})
+    logger.info("HA client started", extra={"url": ha_url, "addon": is_addon_context()})
 
     driver = HAEntityDriver(ha)
     runner = SequenceRunner(config, driver, _session_factory)
