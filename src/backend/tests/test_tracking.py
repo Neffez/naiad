@@ -109,9 +109,7 @@ async def test_off_without_prior_on_ignored(minimal_config: AppConfig, engine) -
     assert _history(engine) == []
 
 
-async def test_malformed_on_timestamp_falls_back_to_now(
-    minimal_config: AppConfig, engine
-) -> None:
+async def test_malformed_on_timestamp_falls_back_to_now(minimal_config: AppConfig, engine) -> None:
     """A missing/garbled on timestamp must not crash; tracking still records a run."""
     tracker, _ = _make_tracker(minimal_config, engine)
 
@@ -126,16 +124,12 @@ async def test_malformed_on_timestamp_falls_back_to_now(
     assert rows[0].duration_min >= 0
 
 
-async def test_malformed_off_timestamp_falls_back_to_now(
-    minimal_config: AppConfig, engine
-) -> None:
+async def test_malformed_off_timestamp_falls_back_to_now(minimal_config: AppConfig, engine) -> None:
     tracker, _ = _make_tracker(minimal_config, engine)
     on_at = datetime.now(UTC) - timedelta(minutes=1)
 
     await tracker._handle_state_change("switch.zone_a", _state("on", on_at))
-    await tracker._handle_state_change(
-        "switch.zone_a", {"state": "off", "last_changed": "garbage"}
-    )
+    await tracker._handle_state_change("switch.zone_a", {"state": "off", "last_changed": "garbage"})
 
     rows = _history(engine)
     assert len(rows) == 1
