@@ -136,9 +136,7 @@ async def test_tracker_rebuild_picks_up_new_zone(
 # ── apply_reloaded_config (coordinator) ───────────────────────────────────────
 
 
-async def test_apply_reloaded_config_end_to_end(
-    minimal_config: AppConfig, session_factory
-) -> None:
+async def test_apply_reloaded_config_end_to_end(minimal_config: AppConfig, session_factory) -> None:
     driver = FakeDriver()
     ha = FakeHA()
     runner = SequenceRunner(minimal_config, driver, session_factory)
