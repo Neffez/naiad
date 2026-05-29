@@ -121,6 +121,14 @@
     "noZones": "Keine Zonen",
     "label": "Bezeichnung",
     "namePlaceholder": "Bezeichnung",
+    "entitySearch": "Suchen oder Entity-ID…",
+    "expects": "Erwartet",
+    "noEntities": "Keine passenden Entitäten",
+    "entityType": {
+      "switch": "Schalter (an/aus)",
+      "sensor": "Sensor (Messwert)",
+      "binary_sensor": "Binärsensor (an/aus)"
+    },
     "switch": "Switch",
     "flowLph": "Durchfluss (L/h)",
     "sequences": "Sequenzen",
