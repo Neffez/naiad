@@ -160,6 +160,38 @@ class AppConfig(BaseModel):
         return self
 
 
+# ── Home Assistant add-on context ─────────────────────────────────────────────
+
+# When Naiad runs as a Home Assistant add-on, the Supervisor reaches Core through
+# an internal proxy and injects a short-lived token, so no long-lived access token
+# is needed (and none should be configured).
+SUPERVISOR_WS_URL = "ws://supervisor/core/websocket"
+
+
+def is_addon_context() -> bool:
+    """True when running as a Supervisor-managed Home Assistant add-on.
+
+    The Supervisor always injects ``SUPERVISOR_TOKEN`` into add-on containers; its
+    presence is the canonical signal that we are running inside the add-on.
+    """
+    return bool(os.environ.get("SUPERVISOR_TOKEN"))
+
+
+def resolve_ha_connection(url: str, token: str) -> tuple[str, str]:
+    """Resolve the effective HA WebSocket URL and access token.
+
+    In the add-on context, reach Core via the Supervisor proxy
+    (``ws://supervisor/core/websocket``) using the auto-provided
+    ``SUPERVISOR_TOKEN`` — the manual long-lived token is not required. Outside the
+    add-on (standalone container / LXC), the configured values from the database or
+    environment are used unchanged.
+    """
+    supervisor_token = os.environ.get("SUPERVISOR_TOKEN")
+    if supervisor_token:
+        return SUPERVISOR_WS_URL, supervisor_token
+    return url, token
+
+
 # ── Loader ───────────────────────────────────────────────────────────────────
 
 
