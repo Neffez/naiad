@@ -123,7 +123,10 @@ export const getEntities = (domain?: string) =>
   api.get<{ entities: EntityInfo[] }>(`/config/entities${domain ? `?domain=${domain}` : ''}`)
 export const getServices = (domain?: string) =>
   api.get<{ services: string[] }>(`/config/services${domain ? `?domain=${domain}` : ''}`)
-export const testNotify = () => api.post<{ sent: number; targets: string[] }>('/config/test-notify')
+export const testNotify = (service?: string) =>
+  api.post<{ sent: number; targets: string[] }>(
+    `/config/test-notify${service ? `?service=${encodeURIComponent(service)}` : ''}`,
+  )
 
 export async function exportConfig(): Promise<string> {
   const res = await authedFetch('/config/export', { method: 'GET' })
