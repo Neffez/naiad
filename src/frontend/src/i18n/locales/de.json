@@ -154,6 +154,7 @@
     "exportedCopied": "Konfiguration exportiert (auch in die Zwischenablage kopiert).",
     "notifyTest": "Test-Benachrichtigung senden",
     "notifyTestOk": "Test an {{count}} Ziel(e) gesendet",
+    "notifyTestThis": "Test-Benachrichtigung an dieses Ziel senden",
     "saveFirst": "Erst speichern",
     "entitySearch": "Suchen oder Entity-ID…",
     "expects": "Erwartet",
