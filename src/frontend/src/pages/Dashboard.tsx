@@ -7,7 +7,6 @@ import {
   getStatus,
   getValves,
   pauseSequence,
-  resumeSequence,
   setMaster,
   startSequence,
   stopSequence,
@@ -93,9 +92,11 @@ export default function Dashboard() {
   }
 
   async function handleResume(seq: SequenceState) {
-    // Continue from the snapshot — no start dialog, no duration override.
+    // Continue from the snapshot — no start dialog, no duration override. Starting
+    // a paused sequence with no override resumes it from the saved remaining time.
     try {
-      await resumeSequence(seq.id)
+      await startSequence(seq.id)
+      toast(t('toast.resumed', { name: seq.label, defaultValue: `${seq.label} fortgesetzt` }), 'success')
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
