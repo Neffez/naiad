@@ -1,3 +1,4 @@
+import contextlib
 import logging
 from datetime import UTC, datetime
 
@@ -267,34 +268,12 @@ async def stop_sequence(
     runner: SequenceRunner = Depends(get_runner),
 ) -> dict[str, str]:
     # Idempotent cancel: stop the live run if this sequence is running, otherwise
-    # just drop any pause snapshot. Either way the end state is "idle", so a
-    # double-click or a stop that races with the run ending doesn't error.
+    # just drop any pause snapshot. The end state is always "idle", so a double-click
+    # or a stop that races with the run ending doesn't error.
     if runner.status().sequence_id == sequence_id:
-        try:
+        with contextlib.suppress(NotRunning):
             await runner.stop()
-        except NotRunning:
-            pass
     else:
         runner.discard_snapshot(sequence_id)
     await broadcast_sequence_changed(sequence_id, "idle", "manual")
     return {"stopped": sequence_id}
-
-
-@router.post("/{sequence_id}/resume", status_code=202)
-async def resume_sequence(
-    sequence_id: str,
-    _: None = Depends(require_auth),
-    config: AppConfig = Depends(get_config),
-    runner: SequenceRunner = Depends(get_runner),
-) -> dict[str, str]:
-    """Continue a paused sequence from its snapshot — no duration prompt, just resume."""
-    if sequence_id not in config.sequences:
-        raise HTTPException(404, f"Sequence '{sequence_id}' not found")
-    try:
-        await runner.resume()
-    except NotRunning as e:
-        raise HTTPException(409, "Nothing to resume — the sequence is not paused") from e
-    except MutexConflict as e:
-        raise HTTPException(409, str(e)) from e
-    await broadcast_sequence_changed(sequence_id, "running", "resume")
-    return {"resumed": sequence_id}
