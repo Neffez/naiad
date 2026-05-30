@@ -1,6 +1,9 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
-import type { SystemStatus } from '../api/client'
+import { type NextRun, type SystemStatus, skipRun } from '../api/client'
+import { toast } from './Toast'
+import { IClock, IX } from './icons'
 
 interface TodayBlockProps {
   sys: SystemStatus
@@ -23,23 +26,43 @@ function formatRelative(isoDate: string, t: TFunction): string {
   return m > 0 ? t('time.inHM', { h, m }) : t('time.inH', { h })
 }
 
-function formatWhen(isoDate: string, t: TFunction, lng: string): string {
+function formatClock(isoDate: string, lng: string): string {
+  return new Date(isoDate).toLocaleString(lng, { hour: '2-digit', minute: '2-digit' })
+}
+
+/** Day heading shared by all runs in the block (they're all on the same day). */
+function formatDayLabel(isoDate: string, t: TFunction, lng: string): string {
   const d = new Date(isoDate)
   const now = new Date()
   const isToday = d.toDateString() === now.toDateString()
   const tomorrow = new Date(now)
   tomorrow.setDate(tomorrow.getDate() + 1)
   const isTomorrow = d.toDateString() === tomorrow.toDateString()
+  if (isToday) return t('today.today')
+  if (isTomorrow) return t('today.tomorrow')
+  return d.toLocaleString(lng, { weekday: 'long', day: '2-digit', month: '2-digit' })
+}
 
-  const time = d.toLocaleString(lng, { hour: '2-digit', minute: '2-digit' })
-  if (isToday) return t('time.todayAt', { time })
-  if (isTomorrow) return t('time.tomorrowAt', { time })
-  return d.toLocaleString(lng, { weekday: 'short', hour: '2-digit', minute: '2-digit' })
+function useSkip() {
+  const qc = useQueryClient()
+  const { t } = useTranslation()
+  return useMutation({
+    mutationFn: (run: NextRun) =>
+      skipRun({ sequence_id: run.sequence_id, scheduled_at: run.scheduled_at, plan_id: run.plan_id }),
+    onSuccess: (_d, run) => {
+      toast(t('today.skipped', { name: run.sequence_label, defaultValue: `${run.sequence_label} übersprungen` }), 'success')
+      qc.invalidateQueries({ queryKey: ['status'] })
+      qc.invalidateQueries({ queryKey: ['sequences'] })
+    },
+    onError: (e) => toast(e instanceof Error ? e.message : String(e), 'error'),
+  })
 }
 
 export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
   const { t, i18n } = useTranslation()
+  const skip = useSkip()
   const f = sys.today_factor
+  const runs = sys.upcoming_runs ?? []
 
   // temp_pct and rain_pct are signed deltas from neutral (0 = no adjustment).
   const breakdown = [
@@ -56,8 +79,10 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
   }
 
   if (dense) {
-    return <DenseTodayBlock sys={sys} breakdown={breakdown} />
+    return <DenseTodayBlock sys={sys} breakdown={breakdown} onSkip={(r) => skip.mutate(r)} />
   }
+
+  const dayLabel = runs.length > 0 ? formatDayLabel(runs[0].scheduled_at, t, i18n.language) : null
 
   return (
     <div
@@ -75,64 +100,29 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span className="n-eyebrow">{t('today.title')}</span>
+        {dayLabel && (
+          <span className="n-eyebrow" style={{ fontSize: 9.5, color: 'var(--n-teal-300)' }}>{dayLabel}</span>
+        )}
       </div>
 
-      {/* Next run — hero card */}
-      {sys.next_run ? (
-        <div
-          style={{
-            padding: '14px 16px',
-            borderRadius: 12,
-            background: 'var(--n-teal-glow)',
-            border: '1px solid rgba(94,200,216,0.15)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 6,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.015em' }}>
-              {sys.next_run.sequence_label}
-            </span>
-            <span className="mono" style={{ fontSize: 13, color: 'var(--n-teal-300)', fontWeight: 500 }}>
-              {formatRelative(sys.next_run.scheduled_at, t)}
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-            <span className="mono" style={{ fontSize: 18, color: 'var(--n-teal-200)', fontWeight: 500 }}>
-              {formatWhen(sys.next_run.scheduled_at, t, i18n.language)}
-            </span>
-            <span className="mono" style={{ fontSize: 14, color: 'var(--n-fg-soft)' }}>
-              {sys.next_run.duration_min} min
-            </span>
-          </div>
+      {/* Upcoming runs of the day */}
+      {runs.length > 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {runs.map((run, i) => (
+            <RunRow
+              key={`${run.sequence_id}-${run.scheduled_at}`}
+              run={run}
+              hero={i === 0}
+              t={t}
+              lng={i18n.language}
+              onSkip={() => skip.mutate(run)}
+              skipping={skip.isPending}
+            />
+          ))}
         </div>
       ) : (
         <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--n-line)' }}>
           <span style={{ fontSize: 14, color: 'var(--n-fg-muted)' }}>{t('today.noRun')}</span>
-        </div>
-      )}
-
-      {/* After next — secondary */}
-      {sys.after_next && (
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '10px 14px',
-            background: 'rgba(255,255,255,0.018)',
-            border: '1px solid var(--n-line)',
-            borderRadius: 10,
-          }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span className="n-eyebrow" style={{ fontSize: 9.5 }}>{t('today.after')}</span>
-            <span style={{ fontSize: 16, fontWeight: 500 }}>{sys.after_next.sequence_label}</span>
-          </div>
-          <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>
-            {formatWhen(sys.after_next.scheduled_at, t, i18n.language)} · {sys.after_next.duration_min} min
-          </span>
         </div>
       )}
 
@@ -194,44 +184,114 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
   )
 }
 
-function DenseTodayBlock({ sys, breakdown }: { sys: SystemStatus; breakdown: { label: string; delta: string; positive: boolean }[] }) {
+function RunRow({
+  run,
+  hero,
+  t,
+  lng,
+  onSkip,
+  skipping,
+}: {
+  run: NextRun
+  hero: boolean
+  t: TFunction
+  lng: string
+  onSkip: () => void
+  skipping: boolean
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+        padding: hero ? '14px 16px' : '10px 14px',
+        borderRadius: hero ? 12 : 10,
+        background: hero ? 'var(--n-teal-glow)' : 'rgba(255,255,255,0.018)',
+        border: hero ? '1px solid rgba(94,200,216,0.15)' : '1px solid var(--n-line)',
+      }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: hero ? 4 : 2, minWidth: 0 }}>
+        <span style={{ fontSize: hero ? 20 : 15, fontWeight: 600, letterSpacing: '-0.015em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {run.sequence_label}
+        </span>
+        <span className="mono" style={{ fontSize: hero ? 14 : 12.5, color: 'var(--n-teal-200)', fontWeight: 500 }}>
+          {formatClock(run.scheduled_at, lng)} · {run.duration_min} min
+          {hero && <span style={{ color: 'var(--n-fg-soft)' }}> · {formatRelative(run.scheduled_at, t)}</span>}
+        </span>
+      </div>
+      <button
+        className="n-btn ghost"
+        onClick={onSkip}
+        disabled={skipping}
+        title={t('today.skip', { defaultValue: 'Überspringen' })}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          height: 32, padding: '0 10px', fontSize: 12, flex: '0 0 auto',
+          color: 'var(--n-fg-muted)',
+        }}
+      >
+        <IX size={13} />
+        <span>{t('today.skip', { defaultValue: 'Überspringen' })}</span>
+      </button>
+    </div>
+  )
+}
+
+function DenseTodayBlock({
+  sys,
+  breakdown,
+  onSkip,
+}: {
+  sys: SystemStatus
+  breakdown: { label: string; delta: string; positive: boolean }[]
+  onSkip: (run: NextRun) => void
+}) {
   const { t, i18n } = useTranslation()
   const f = sys.today_factor
+  const runs = sys.upcoming_runs ?? []
+  const dayLabel = runs.length > 0 ? formatDayLabel(runs[0].scheduled_at, t, i18n.language) : null
 
   return (
     <div className="n-card" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* Next run — compact hero */}
-      {sys.next_run && (
-        <div
-          style={{
-            padding: '10px 12px',
-            borderRadius: 10,
-            background: 'var(--n-teal-glow)',
-            border: '1px solid rgba(94,200,216,0.15)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 600 }}>{sys.next_run.sequence_label}</div>
-            <span className="mono" style={{ fontSize: 12, color: 'var(--n-teal-200)' }}>
-              {formatWhen(sys.next_run.scheduled_at, t, i18n.language)} · {sys.next_run.duration_min} min
-            </span>
+      {runs.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span className="n-eyebrow" style={{ fontSize: 9.5 }}>{t('today.title')}</span>
+            {dayLabel && <span className="n-eyebrow" style={{ fontSize: 9, color: 'var(--n-teal-300)' }}>{dayLabel}</span>}
           </div>
-          <span className="mono" style={{ fontSize: 12, color: 'var(--n-teal-300)', fontWeight: 500 }}>
-            {formatRelative(sys.next_run.scheduled_at, t)}
-          </span>
+          {runs.map((run, i) => (
+            <div
+              key={`${run.sequence_id}-${run.scheduled_at}`}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                padding: '8px 10px', borderRadius: 8,
+                background: i === 0 ? 'var(--n-teal-glow)' : 'rgba(255,255,255,0.018)',
+                border: i === 0 ? '1px solid rgba(94,200,216,0.15)' : '1px solid var(--n-line)',
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{run.sequence_label}</div>
+                <span className="mono" style={{ fontSize: 11.5, color: 'var(--n-teal-200)' }}>
+                  {formatClock(run.scheduled_at, i18n.language)} · {run.duration_min} min
+                </span>
+              </div>
+              <button
+                className="n-iconbtn"
+                onClick={() => onSkip(run)}
+                title={t('today.skip', { defaultValue: 'Überspringen' })}
+                style={{ width: 32, height: 32, flex: '0 0 32px', color: 'var(--n-fg-muted)' }}
+              >
+                <IX size={14} />
+              </button>
+            </div>
+          ))}
         </div>
       )}
-
-      {/* After next */}
-      {sys.after_next && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, opacity: 0.7, padding: '0 2px' }}>
-          <span style={{ color: 'var(--n-fg-soft)' }}>{sys.after_next.sequence_label}</span>
-          <span className="mono" style={{ color: 'var(--n-fg-muted)' }}>
-            {formatWhen(sys.after_next.scheduled_at, t, i18n.language)} · {sys.after_next.duration_min} min
-          </span>
+      {runs.length === 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--n-fg-muted)' }}>
+          <IClock size={13} /> {t('today.noRun')}
         </div>
       )}
 

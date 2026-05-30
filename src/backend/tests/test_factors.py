@@ -92,6 +92,24 @@ def test_missing_temperature_treated_as_basis(minimal_config: AppConfig) -> None
     assert result.factor_pct == pytest.approx(100.0)
 
 
+def test_max_temperature_preferred_over_current(minimal_config: AppConfig) -> None:
+    """When a forecast max temperature is present it drives the factor instead of
+    the (cooler, night-time) current temperature."""
+    # current 15°C would reduce; max 25°C should raise to +35%.
+    result = compute_factors(
+        _snap(temperature_c=15.0, max_temperature_c=25.0), minimal_config
+    )
+    assert result.temp_delta_pct == pytest.approx(35.0)
+    assert result.factor_pct == pytest.approx(135.0)
+
+
+def test_falls_back_to_current_when_no_max(minimal_config: AppConfig) -> None:
+    result = compute_factors(
+        _snap(temperature_c=25.0, max_temperature_c=None), minimal_config
+    )
+    assert result.temp_delta_pct == pytest.approx(35.0)
+
+
 def test_forecast_tomorrow_with_decay(minimal_config: AppConfig) -> None:
     # forecast_decay=0.5; tomorrow 40mm × 0.5 = 20mm effective → full block with 90% prob
     result = compute_factors(
