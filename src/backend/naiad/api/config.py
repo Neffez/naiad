@@ -242,3 +242,28 @@ async def list_services(
     except HAError:
         services = []
     return ServicesResponse(services=services)
+
+
+@router.post("/test-notify")
+async def test_notify(
+    _: None = Depends(require_auth),
+    config: AppConfig = Depends(get_config),
+    ha: HAClient = Depends(get_ha_client),
+) -> dict[str, object]:
+    """Send a test push to every configured notify target, to verify the chain
+    (config → HA notify service → phone). Reports exactly what failed."""
+    targets = config.ha.notify_targets
+    if not targets:
+        raise HTTPException(
+            400, "No notify targets configured. Add at least one (notify.*) in the configuration."
+        )
+    message = "🌿 Naiad: test notification — if you see this, notifications work."
+    failures: list[str] = []
+    for target in targets:
+        try:
+            await ha.call_service("notify", target.removeprefix("notify."), message=message)
+        except Exception as e:  # noqa: BLE001 — surface the reason to the user
+            failures.append(f"{target}: {e}")
+    if failures:
+        raise HTTPException(502, "Notification failed — " + "; ".join(failures))
+    return {"sent": len(targets), "targets": targets}
