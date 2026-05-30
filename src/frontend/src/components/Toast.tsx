@@ -14,6 +14,7 @@ interface ToastItem {
 
 const EVENT = 'naiad:toast'
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function toast(message: string, level: ToastLevel = 'error'): void {
   window.dispatchEvent(new CustomEvent<{ message: string; level: ToastLevel }>(EVENT, {
     detail: { message, level },
