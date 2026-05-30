@@ -1,7 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { type NextRun, type SystemStatus, skipRun } from '../api/client'
+import { ConfirmActionDialog } from './ConfirmActionDialog'
 import { toast } from './Toast'
 import { IClock, IX } from './icons'
 
@@ -61,8 +63,29 @@ function useSkip() {
 export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
   const { t, i18n } = useTranslation()
   const skip = useSkip()
+  // A run pending skip confirmation — guards against an accidental tap.
+  const [pendingSkip, setPendingSkip] = useState<NextRun | null>(null)
   const f = sys.today_factor
   const runs = sys.upcoming_runs ?? []
+
+  // Shared confirmation dialog for skipping a future run (both layouts).
+  const skipDialog = pendingSkip && (
+    <ConfirmActionDialog
+      open={!!pendingSkip}
+      title={t('confirmSkip.title', { defaultValue: 'Lauf überspringen?' })}
+      message={t('confirmSkip.message', {
+        name: pendingSkip.sequence_label,
+        time: formatClock(pendingSkip.scheduled_at, i18n.language),
+        defaultValue: `${pendingSkip.sequence_label} um ${formatClock(pendingSkip.scheduled_at, i18n.language)} wird übersprungen und läuft erst beim nächsten Zeitplan wieder.`,
+      })}
+      confirmLabel={t('today.skip', { defaultValue: 'Überspringen' })}
+      onConfirm={() => {
+        skip.mutate(pendingSkip)
+        setPendingSkip(null)
+      }}
+      onCancel={() => setPendingSkip(null)}
+    />
+  )
 
   // temp_pct and rain_pct are signed deltas from neutral (0 = no adjustment).
   const breakdown = [
@@ -79,12 +102,18 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
   }
 
   if (dense) {
-    return <DenseTodayBlock sys={sys} breakdown={breakdown} onSkip={(r) => skip.mutate(r)} />
+    return (
+      <>
+        <DenseTodayBlock sys={sys} breakdown={breakdown} onSkip={setPendingSkip} />
+        {skipDialog}
+      </>
+    )
   }
 
   const dayLabel = runs.length > 0 ? formatDayLabel(runs[0].scheduled_at, t, i18n.language) : null
 
   return (
+    <>
     <div
       className="n-card"
       style={{
@@ -115,7 +144,7 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
               hero={i === 0}
               t={t}
               lng={i18n.language}
-              onSkip={() => skip.mutate(run)}
+              onSkip={() => setPendingSkip(run)}
               skipping={skip.isPending}
             />
           ))}
@@ -181,6 +210,8 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
         </div>
       </div>
     </div>
+    {skipDialog}
+    </>
   )
 }
 
