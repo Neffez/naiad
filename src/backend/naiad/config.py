@@ -149,6 +149,25 @@ class FactorsConfig(BaseModel):
     rain: RainFactorConfig = RainFactorConfig()
 
 
+# ── Notifications ──────────────────────────────────────────────────────────────
+
+
+class NotificationsConfig(BaseModel):
+    """Which push notifications Naiad sends, and how loud.
+
+    Notifications go to ``ha.notify_targets`` via the HA notify service. ``quiet``
+    asks the companion app to deliver them silently/low-priority (best-effort,
+    platform-dependent).
+    """
+
+    on_start: bool = True  # a scheduled/planned run started
+    on_skip: bool = True  # a run was skipped (wind) or a schedule conflict occurred
+    on_abort: bool = True  # a run was aborted (rain / watchdog)
+    evening_reminder: bool = True  # nightly summary of the next day's runs
+    evening_reminder_cron: str = "0 21 * * *"
+    quiet: bool = False  # deliver low-priority / without sound where supported
+
+
 # ── Root ─────────────────────────────────────────────────────────────────────
 
 
@@ -161,6 +180,7 @@ class AppConfig(BaseModel):
     zones: dict[str, ZoneConfig]
     sequences: dict[str, SequenceConfig]
     factors: FactorsConfig = FactorsConfig()
+    notifications: NotificationsConfig = NotificationsConfig()
     timezone: str = "Europe/Berlin"  # IANA tz for cron schedules and day bucketing
 
     @model_validator(mode="after")

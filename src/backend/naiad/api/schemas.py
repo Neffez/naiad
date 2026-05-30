@@ -7,6 +7,7 @@ from naiad.config import (
     AutoLoginConfig,
     FactorsConfig,
     ForwardHeaderConfig,
+    NotificationsConfig,
     SensorsConfig,
     SequenceConfig,
     ZoneConfig,
@@ -284,6 +285,7 @@ class ConfigResponse(BaseModel):
     zones: dict[str, ZoneConfig]
     sequences: dict[str, SequenceConfig]
     factors: FactorsConfig
+    notifications: NotificationsConfig
     timezone: str
     # True after an update that changed ha.url/token: the live HA socket is not
     # reconnected automatically, so a restart is needed for the connection change.
@@ -297,6 +299,7 @@ class ConfigUpdateRequest(BaseModel):
     zones: dict[str, ZoneConfig]
     sequences: dict[str, SequenceConfig]
     factors: FactorsConfig
+    notifications: NotificationsConfig = NotificationsConfig()
     timezone: str = "Europe/Berlin"
 
 

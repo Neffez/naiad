@@ -85,3 +85,11 @@ factors:
     reduce_above_mm: 5.0      # mm — linear reduction starts here
     zero_above_mm: 20.0       # mm — factor = 0.0 at or above this
     forecast_decay: 0.5       # tomorrow's values multiplied by this
+
+notifications:
+  on_start: true            # push when a scheduled/planned run starts
+  on_skip: true             # push when a run is skipped (wind) or conflicts
+  on_abort: true            # push when a run is aborted (rain / watchdog)
+  evening_reminder: true    # nightly summary of the next day's runs
+  evening_reminder_cron: "0 21 * * *"
+  quiet: false              # deliver silently / low-priority where supported
