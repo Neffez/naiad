@@ -68,6 +68,20 @@ def test_extra_fields_rejected() -> None:
         AppConfig.model_validate(data)
 
 
+def test_temp_min_pct_above_max_pct_raises() -> None:
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["factors"] = {"temp": {"min_pct": 200, "max_pct": 80}}
+    with pytest.raises(ValidationError, match="min_pct"):
+        AppConfig.model_validate(data)
+
+
+def test_threshold_prob_out_of_range_raises() -> None:
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["factors"] = {"rain": {"threshold_prob": 150}}
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate(data)
+
+
 # ── Add-on / Supervisor context ───────────────────────────────────────────────
 
 
