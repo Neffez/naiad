@@ -8,6 +8,7 @@ from sqlmodel import Session
 
 from naiad.api.schemas import (
     CurrentRunResponse,
+    FactorNotesResponse,
     SequenceStateResponse,
     StartSequenceRequest,
     ZoneSummaryResponse,
@@ -103,17 +104,17 @@ def _build_state(
 
     factor_pct = int(round(factors.factor_pct))
 
-    notes: list[str] = []
-    if factors.season_off:
-        notes.append("Season off")
-    if factors.wind_on and seq_cfg.wind_blocks:
-        notes.append("Wind blocked")
-    if factors.rain_factor_pct < 100:
-        notes.append(f"Rain factor: {int(factors.rain_factor_pct)}%")
-    if abs(factors.temp_delta_pct) >= 5:
-        sign = "+" if factors.temp_delta_pct > 0 else ""
-        notes.append(f"Temp: {sign}{int(factors.temp_delta_pct)}%")
-    factor_note = "; ".join(notes) if notes else None
+    # Structured (not prose) so the frontend localizes; see CLAUDE.md i18n rule.
+    factor_notes = FactorNotesResponse(
+        season_off=factors.season_off,
+        wind_blocked=factors.wind_on and seq_cfg.wind_blocks,
+        rain_factor_pct=(
+            int(round(factors.rain_factor_pct)) if factors.rain_factor_pct < 100 else None
+        ),
+        temp_delta_pct=(
+            int(round(factors.temp_delta_pct)) if abs(factors.temp_delta_pct) >= 5 else None
+        ),
+    )
 
     zones = []
     for zone_id in seq_cfg.zones:
@@ -134,7 +135,7 @@ def _build_state(
         enabled=seq_cfg.enabled,
         paused=bool(override.paused) if override else False,
         factor_pct=factor_pct,
-        factor_note=factor_note,
+        factor_notes=factor_notes,
         schedule_label=seq_cfg.schedule.cron,
         next_run_at=_get_next_run_at(scheduler, seq_id),
         zones=zones,

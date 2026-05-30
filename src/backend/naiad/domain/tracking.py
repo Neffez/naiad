@@ -39,6 +39,13 @@ class LiterTracker:
         zone_id = self._entity_to_zone[entity_id]
 
         if state["state"] == "on":
+            # Skip cycles the SequenceRunner owns: it records its own history and
+            # turns the valve off itself. Checking on the "on" event (not just on
+            # "off") avoids a race where the "off" state-change arrives after the
+            # run has ended and cleared its mutex, which would otherwise log a
+            # spurious "external" run alongside the runner's own entry.
+            if self._is_managed(zone_id):
+                return
             raw_ts = state.get("last_changed", "")
             try:
                 self._on_times[entity_id] = datetime.fromisoformat(raw_ts)
