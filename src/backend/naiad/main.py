@@ -73,6 +73,9 @@ def _setup_logging() -> None:
     handler.setFormatter(_JSONFormatter())
     logging.basicConfig(level=level, handlers=[handler], force=True)
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    # APScheduler logs an INFO line per job execution (the plan tick runs every
+    # minute), which floods the log — keep only its warnings/errors.
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 
 # ── Request-ID middleware ─────────────────────────────────────────────────────
