@@ -137,6 +137,9 @@ class NextRunResponse(BaseModel):
     sequence_label: str
     scheduled_at: UtcDatetime
     duration_min: int
+    # Set for one-off planned runs; the skip endpoint deletes the plan directly.
+    # None for recurring cron runs, which are skipped via a SkippedRun record.
+    plan_id: str | None = None
 
 
 class SystemStatusResponse(BaseModel):
@@ -146,6 +149,9 @@ class SystemStatusResponse(BaseModel):
     today_factor: FactorBreakdownResponse
     next_run: NextRunResponse | None
     after_next: NextRunResponse | None
+    # All upcoming runs of the next day that has any: today if more runs remain
+    # today, otherwise the next day with scheduled runs.
+    upcoming_runs: list[NextRunResponse]
     liters_today: float
     liters_week: float
     week_series: list[float]  # liters per local weekday Mon..Sun of the current week
@@ -153,6 +159,12 @@ class SystemStatusResponse(BaseModel):
 
 class MasterToggleRequest(BaseModel):
     on: bool
+
+
+class SkipRunRequest(BaseModel):
+    sequence_id: str
+    scheduled_at: datetime
+    plan_id: str | None = None
 
 
 class ValveStateResponse(BaseModel):

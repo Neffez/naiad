@@ -36,8 +36,11 @@ def read_sensor_snapshot(ha: HAClient, config: AppConfig) -> SensorSnapshot:
             return safe_default
         return val == "on"
 
+    max_temperature_c = _float_or_none(sensors.temperature_max) if sensors.temperature_max else None
+
     return SensorSnapshot(
         temperature_c=_float_or_none(sensors.temperature),
+        max_temperature_c=max_temperature_c,
         season_on=_bool(sensors.season, safe_default=False),
         wind_on=_bool(sensors.wind, safe_default=False),
         precipitation_prob_today=_float(sensors.precipitation_prob_today),

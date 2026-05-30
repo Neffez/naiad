@@ -97,10 +97,20 @@
     "pctPerC": "% per °C",
     "minPct": "Min %",
     "maxPct": "Max %",
-    "thresholdProb": "Threshold prob %",
+    "thresholdProb": "Rain threshold %",
     "reduceAbove": "Reduce above mm",
     "zeroAbove": "Zero above mm",
-    "forecastDecay": "Forecast decay",
+    "forecastDecay": "Forecast weighting",
+    "help": {
+      "basisC": "Reference temperature at which watering runs at 100%. Above it watering scales up, below it scales down.",
+      "pctPerC": "How many percent the watering duration changes per degree away from the reference temperature.",
+      "minPct": "Lower bound of the temperature factor — watering never drops below this percentage.",
+      "maxPct": "Upper bound of the temperature factor — watering never exceeds this percentage.",
+      "thresholdProb": "Minimum rain probability before a rain forecast reduces watering at all.",
+      "reduceAbove": "Forecast rainfall (mm) above which watering starts to be reduced.",
+      "zeroAbove": "Forecast rainfall (mm) at or above which watering is skipped entirely.",
+      "forecastDecay": "Weighting (0–1) of tomorrow's rain relative to today's. 1 = counts fully, 0 = ignored."
+    },
     "version": "Version",
     "haIntegration": "HA integration",
     "theme": "Appearance",
@@ -138,6 +148,7 @@
       "wind": "Wind",
       "season": "Season",
       "temperature": "Temperature",
+      "temperature_max": "Max temperature (forecast)",
       "precipitation_prob_today": "Rain probability today",
       "precipitation_prob_tomorrow": "Rain probability tomorrow",
       "precipitation_today": "Precipitation today",
@@ -270,7 +281,11 @@
     "after": "Next up",
     "adjustment": "Adjustment",
     "auto": "auto",
-    "blocked": "{{seqs}} blocked"
+    "blocked": "{{seqs}} blocked",
+    "today": "Today",
+    "tomorrow": "Tomorrow",
+    "skip": "Skip",
+    "skipped": "{{name}} skipped"
   },
   "time": {
     "now": "now",
