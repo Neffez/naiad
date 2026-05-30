@@ -8,7 +8,8 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from naiad.config import AppConfig
 from naiad.domain.models import Plan, UserPreference
 from naiad.domain.sequences import SequenceRunner
-from naiad.scheduler import _plan_tick, _run_sequence_job
+from naiad.scheduler import _plan_tick, _run_sequence_job, push_notification
+from tests.conftest import MINIMAL_CONFIG_DATA
 
 
 class FakeDriver:
@@ -120,3 +121,74 @@ async def test_plan_kept_on_conflict_then_consumed(fast_config: AppConfig, engin
     with Session(engine) as s:
         assert list(s.exec(select(Plan)).all()) == []  # plan consumed
     await runner.stop()
+
+
+# ── Notifications: gating + quiet (push_notification) ──────────────────────────
+
+
+class _RecordingHA:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    async def call_service(self, domain: str, service: str, **data: Any) -> None:
+        self.calls.append((domain, service, data))
+
+
+def _cfg_targets(targets: list[Any]) -> AppConfig:
+    import copy
+
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["ha"]["notify_targets"] = targets
+    return AppConfig.model_validate(data)
+
+
+async def test_push_sends_to_subscribed_target() -> None:
+    ha = _RecordingHA()
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(ha, cfg, "hi", category="start")
+    assert ha.calls == [("notify", "a", {"message": "hi"})]
+
+
+async def test_push_skips_unsubscribed_target() -> None:
+    ha = _RecordingHA()
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["reminder"]}])
+    await push_notification(ha, cfg, "hi", category="start")
+    assert ha.calls == []
+
+
+async def test_push_quiet_android_sets_importance() -> None:
+    ha = _RecordingHA()
+    cfg = _cfg_targets(
+        [{"service": "notify.a", "categories": ["abort"], "quiet": True, "platform": "android"}]
+    )
+    await push_notification(ha, cfg, "hi", category="abort")
+    assert ha.calls[0][2]["data"] == {"importance": "low"}
+
+
+async def test_push_quiet_ios_sets_passive() -> None:
+    ha = _RecordingHA()
+    cfg = _cfg_targets(
+        [{"service": "notify.a", "categories": ["abort"], "quiet": True, "platform": "ios"}]
+    )
+    await push_notification(ha, cfg, "hi", category="abort")
+    assert ha.calls[0][2]["data"]["push"]["interruption-level"] == "passive"
+
+
+async def test_push_info_category_sends_regardless_of_subscriptions() -> None:
+    ha = _RecordingHA()
+    cfg = _cfg_targets([{"service": "notify.a", "categories": []}])
+    await push_notification(ha, cfg, "hi", category="info")
+    assert len(ha.calls) == 1
+
+
+async def test_push_legacy_string_target_gets_all_categories() -> None:
+    ha = _RecordingHA()
+    cfg = _cfg_targets(["notify.a"])  # back-compat: plain string
+    await push_notification(ha, cfg, "hi", category="reminder")
+    assert ha.calls == [("notify", "a", {"message": "hi"})]
+
+
+async def test_push_no_targets_is_noop() -> None:
+    ha = _RecordingHA()
+    await push_notification(ha, _cfg_targets([]), "hi", category="start")
+    assert ha.calls == []
