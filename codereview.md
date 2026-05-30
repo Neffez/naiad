@@ -44,6 +44,34 @@ Counts: **High 2 · Medium 5 · Low 8.**
 
 ---
 
+## 1a. Quick wins applied
+
+A first pass of low-risk, high-confidence fixes has been applied on
+`claude/project-code-review-A3oX3` (annotated **✅** on the findings below).
+`ruff check` / `ruff format --check` pass; new unit tests cover the pure helpers
+and validators (`mypy`/`pytest` need Python 3.12 and run in CI).
+
+- **H-1 (partial):** startup warning when `forward_header` is used with no
+  `trusted_proxies` (the spoofable default). Hard fail-closed is left as a
+  follow-up since it would break proxy setups that bind Naiad internally — see H-1.
+- **M-1 ✅:** `at_datetime` plans normalize to naive UTC via `timeutil.to_naive_utc`;
+  a naive wall-clock time is interpreted in `config.timezone`, an aware value by
+  its offset.
+- **M-2 ✅:** `liters_week` now buckets from local Monday (`local_week_start_utc`),
+  so the headline equals the sum of the Mon→Sun `week_series` chart.
+- **M-3 ✅:** `TempFactorConfig` gets a `min_pct <= max_pct` validator + `ge=0`
+  bounds; `RainFactorConfig` bounds `threshold_prob` (0–100) and `forecast_days`
+  (≥1). `merge_factor_config` re-validates, so the override path is covered too.
+- **M-4 ✅:** manual-start and plan `duration_min` constrained to `gt=0`.
+- **L-2 ✅:** `ha.on_connection_change` is wired before `await ha.start()`, so the
+  first connect (crash recovery) can't fire before its handler is attached.
+
+Still open from this review: **H-2** (liter double-count — needs a durable
+ownership handshake, not a one-liner), **H-1** hard enforcement, **M-5** (login
+throttling), and the remaining Low items.
+
+---
+
 ## 2. Architecture Assessment
 
 **Strengths**

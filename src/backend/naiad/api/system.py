@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends
@@ -19,7 +19,7 @@ from naiad.domain.factors import compute_factors
 from naiad.domain.models import Plan, RunHistory, UserPreference
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.ha_client import HAClient
-from naiad.timeutil import local_day_start_utc, now_utc_naive
+from naiad.timeutil import local_day_start_utc, local_week_start_utc
 
 router = APIRouter(tags=["system"])
 
@@ -42,11 +42,7 @@ def _set_master(session: Session, value: bool) -> None:
 def _week_series(session: Session, tz_name: str) -> list[float]:
     """Liters per local weekday (Mon..Sun) for the current local week."""
     tz = ZoneInfo(tz_name)
-    now_local = datetime.now(tz)
-    monday_local = (now_local - timedelta(days=now_local.weekday())).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    monday_utc = monday_local.astimezone(UTC).replace(tzinfo=None)
+    monday_utc = local_week_start_utc(tz_name)
 
     rows = session.exec(
         select(RunHistory.started_at, RunHistory.liters).where(RunHistory.started_at >= monday_utc)
@@ -104,10 +100,11 @@ async def get_status(
         seq_id for seq_id, seq in config.sequences.items() if seq.wind_blocks and snapshot.wind_on
     ]
 
-    # RunHistory.started_at is stored as naive UTC; bucket by *local* day so
-    # "today"/"this week" reset at local midnight, not UTC midnight.
+    # RunHistory.started_at is stored as naive UTC; bucket by *local* calendar day
+    # and *local* calendar week (Mon→Sun) so "today"/"this week" reset at local
+    # midnight and liters_week matches the sum of week_series shown in the chart.
     today_start = local_day_start_utc(config.timezone)
-    week_start = now_utc_naive() - timedelta(days=7)
+    week_start = local_week_start_utc(config.timezone)
 
     next_runs = _next_plans(session, config, 2)
 
