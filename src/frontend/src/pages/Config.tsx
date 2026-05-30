@@ -285,33 +285,9 @@ export default function Config() {
         ))}
       </Section>
 
-      {/* Factors */}
-      <Section title={t('config.factors', { defaultValue: 'Faktoren' })}>
-        <Row label={t('config.tempBasisC', { defaultValue: 'Temp-Basis (°C)' })}>
-          <Num value={draft.factors.temp.basis_c} onChange={(v) => patch((d) => { d.factors.temp.basis_c = v })} />
-        </Row>
-        <Row label={t('config.tempPctPerC', { defaultValue: '% pro °C' })}>
-          <Num value={draft.factors.temp.pct_per_c} onChange={(v) => patch((d) => { d.factors.temp.pct_per_c = v })} />
-        </Row>
-        <Row label={t('config.tempMinPct', { defaultValue: 'Min %' })}>
-          <Num value={draft.factors.temp.min_pct} onChange={(v) => patch((d) => { d.factors.temp.min_pct = v })} />
-        </Row>
-        <Row label={t('config.tempMaxPct', { defaultValue: 'Max %' })}>
-          <Num value={draft.factors.temp.max_pct} onChange={(v) => patch((d) => { d.factors.temp.max_pct = v })} />
-        </Row>
-        <Row label={t('config.rainThreshold', { defaultValue: 'Regen-Schwelle (%)' })}>
-          <Num value={draft.factors.rain.threshold_prob} onChange={(v) => patch((d) => { d.factors.rain.threshold_prob = v })} />
-        </Row>
-        <Row label={t('config.rainReduce', { defaultValue: 'Reduktion ab (mm)' })}>
-          <Num value={draft.factors.rain.reduce_above_mm} onChange={(v) => patch((d) => { d.factors.rain.reduce_above_mm = v })} />
-        </Row>
-        <Row label={t('config.rainZero', { defaultValue: 'Null ab (mm)' })}>
-          <Num value={draft.factors.rain.zero_above_mm} onChange={(v) => patch((d) => { d.factors.rain.zero_above_mm = v })} />
-        </Row>
-        <Row label={t('config.rainDecay', { defaultValue: 'Vorhersage-Decay' })} last>
-          <Num step={0.1} value={draft.factors.rain.forecast_decay} onChange={(v) => patch((d) => { d.factors.rain.forecast_decay = v })} />
-        </Row>
-      </Section>
+      {/* Factors are edited on the Settings page (FactorOverride layer), which
+          always takes precedence over these base values at runtime. Editing them
+          here too would be misleading, so the section lives only in Settings. */}
 
       {/* Advanced */}
       <Section title={t('config.advanced', { defaultValue: 'Erweitert' })}>
