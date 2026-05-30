@@ -193,7 +193,7 @@
     "error": "Falsches Passwort"
   },
   "emergency": {
-    "title": "Notaus — System + alle Ventile sofort stoppen",
+    "title": "Notaus — System + alle Zonen sofort stoppen",
     "label": "Notaus",
     "confirm": "Bestätigen?"
   },
@@ -214,8 +214,8 @@
     "configured": "konfiguriert",
     "running": "läuft",
     "ready": "bereit",
-    "valvesLive": "Ventile · Live",
-    "valves": "Ventile",
+    "valvesLive": "Zonen · Live",
+    "valves": "Zonen",
     "live": "live",
     "usage7d": "Verbrauch · 7 Tage",
     "usage": "Verbrauch",
