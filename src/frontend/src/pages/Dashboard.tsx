@@ -14,6 +14,7 @@ import {
   type SystemStatus,
 } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
 import { EmergencyStop } from '../components/EmergencyStop'
 import { ILogo } from '../components/icons'
 import { MasterToggle } from '../components/MasterToggle'
@@ -61,6 +62,7 @@ export default function Dashboard() {
   })
 
   const [confirmSeq, setConfirmSeq] = useState<SequenceState | null>(null)
+  const [confirmStop, setConfirmStop] = useState<SequenceState | null>(null)
 
   async function handleStart(seq: SequenceState, durationMin?: number) {
     try {
@@ -229,7 +231,7 @@ export default function Dashboard() {
                 onStart={() => setConfirmSeq(seq)}
                 onPause={() => handlePause(seq.id)}
                 onResume={() => handleResume(seq)}
-                onStop={() => handleStop(seq.id)}
+                onStop={() => setConfirmStop(seq)}
                 onSchedule={() => navigate(`/planner?seq=${seq.id}`)}
               />
             ))}
@@ -299,7 +301,7 @@ export default function Dashboard() {
               onStart={() => setConfirmSeq(seq)}
               onPause={() => handlePause(seq.id)}
               onResume={() => handleResume(seq)}
-              onStop={() => handleStop(seq.id)}
+              onStop={() => setConfirmStop(seq)}
               onSchedule={() => navigate(`/planner?seq=${seq.id}`)}
             />
           ))}
@@ -352,6 +354,25 @@ export default function Dashboard() {
             setConfirmSeq(null)
           }}
           onCancel={() => setConfirmSeq(null)}
+        />
+      )}
+
+      {/* Stop confirmation — avoid aborting a run by accident */}
+      {confirmStop && (
+        <ConfirmActionDialog
+          open={!!confirmStop}
+          tone="danger"
+          title={t('confirmStop.title', { defaultValue: 'Lauf stoppen?' })}
+          message={t('confirmStop.message', {
+            name: confirmStop.label,
+            defaultValue: `${confirmStop.label} wird sofort gestoppt.`,
+          })}
+          confirmLabel={t('sequence.stop', { defaultValue: 'Stoppen' })}
+          onConfirm={() => {
+            handleStop(confirmStop.id)
+            setConfirmStop(null)
+          }}
+          onCancel={() => setConfirmStop(null)}
         />
       )}
     </div>
