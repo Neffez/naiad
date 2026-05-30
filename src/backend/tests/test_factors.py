@@ -96,17 +96,13 @@ def test_max_temperature_preferred_over_current(minimal_config: AppConfig) -> No
     """When a forecast max temperature is present it drives the factor instead of
     the (cooler, night-time) current temperature."""
     # current 15°C would reduce; max 25°C should raise to +35%.
-    result = compute_factors(
-        _snap(temperature_c=15.0, max_temperature_c=25.0), minimal_config
-    )
+    result = compute_factors(_snap(temperature_c=15.0, max_temperature_c=25.0), minimal_config)
     assert result.temp_delta_pct == pytest.approx(35.0)
     assert result.factor_pct == pytest.approx(135.0)
 
 
 def test_falls_back_to_current_when_no_max(minimal_config: AppConfig) -> None:
-    result = compute_factors(
-        _snap(temperature_c=25.0, max_temperature_c=None), minimal_config
-    )
+    result = compute_factors(_snap(temperature_c=25.0, max_temperature_c=None), minimal_config)
     assert result.temp_delta_pct == pytest.approx(35.0)
 
 
