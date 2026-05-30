@@ -7,6 +7,7 @@ import {
   getStatus,
   getValves,
   pauseSequence,
+  resumeSequence,
   setMaster,
   startSequence,
   stopSequence,
@@ -84,6 +85,17 @@ export default function Dashboard() {
   async function handlePause(id: string) {
     try {
       await pauseSequence(id)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'error')
+    } finally {
+      qc.invalidateQueries({ queryKey: ['sequences'] })
+    }
+  }
+
+  async function handleResume(seq: SequenceState) {
+    // Continue from the snapshot — no start dialog, no duration override.
+    try {
+      await resumeSequence(seq.id)
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
@@ -213,7 +225,8 @@ export default function Dashboard() {
                 seq={seq}
                 size="rich"
                 onStart={() => setConfirmSeq(seq)}
-                onPause={() => (seq.status === 'running' ? handlePause(seq.id) : handleStart(seq))}
+                onPause={() => handlePause(seq.id)}
+                onResume={() => handleResume(seq)}
                 onStop={() => handleStop(seq.id)}
                 onSchedule={() => navigate(`/planner?seq=${seq.id}`)}
               />

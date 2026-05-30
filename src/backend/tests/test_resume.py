@@ -67,3 +67,15 @@ def test_save_overwrites_existing(session: Session) -> None:
     assert snap.zone_id == "zone_b"
     assert snap.zone_index == 1
     assert snap.remaining_min == pytest.approx(7.0)
+
+
+async def test_discard_snapshot_cancels_paused(fast_config: AppConfig, engine) -> None:
+    runner = SequenceRunner(fast_config, FakeDriver(), _sf(engine))
+    await runner.start("seq_1")
+    await asyncio.sleep(0.05)
+    await runner.pause()
+    with Session(engine) as s:
+        assert load_snapshot(s, "seq_1") is not None
+    runner.discard_snapshot("seq_1")  # cancel a paused run without resuming
+    with Session(engine) as s:
+        assert load_snapshot(s, "seq_1") is None
