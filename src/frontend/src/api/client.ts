@@ -326,6 +326,15 @@ export interface AuthConfigResponse {
   password_set: boolean
 }
 
+export interface NotificationsConfig {
+  on_start: boolean
+  on_skip: boolean
+  on_abort: boolean
+  evening_reminder: boolean
+  evening_reminder_cron: string
+  quiet: boolean
+}
+
 export interface ConfigDoc {
   ha: HAConfigPublic
   auth: AuthConfigResponse
@@ -333,6 +342,7 @@ export interface ConfigDoc {
   zones: Record<string, ZoneConfig>
   sequences: Record<string, SequenceConfig>
   factors: FactorsConfig
+  notifications: NotificationsConfig
   timezone: string
   restart_required: boolean
 }

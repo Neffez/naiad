@@ -108,6 +108,13 @@
     "ha": "Home Assistant",
     "haUrl": "WebSocket-URL",
     "notifyTargets": "Notify-Ziele",
+    "notifications": "Benachrichtigungen",
+    "notifyOnStart": "Bei Start",
+    "notifyOnSkip": "Bei Überspringen (Wind/Konflikt)",
+    "notifyOnAbort": "Bei Abbruch (Regen/Watchdog)",
+    "notifyQuiet": "Leise (ohne Ton, niedrige Priorität)",
+    "notifyReminder": "Abend-Erinnerung (morgige Läufe)",
+    "notifyReminderCron": "Erinnerungszeit (Cron)",
     "sensors": "Sensoren",
     "sensor": {
       "rain": "Regen",

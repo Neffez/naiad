@@ -187,6 +187,35 @@ export default function Config() {
         </Row>
       </Section>
 
+      {/* Notifications */}
+      <Section title={t('config.notifications', { defaultValue: 'Benachrichtigungen' })}>
+        <Row label={t('config.notifyOnStart', { defaultValue: 'Bei Start' })}>
+          <Check label="" checked={draft.notifications.on_start}
+            onChange={(c) => patch((d) => { d.notifications.on_start = c })} />
+        </Row>
+        <Row label={t('config.notifyOnSkip', { defaultValue: 'Bei Überspringen (Wind/Konflikt)' })}>
+          <Check label="" checked={draft.notifications.on_skip}
+            onChange={(c) => patch((d) => { d.notifications.on_skip = c })} />
+        </Row>
+        <Row label={t('config.notifyOnAbort', { defaultValue: 'Bei Abbruch (Regen/Watchdog)' })}>
+          <Check label="" checked={draft.notifications.on_abort}
+            onChange={(c) => patch((d) => { d.notifications.on_abort = c })} />
+        </Row>
+        <Row label={t('config.notifyQuiet', { defaultValue: 'Leise (ohne Ton, niedrige Priorität)' })}>
+          <Check label="" checked={draft.notifications.quiet}
+            onChange={(c) => patch((d) => { d.notifications.quiet = c })} />
+        </Row>
+        <Row label={t('config.notifyReminder', { defaultValue: 'Abend-Erinnerung (morgige Läufe)' })}>
+          <Check label="" checked={draft.notifications.evening_reminder}
+            onChange={(c) => patch((d) => { d.notifications.evening_reminder = c })} />
+        </Row>
+        <Row label={t('config.notifyReminderCron', { defaultValue: 'Erinnerungszeit (Cron)' })} last>
+          <input style={{ ...inputStyle, width: 160 }} value={draft.notifications.evening_reminder_cron}
+            disabled={!draft.notifications.evening_reminder}
+            onChange={(e) => patch((d) => { d.notifications.evening_reminder_cron = e.target.value })} />
+        </Row>
+      </Section>
+
       {/* Sensors */}
       <Section title={t('config.sensors', { defaultValue: 'Sensoren' })}>
         {SENSOR_FIELDS.map((f, i) => (
