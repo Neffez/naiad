@@ -211,6 +211,25 @@ class HAClient:
             },
         )
 
+    async def get_services(self, domain: str | None = None) -> list[str]:
+        """List available services as ``<domain>.<service>`` ids (optionally one domain).
+
+        Services (e.g. ``notify.mobile_app_*``) are not entities and aren't in the
+        state cache, so this issues a one-off ``get_services`` command.
+        """
+        if not self._connected.is_set() or self._ws is None:
+            raise HAError({"message": "Not connected to Home Assistant"})
+        result: dict[str, dict[str, Any]] = await self._send_command(
+            self._ws, {"type": "get_services"}
+        )
+        services: list[str] = []
+        for dom, svc_map in (result or {}).items():
+            if domain is not None and dom != domain:
+                continue
+            services.extend(f"{dom}.{svc}" for svc in svc_map)
+        services.sort()
+        return services
+
     def get_state(self, entity_id: str) -> dict[str, Any] | None:
         return self._state_cache.get(entity_id)
 

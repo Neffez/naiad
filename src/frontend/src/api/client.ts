@@ -121,6 +121,8 @@ export const getConfig = () => api.get<ConfigDoc>('/config')
 export const putConfig = (body: ConfigDoc) => api.put<ConfigDoc>('/config', body)
 export const getEntities = (domain?: string) =>
   api.get<{ entities: EntityInfo[] }>(`/config/entities${domain ? `?domain=${domain}` : ''}`)
+export const getServices = (domain?: string) =>
+  api.get<{ services: string[] }>(`/config/services${domain ? `?domain=${domain}` : ''}`)
 
 export async function exportConfig(): Promise<string> {
   const res = await authedFetch('/config/export', { method: 'GET' })

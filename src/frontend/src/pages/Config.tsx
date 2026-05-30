@@ -9,6 +9,7 @@ import {
   exportConfig,
   getConfig,
   getEntities,
+  getServices,
   importConfig,
   putConfig,
 } from '../api/client'
@@ -35,6 +36,10 @@ export default function Config() {
   const binarySensors = useQuery({
     queryKey: ['entities', 'binary_sensor'],
     queryFn: () => getEntities('binary_sensor'),
+  })
+  const notifyServices = useQuery({
+    queryKey: ['services', 'notify'],
+    queryFn: () => getServices('notify'),
   })
 
   const [draft, setDraft] = useState<ConfigDoc | null>(null)
@@ -137,9 +142,9 @@ export default function Config() {
           />
         </Row>
         <Row label={t('config.notifyTargets', { defaultValue: 'Notify-Ziele' })} last align="start">
-          <StringList
+          <NotifyTargetList
             values={draft.ha.notify_targets}
-            placeholder="notify.mobile_app_…"
+            services={notifyServices.data?.services}
             onChange={(vals) => patch((d) => { d.ha.notify_targets = vals })}
           />
         </Row>
@@ -533,6 +538,35 @@ function StringList({ values, placeholder, onChange }: {
   )
 }
 
+// Notify targets are HA *services* (notify.*), so each row is a searchable combobox
+// fed by get_services rather than the entity state cache.
+function NotifyTargetList({ values, services, onChange }: {
+  values: string[]; services?: string[]; onChange: (vals: string[]) => void
+}) {
+  const { t } = useTranslation()
+  const options = (services ?? []).map((s) => ({ value: s, label: s }))
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {values.map((v, i) => (
+        <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+          <EntityCombobox
+            value={v}
+            onChange={(nv) => onChange(values.map((x, j) => (j === i ? nv : x)))}
+            options={options}
+            hint={t('config.entityType.notify', { defaultValue: 'Notify-Service' })}
+            width={300}
+          />
+          <DeleteButton onClick={() => onChange(values.filter((_, j) => j !== i))} />
+        </div>
+      ))}
+      <button className="n-btn" style={{ height: 32, padding: '0 12px', fontSize: 12.5, alignSelf: 'flex-start' }}
+        onClick={() => onChange([...values, ''])}>
+        + {t('config.addEntry', { defaultValue: 'Hinzufügen' })}
+      </button>
+    </div>
+  )
+}
+
 // Derive an internal snake_case id from a human name. Umlauts/diacritics are
 // stripped (NFKD), everything non-alphanumeric collapses to single underscores.
 function slugify(name: string): string {
@@ -603,11 +637,25 @@ function DeleteButton({ onClick }: { onClick: () => void }) {
 // name or entity_id as you type, shows a type hint, and still accepts a pasted /
 // typed entity_id that isn't in the list. The dropdown is portalled to <body> so
 // the Section's `overflow: hidden` can't clip it.
-function EntityCombobox({ value, onChange, entities, domain, width = 320 }: {
+type ComboOption = { value: string; label: string; sub?: string }
+
+function entityOptions(entities?: EntityInfo[]): ComboOption[] {
+  return (entities ?? []).map((e) => ({
+    value: e.entity_id,
+    label: e.friendly_name || e.entity_id,
+    sub: e.friendly_name ? e.entity_id : undefined,
+  }))
+}
+
+// Searchable picker. Pass either `entities` (HA entities, with a type hint from
+// `domain`) or a ready-made `options` list (e.g. notify services) plus a `hint`.
+function EntityCombobox({ value, onChange, entities, options, domain, hint, width = 320 }: {
   value: string
   onChange: (v: string) => void
   entities?: EntityInfo[]
-  domain: string
+  options?: ComboOption[]
+  domain?: string
+  hint?: string
   width?: number
 }) {
   const { t } = useTranslation()
@@ -618,17 +666,19 @@ function EntityCombobox({ value, onChange, entities, domain, width = 320 }: {
   const [active, setActive] = useState(0)
   const [rect, setRect] = useState<DOMRect | null>(null)
 
-  const list = entities ?? []
+  const list = options ?? entityOptions(entities)
   const q = query.trim().toLowerCase()
   const matches = (
     q
       ? list.filter(
-          (e) =>
-            e.entity_id.toLowerCase().includes(q) ||
-            (e.friendly_name?.toLowerCase().includes(q) ?? false),
+          (o) =>
+            o.value.toLowerCase().includes(q) ||
+            o.label.toLowerCase().includes(q) ||
+            (o.sub?.toLowerCase().includes(q) ?? false),
         )
       : list
   ).slice(0, 50)
+  const hintText = hint ?? (domain ? t(`config.entityType.${domain}`, { defaultValue: domain }) : '')
 
   function reposition() {
     if (inputRef.current) setRect(inputRef.current.getBoundingClientRect())
@@ -653,8 +703,8 @@ function EntityCombobox({ value, onChange, entities, domain, width = 320 }: {
     }
   }, [open])
 
-  function choose(e: EntityInfo) {
-    onChange(e.entity_id)
+  function choose(o: ComboOption) {
+    onChange(o.value)
     setQuery('')
     setOpen(false)
   }
@@ -689,10 +739,11 @@ function EntityCombobox({ value, onChange, entities, domain, width = 320 }: {
           } else if (e.key === 'Escape') { setQuery(''); setOpen(false) }
         }}
       />
-      <span style={{ fontSize: 10.5, color: 'var(--n-fg-dim)', letterSpacing: '0.02em' }}>
-        {t('config.expects', { defaultValue: 'Erwartet' })}:{' '}
-        {t(`config.entityType.${domain}`, { defaultValue: domain })}
-      </span>
+      {hintText && (
+        <span style={{ fontSize: 10.5, color: 'var(--n-fg-dim)', letterSpacing: '0.02em' }}>
+          {t('config.expects', { defaultValue: 'Erwartet' })}: {hintText}
+        </span>
+      )}
       {open && rect && createPortal(
         <div
           id="entity-combobox-pop"
@@ -707,21 +758,21 @@ function EntityCombobox({ value, onChange, entities, domain, width = 320 }: {
               {t('config.noEntities', { defaultValue: 'Keine passenden Entitäten' })}
             </div>
           ) : (
-            matches.map((e, i) => (
+            matches.map((o, i) => (
               <button
-                key={e.entity_id}
+                key={o.value}
                 type="button"
                 onMouseEnter={() => setActive(i)}
-                onMouseDown={(ev) => { ev.preventDefault(); choose(e) }}
+                onMouseDown={(ev) => { ev.preventDefault(); choose(o) }}
                 style={{
                   display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px',
                   background: i === active ? 'var(--n-teal-glow)' : 'transparent',
                   border: 0, borderRadius: 6, cursor: 'pointer',
                 }}
               >
-                <div style={{ fontSize: 13, color: 'var(--n-fg)' }}>{e.friendly_name || e.entity_id}</div>
-                {e.friendly_name && (
-                  <div className="mono" style={{ fontSize: 11, color: 'var(--n-fg-muted)' }}>{e.entity_id}</div>
+                <div style={{ fontSize: 13, color: 'var(--n-fg)' }}>{o.label}</div>
+                {o.sub && (
+                  <div className="mono" style={{ fontSize: 11, color: 'var(--n-fg-muted)' }}>{o.sub}</div>
                 )}
               </button>
             ))
