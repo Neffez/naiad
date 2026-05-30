@@ -60,22 +60,23 @@ jobs:
   # naiad is tagged vX.Y.Z, bump the add-on's config.yaml version so the Supervisor
   # offers an update and rebuilds against the new :latest image.
   #
-  # Requires a repo secret APP_NAIAD_TOKEN: a (fine-grained) PAT with
-  # contents:write on Neffez/app-naiad. Without it this job is a no-op.
+  # Requires a (fine-grained) PAT with contents:write on Neffez/app-naiad, as the
+  # secret RELEASE_PAT (preferred, shared with tag-on-merge) or APP_NAIAD_TOKEN.
+  # Without either, this job is a no-op.
   bump-addon-version:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
       - name: Bump add-on version (app-naiad)
         env:
-          TOKEN: ${{ secrets.APP_NAIAD_TOKEN }}
+          TOKEN: ${{ secrets.RELEASE_PAT || secrets.APP_NAIAD_TOKEN }}
           VERSION_REF: ${{ github.ref_name }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "::warning::APP_NAIAD_TOKEN is empty — skipping add-on bump. Add a fine-grained PAT with contents:write on Neffez/app-naiad as an Actions secret named APP_NAIAD_TOKEN in THIS (naiad) repo, then re-run this job or push a new tag."
+            echo "::warning::No RELEASE_PAT/APP_NAIAD_TOKEN — skipping add-on bump. Add a fine-grained PAT with contents:write on Neffez/app-naiad as the secret RELEASE_PAT (or APP_NAIAD_TOKEN), then re-run this job or push a new tag."
             exit 0
           fi
-          echo "APP_NAIAD_TOKEN detected — bumping add-on version."
+          echo "Token detected — bumping add-on version."
           VERSION="${VERSION_REF#v}"
           git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/Neffez/app-naiad.git" addon
           cd addon
