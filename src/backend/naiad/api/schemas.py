@@ -8,6 +8,7 @@ from naiad.config import (
     FactorsConfig,
     ForwardHeaderConfig,
     NotificationsConfig,
+    NotifyTarget,
     SensorsConfig,
     SequenceConfig,
     ZoneConfig,
@@ -260,7 +261,7 @@ class HAConfigPublic(BaseModel):
     """HA connection without the secret token."""
 
     url: str
-    notify_targets: list[str] = []
+    notify_targets: list[NotifyTarget] = []
 
 
 class AuthConfigResponse(BaseModel):
