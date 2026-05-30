@@ -1,3 +1,4 @@
+import contextlib
 import logging
 from datetime import UTC, datetime
 
@@ -266,12 +267,13 @@ async def stop_sequence(
     _: None = Depends(require_auth),
     runner: SequenceRunner = Depends(get_runner),
 ) -> dict[str, str]:
-    status = runner.status()
-    if status.sequence_id != sequence_id:
-        raise HTTPException(409, f"Sequence '{sequence_id}' is not currently running")
-    try:
-        await runner.stop()
-    except NotRunning as e:
-        raise HTTPException(409, str(e)) from e
+    # Idempotent cancel: stop the live run if this sequence is running, otherwise
+    # just drop any pause snapshot. The end state is always "idle", so a double-click
+    # or a stop that races with the run ending doesn't error.
+    if runner.status().sequence_id == sequence_id:
+        with contextlib.suppress(NotRunning):
+            await runner.stop()
+    else:
+        runner.discard_snapshot(sequence_id)
     await broadcast_sequence_changed(sequence_id, "idle", "manual")
     return {"stopped": sequence_id}

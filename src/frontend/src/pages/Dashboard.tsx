@@ -91,6 +91,19 @@ export default function Dashboard() {
     }
   }
 
+  async function handleResume(seq: SequenceState) {
+    // Continue from the snapshot — no start dialog, no duration override. Starting
+    // a paused sequence with no override resumes it from the saved remaining time.
+    try {
+      await startSequence(seq.id)
+      toast(t('toast.resumed', { name: seq.label, defaultValue: `${seq.label} fortgesetzt` }), 'success')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'error')
+    } finally {
+      qc.invalidateQueries({ queryKey: ['sequences'] })
+    }
+  }
+
   async function handleEmergency() {
     // Master off is the authoritative kill; stop every running sequence even if
     // some individual stop calls fail (e.g. a sequence already ended → 409).
@@ -213,7 +226,8 @@ export default function Dashboard() {
                 seq={seq}
                 size="rich"
                 onStart={() => setConfirmSeq(seq)}
-                onPause={() => (seq.status === 'running' ? handlePause(seq.id) : handleStart(seq))}
+                onPause={() => handlePause(seq.id)}
+                onResume={() => handleResume(seq)}
                 onStop={() => handleStop(seq.id)}
                 onSchedule={() => navigate(`/planner?seq=${seq.id}`)}
               />
