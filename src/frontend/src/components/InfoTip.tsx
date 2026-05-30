@@ -1,20 +1,47 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 /** Small circled "i" that reveals an explanatory tooltip on hover or tap. */
 export function InfoTip({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLSpanElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  // Position of the popup, computed from the button's viewport rect. The popup is
+  // portalled to <body> so an ancestor's `overflow: hidden` (e.g. the settings
+  // section card) can't clip it.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+
+  const TOOLTIP_WIDTH = 240
+
+  function reposition() {
+    const el = btnRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    // Anchor under the icon, but clamp to the viewport so the tooltip never
+    // overflows the right edge on narrow screens.
+    const left = Math.min(rect.left, window.innerWidth - TOOLTIP_WIDTH - 8)
+    setPos({ top: rect.bottom + 6, left: Math.max(8, left) })
+  }
+
+  useLayoutEffect(() => {
+    if (open) reposition()
+  }, [open])
 
   useEffect(() => {
     if (!open) return
     const onDown = (e: MouseEvent | TouchEvent) => {
       if (!wrapRef.current?.contains(e.target as Node)) setOpen(false)
     }
+    const onScroll = () => reposition()
     document.addEventListener('mousedown', onDown)
     document.addEventListener('touchstart', onDown)
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onScroll)
     return () => {
       document.removeEventListener('mousedown', onDown)
       document.removeEventListener('touchstart', onDown)
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onScroll)
     }
   }, [open])
 
@@ -26,6 +53,7 @@ export function InfoTip({ text }: { text: string }) {
       onMouseLeave={() => setOpen(false)}
     >
       <button
+        ref={btnRef}
         type="button"
         aria-label="info"
         onClick={(e) => {
@@ -53,15 +81,15 @@ export function InfoTip({ text }: { text: string }) {
       >
         i
       </button>
-      {open && (
+      {open && pos && createPortal(
         <span
           role="tooltip"
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 6px)',
-            left: 0,
+            position: 'fixed',
+            top: pos.top,
+            left: pos.left,
             zIndex: 1000,
-            width: 240,
+            width: TOOLTIP_WIDTH,
             padding: '8px 10px',
             borderRadius: 'var(--n-r-sm)',
             background: 'var(--n-bg-elev)',
@@ -75,7 +103,8 @@ export function InfoTip({ text }: { text: string }) {
           }}
         >
           {text}
-        </span>
+        </span>,
+        document.body,
       )}
     </span>
   )
