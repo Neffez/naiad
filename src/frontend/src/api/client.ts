@@ -313,9 +313,19 @@ export interface FactorsConfig {
   }
 }
 
+export const NOTIFICATION_CATEGORIES = ['start', 'skip', 'abort', 'reminder'] as const
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number]
+
+export interface NotifyTarget {
+  service: string
+  categories: NotificationCategory[]
+  quiet: boolean
+  platform: 'auto' | 'ios' | 'android'
+}
+
 export interface HAConfigPublic {
   url: string
-  notify_targets: string[]
+  notify_targets: NotifyTarget[]
 }
 
 export interface AuthConfigResponse {
@@ -327,12 +337,7 @@ export interface AuthConfigResponse {
 }
 
 export interface NotificationsConfig {
-  on_start: boolean
-  on_skip: boolean
-  on_abort: boolean
-  evening_reminder: boolean
   evening_reminder_cron: string
-  quiet: boolean
 }
 
 export interface ConfigDoc {

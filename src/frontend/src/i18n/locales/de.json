@@ -115,6 +115,15 @@
     "notifyQuiet": "Leise (ohne Ton, niedrige Priorität)",
     "notifyReminder": "Abend-Erinnerung (morgige Läufe)",
     "notifyReminderCron": "Erinnerungszeit (Cron)",
+    "notifyQuiet": "Leise (ohne Ton)",
+    "notifyPlatform": "Plattform",
+    "platformAuto": "Auto",
+    "notifyCat": {
+      "start": "Start",
+      "skip": "Übersprungen",
+      "abort": "Abbruch",
+      "reminder": "Erinnerung"
+    },
     "sensors": "Sensoren",
     "sensor": {
       "rain": "Regen",

@@ -26,7 +26,7 @@ from naiad.api.schemas import (
     HAConfigPublic,
     ServicesResponse,
 )
-from naiad.config import AppConfig
+from naiad.config import AppConfig, target_service_data
 from naiad.config_store import save_config_doc, to_export_dict
 from naiad.dependencies import (
     get_config,
@@ -262,9 +262,13 @@ async def test_notify(
     failures: list[str] = []
     for target in targets:
         try:
-            await ha.call_service("notify", target.removeprefix("notify."), message=message)
+            await ha.call_service(
+                "notify",
+                target.service.removeprefix("notify."),
+                **target_service_data(target, message),
+            )
         except Exception as e:  # noqa: BLE001 — surface the reason to the user
-            failures.append(f"{target}: {e}")
+            failures.append(f"{target.service}: {e}")
     if failures:
         raise HTTPException(502, "Notification failed — " + "; ".join(failures))
-    return {"sent": len(targets), "targets": targets}
+    return {"sent": len(targets), "targets": [t.service for t in targets]}
