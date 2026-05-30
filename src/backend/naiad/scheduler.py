@@ -1,7 +1,8 @@
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -27,15 +28,38 @@ def _master_on(session_factory: SessionFactory) -> bool:
         return pref is None or pref.value == "1"
 
 
-async def _notify(ha: HAClient, config: AppConfig, message: str) -> None:
+_NOTIFY_GATE = {"start": "on_start", "skip": "on_skip", "abort": "on_abort"}
+
+
+async def push_notification(
+    ha: HAClient, config: AppConfig, message: str, *, category: str = "info"
+) -> None:
+    """Push a message to the configured notify targets.
+
+    ``category`` (start/skip/abort/reminder/info) is gated by the per-event toggles
+    in ``notifications``. ``notifications.quiet`` asks for silent/low-priority
+    delivery (best-effort across platforms).
+    """
+    nc = config.notifications
+    gate = _NOTIFY_GATE.get(category)
+    if gate is not None and not getattr(nc, gate):
+        logger.debug("Notify suppressed by config (%s): %s", category, message)
+        return
     if not config.ha.notify_targets:
         logger.debug("Notify skipped — no notify_targets configured (%s)", message)
         return
+
+    service_data: dict[str, Any] = {"message": message}
+    if nc.quiet:
+        # Android (FCM) low priority + iOS passive interruption level; the platform
+        # that doesn't recognise a key ignores it.
+        service_data["data"] = {"priority": "low", "push": {"interruption-level": "passive"}}
+
     for target in config.ha.notify_targets:
         service = target.removeprefix("notify.")
         try:
-            await ha.call_service("notify", service, message=message)
-            logger.info("Notified %s", target)
+            await ha.call_service("notify", service, **service_data)
+            logger.info("Notified %s (%s)", target, category)
         except Exception:
             logger.warning("Notify failed for '%s'", target, exc_info=True)
 
@@ -72,7 +96,9 @@ async def _run_sequence_job(
 
     if seq_cfg.wind_blocks and snapshot.wind_on:
         logger.info("Skipped (%s): wind blocked", sequence_id)
-        await _notify(ha, config, f"⚠️ {seq_cfg.label}: Wind — Lauf übersprungen")
+        await push_notification(
+            ha, config, f"⚠️ {seq_cfg.label}: Wind — Lauf übersprungen", category="skip"
+        )
         return "skipped"
 
     with session_factory() as session:
@@ -99,13 +125,13 @@ async def _run_sequence_job(
     except MutexConflict as e:
         logger.warning("Conflict for '%s': %s", sequence_id, e)
         conflict_note = f"⚠️ Zeitplan-Konflikt: {seq_cfg.label} — läuft bereits"
-        await _notify(ha, config, conflict_note)
+        await push_notification(ha, config, conflict_note, category="skip")
         await broadcast_notification(conflict_note, level="warning")
         return "conflict"
 
     label_pct = int(round(factors.factor_pct))
     note = f"🌿 {seq_cfg.label} gestartet ({triggered_by}, Faktor {label_pct} %)"
-    await _notify(ha, config, note)
+    await push_notification(ha, config, note, category="start")
     # The "running" status is broadcast by the runner's on_started callback once a
     # valve actually opens, so clients never see a run that failed to start.
     await broadcast_notification(note)
@@ -179,11 +205,86 @@ async def _on_rain(
         seq_id = status.sequence_id
         await runner.stop(reason="rain")
         rain_note = f"🌧 Bewässerung gestoppt: Regen ({label})"
-        await _notify(ha, config, rain_note)
+        await push_notification(ha, config, rain_note, category="abort")
         await broadcast_sequence_changed(seq_id, "idle", "rain")
         await broadcast_notification(rain_note, level="warning")
     except Exception:
         logger.exception("Error aborting sequence on rain")
+
+
+async def _evening_reminder(
+    scheduler: AsyncIOScheduler,
+    config: AppConfig,
+    ha: HAClient,
+    session_factory: SessionFactory,
+) -> None:
+    """Push a summary of the next day's scheduled runs (nightly)."""
+    if not config.notifications.evening_reminder:
+        return
+    tz = ZoneInfo(config.timezone)
+    tomorrow = (datetime.now(tz) + timedelta(days=1)).date()
+    runs: list[tuple[datetime, str]] = []
+
+    for seq_id, seq_cfg in config.sequences.items():
+        if not seq_cfg.enabled:
+            continue
+        job = scheduler.get_job(f"cron-{seq_id}")
+        nxt = job.next_run_time if job else None
+        if nxt is not None and nxt.astimezone(tz).date() == tomorrow:
+            runs.append((nxt.astimezone(tz), seq_cfg.label))
+
+    with session_factory() as session:
+        plans = list(session.exec(select(Plan)).all())
+    for plan in plans:
+        when = plan.scheduled_at
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        local = when.astimezone(tz)
+        if local.date() == tomorrow:
+            pseq = config.sequences.get(plan.sequence_id)
+            label = pseq.label if pseq else plan.sequence_id
+            runs.append((local, f"{label} (geplant)"))
+
+    if runs:
+        runs.sort(key=lambda r: r[0])
+        lines = "\n".join(f"• {when.strftime('%H:%M')} {label}" for when, label in runs)
+        message = "🌙 Morgen:\n" + lines
+    else:
+        message = "🌙 Morgen keine Bewässerung geplant."
+    await push_notification(ha, config, message, category="reminder")
+
+
+def _register_reminder_job(
+    scheduler: AsyncIOScheduler,
+    config: AppConfig,
+    ha: HAClient,
+    session_factory: SessionFactory,
+) -> None:
+    """(Re)register the nightly reminder from config; remove it when disabled."""
+    if scheduler.get_job("evening-reminder") is not None:
+        scheduler.remove_job("evening-reminder")
+    if not config.notifications.evening_reminder:
+        return
+    try:
+        trigger = CronTrigger.from_crontab(
+            config.notifications.evening_reminder_cron, timezone=config.timezone
+        )
+    except Exception:
+        logger.warning(
+            "Invalid evening_reminder_cron '%s' — reminder disabled",
+            config.notifications.evening_reminder_cron,
+        )
+        return
+    scheduler.add_job(
+        _evening_reminder,
+        trigger=trigger,
+        args=[scheduler, config, ha, session_factory],
+        id="evening-reminder",
+        name="Evening reminder",
+        misfire_grace_time=3600,
+        replace_existing=True,
+    )
+    logger.info("Evening reminder registered (%s)", config.notifications.evening_reminder_cron)
 
 
 def _register_sequence_jobs(
@@ -237,6 +338,7 @@ def reschedule_sequences(
         if job.id.startswith("cron-"):
             scheduler.remove_job(job.id)
     _register_sequence_jobs(scheduler, config, runner, ha, session_factory)
+    _register_reminder_job(scheduler, config, ha, session_factory)
 
 
 def setup_scheduler(
@@ -258,6 +360,8 @@ def setup_scheduler(
         max_instances=1,
         misfire_grace_time=30,
     )
+
+    _register_reminder_job(scheduler, config, ha, session_factory)
 
     async def _rain_cb(entity_id: str, new_state: dict[str, Any]) -> None:
         await _on_rain(entity_id, new_state, runner, config, ha)
