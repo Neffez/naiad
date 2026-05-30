@@ -103,15 +103,30 @@ export default function Config() {
   async function handleExport() {
     try {
       const text = await exportConfig()
+      // Download — robust across browsers: the anchor must be in the DOM, and the
+      // object URL must be revoked late (revoking immediately can abort the download).
       const blob = new Blob([text], { type: 'application/x-yaml' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       a.download = 'naiad-config.yaml'
+      document.body.appendChild(a)
       a.click()
-      URL.revokeObjectURL(url)
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10000)
+      // The Home Assistant add-on serves the UI in a sandboxed iframe that often
+      // blocks file downloads, so also copy the YAML to the clipboard — there is
+      // always a way to get the config out.
+      try {
+        await navigator.clipboard.writeText(text)
+        toast(t('config.exportedCopied', {
+          defaultValue: 'Konfiguration exportiert (auch in die Zwischenablage kopiert).',
+        }), 'success')
+      } catch {
+        toast(t('config.exported', { defaultValue: 'Konfiguration exportiert.' }), 'success')
+      }
     } catch (e) {
-      setError((e as Error).message)
+      toast((e as Error).message, 'error')
     }
   }
 
@@ -412,20 +427,32 @@ function SequenceEditor({ id, seq, zoneIds, zones, last, onChange, onDelete }: {
       </div>
 
       <Labeled label={t('config.seqZones', { defaultValue: 'Zonen (Reihenfolge)' })} align="start">
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {zoneIds.length === 0 && <span style={{ fontSize: 12, color: 'var(--n-fg-dim)' }}>—</span>}
-          {zoneIds.map((zid) => {
-            const active = seq.zones.includes(zid)
-            return (
-              <button key={zid} className={`n-chip${active ? ' active' : ''}`}
-                style={{ cursor: 'pointer', opacity: active ? 1 : 0.55 }}
-                onClick={() => onChange((s) => {
-                  s.zones = active ? s.zones.filter((z) => z !== zid) : [...s.zones, zid]
-                })}>
-                {active ? `${seq.zones.indexOf(zid) + 1}. ` : ''}{zones[zid]?.label || zid}
-              </button>
-            )
-          })}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {zoneIds.length === 0 ? (
+            <span style={{ fontSize: 12, color: 'var(--n-paused)' }}>
+              {t('config.seqNoZonesDefined', { defaultValue: 'Lege zuerst oben eine Zone an.' })}
+            </span>
+          ) : seq.zones.length === 0 ? (
+            <span style={{ fontSize: 12, color: 'var(--n-paused)' }}>
+              {t('config.seqNoZonesAssigned', {
+                defaultValue: 'Keine Zone zugewiesen — unten anklicken (sonst startet die Sequenz nicht).',
+              })}
+            </span>
+          ) : null}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {zoneIds.map((zid) => {
+              const active = seq.zones.includes(zid)
+              return (
+                <button key={zid} className={`n-chip${active ? ' active' : ''}`}
+                  style={{ cursor: 'pointer', opacity: active ? 1 : 0.55 }}
+                  onClick={() => onChange((s) => {
+                    s.zones = active ? s.zones.filter((z) => z !== zid) : [...s.zones, zid]
+                  })}>
+                  {active ? `${seq.zones.indexOf(zid) + 1}. ` : ''}{zones[zid]?.label || zid}
+                </button>
+              )
+            })}
+          </div>
         </div>
       </Labeled>
 
