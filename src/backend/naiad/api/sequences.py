@@ -9,6 +9,7 @@ from sqlmodel import Session
 from naiad.api.schemas import (
     CurrentRunResponse,
     FactorNotesResponse,
+    ScheduleSummaryResponse,
     SequenceStateResponse,
     StartSequenceRequest,
     ZoneSummaryResponse,
@@ -22,6 +23,7 @@ from naiad.domain.models import ResumeSnapshot, SequenceOverride
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.domain.sequences import MutexConflict, NotRunning, SequenceRunner, SequenceState
 from naiad.ha_client import HAClient
+from naiad.scheduler import next_run_for_sequence
 
 router = APIRouter(prefix="/sequences", tags=["sequences"])
 logger = logging.getLogger(__name__)
@@ -55,11 +57,7 @@ def _sequence_status(
 
 
 def _get_next_run_at(scheduler: AsyncIOScheduler, seq_id: str) -> datetime | None:
-    job = scheduler.get_job(f"cron-{seq_id}")
-    if job is None:
-        return None
-    next_run: datetime | None = job.next_run_time
-    return next_run
+    return next_run_for_sequence(scheduler, seq_id)
 
 
 def _build_current_run(
@@ -136,7 +134,11 @@ def _build_state(
         paused=bool(override.paused) if override else False,
         factor_pct=factor_pct,
         factor_notes=factor_notes,
-        schedule_label=seq_cfg.schedule.cron,
+        schedule=ScheduleSummaryResponse(
+            days=list(seq_cfg.schedule.days),
+            times=list(seq_cfg.schedule.times),
+            cron=seq_cfg.schedule.cron,
+        ),
         next_run_at=_get_next_run_at(scheduler, seq_id),
         zones=zones,
         basis_min_per_zone=effective_basis,

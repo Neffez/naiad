@@ -92,6 +92,12 @@ class FactorNotesResponse(BaseModel):
     temp_delta_pct: int | None = None  # signed; set only when |delta| >= 5
 
 
+class ScheduleSummaryResponse(BaseModel):
+    days: list[int]  # ISO weekdays 1=Mon … 7=Sun; empty = every day
+    times: list[str]  # "HH:MM"
+    cron: str | None = None  # set only when an advanced cron override is active
+
+
 class SequenceStateResponse(BaseModel):
     id: str
     label: str
@@ -100,7 +106,7 @@ class SequenceStateResponse(BaseModel):
     paused: bool
     factor_pct: int
     factor_notes: FactorNotesResponse
-    schedule_label: str
+    schedule: ScheduleSummaryResponse
     next_run_at: UtcDatetime | None
     zones: list[ZoneSummaryResponse]
     basis_min_per_zone: int

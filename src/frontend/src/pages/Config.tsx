@@ -7,6 +7,7 @@ import {
   type ConfigDoc,
   type EntityInfo,
   type NotifyTarget,
+  type ScheduleSummary,
   type SequenceConfig,
   exportConfig,
   getConfig,
@@ -17,6 +18,16 @@ import {
   testNotify,
 } from '../api/client'
 import { toast } from '../components/Toast'
+import {
+  MAX_TIMES,
+  WEEKDAYS,
+  dailyCronToTime,
+  isDaily,
+  isWeekdays,
+  isWeekend,
+  timeToDailyCron,
+  weekdayShort,
+} from '../lib/schedule'
 
 const inputStyle: CSSProperties = {
   height: 36,
@@ -192,9 +203,11 @@ export default function Config() {
 
       {/* Notifications (global) — per-recipient choices live on each notify target above */}
       <Section title={t('config.notifications', { defaultValue: 'Benachrichtigungen' })}>
-        <Row label={t('config.notifyReminderCron', { defaultValue: 'Erinnerungszeit (Cron)' })} last>
-          <input style={{ ...inputStyle, width: 160 }} value={draft.notifications.evening_reminder_cron}
-            onChange={(e) => patch((d) => { d.notifications.evening_reminder_cron = e.target.value })} />
+        <Row label={t('config.notifyReminderTime', { defaultValue: 'Erinnerungszeit' })} last>
+          <ReminderTime
+            value={draft.notifications.evening_reminder_cron}
+            onChange={(cron) => patch((d) => { d.notifications.evening_reminder_cron = cron })}
+          />
         </Row>
       </Section>
 
@@ -262,7 +275,7 @@ export default function Config() {
             onAdd={(id, name) => patch((d) => {
               d.sequences[id] = {
                 label: name, zones: [], basis_min_per_zone: 30, range: [5, 240],
-                watchdog_min: 60, schedule: { cron: '0 6 * * *' }, enabled: false, wind_blocks: false,
+                watchdog_min: 60, schedule: { days: [], times: ['06:00'], cron: null }, enabled: false, wind_blocks: false,
               }
             })}
           />
@@ -456,11 +469,150 @@ function SequenceEditor({ id, seq, zoneIds, zones, last, onChange, onDelete }: {
         <Labeled label={t('config.rangeMax', { defaultValue: 'Max' })}>
           <Num value={seq.range[1]} onChange={(v) => onChange((s) => { s.range = [s.range[0], v] })} />
         </Labeled>
-        <Labeled label={t('config.cron', { defaultValue: 'Cron' })}>
-          <input style={{ ...inputStyle, width: 130, fontFamily: 'var(--n-mono, monospace)' }} value={seq.schedule.cron}
-            onChange={(e) => onChange((s) => { s.schedule.cron = e.target.value })} />
-        </Labeled>
       </div>
+
+      <Labeled label={t('config.schedule', { defaultValue: 'Zeitplan' })} align="start">
+        <SchedulePicker
+          value={seq.schedule}
+          onChange={(next) => onChange((s) => { s.schedule = next })}
+        />
+      </Labeled>
+    </div>
+  )
+}
+
+// Friendly schedule editor: weekday chips + up to five clock times, with a raw
+// cron escape hatch for expressions the picker can't represent. Internally the
+// backend turns this into one cron trigger per time (see ScheduleConfig).
+function SchedulePicker({ value, onChange }: {
+  value: ScheduleSummary
+  onChange: (next: ScheduleSummary) => void
+}) {
+  const { t } = useTranslation()
+  const [showAdvanced, setShowAdvanced] = useState(!!value.cron)
+  const advancedActive = !!value.cron
+  const dimmed: CSSProperties = advancedActive ? { opacity: 0.45, pointerEvents: 'none' } : {}
+  const labelStyle: CSSProperties = { fontSize: 11, color: 'var(--n-fg-muted)', letterSpacing: '0.02em' }
+
+  const setDays = (days: number[]) => onChange({ ...value, days })
+  const toggleDay = (d: number) => {
+    const next = value.days.includes(d)
+      ? value.days.filter((x) => x !== d)
+      : [...value.days, d].sort((a, b) => a - b)
+    // All seven selected means "every day" — store the canonical empty form.
+    setDays(next.length === 7 ? [] : next)
+  }
+  const setTimes = (times: string[]) => onChange({ ...value, times })
+
+  const presets: { label: string; active: boolean; days: number[] }[] = [
+    { label: t('schedule.daily', { defaultValue: 'Täglich' }), active: isDaily(value.days), days: [] },
+    { label: t('schedule.weekdays', { defaultValue: 'Werktags' }), active: isWeekdays(value.days), days: [1, 2, 3, 4, 5] },
+    { label: t('schedule.weekend', { defaultValue: 'Wochenende' }), active: isWeekend(value.days), days: [6, 7] },
+  ]
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Weekdays */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, ...dimmed }}>
+        <span style={labelStyle}>{t('schedule.days', { defaultValue: 'Wochentage' })}</span>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {presets.map((p) => (
+            <button key={p.label} className={`n-chip${p.active ? ' active' : ''}`}
+              style={{ cursor: 'pointer', opacity: p.active ? 1 : 0.6 }}
+              onClick={() => setDays(p.days)}>{p.label}</button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {WEEKDAYS.map((d) => {
+            const active = value.days.includes(d)
+            return (
+              <button key={d} className={`n-chip${active ? ' active' : ''}`}
+                style={{ cursor: 'pointer', opacity: active ? 1 : 0.55, minWidth: 42, textAlign: 'center' }}
+                onClick={() => toggleDay(d)}>{weekdayShort(d, t)}</button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Times */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, ...dimmed }}>
+        <span style={labelStyle}>{t('schedule.times', { defaultValue: 'Uhrzeiten' })}</span>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          {value.times.length === 0 && (
+            <span style={{ fontSize: 12, color: 'var(--n-paused)' }}>
+              {t('schedule.noTimes', { defaultValue: 'Keine Uhrzeit — läuft nicht automatisch.' })}
+            </span>
+          )}
+          {value.times.map((tm, i) => (
+            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <input type="time" value={tm} style={{ ...inputStyle, width: 120, fontVariantNumeric: 'tabular-nums' }}
+                onChange={(e) => setTimes(value.times.map((x, j) => (j === i ? e.target.value : x)))} />
+              <button className="n-btn" title={t('config.delete', { defaultValue: 'Löschen' })}
+                style={{ height: 30, width: 30, padding: 0, fontSize: 13, color: 'var(--n-danger)' }}
+                onClick={() => setTimes(value.times.filter((_, j) => j !== i))}>✕</button>
+            </span>
+          ))}
+          {value.times.length < MAX_TIMES && (
+            <button className="n-btn" style={{ height: 34, padding: '0 12px', fontSize: 12.5 }}
+              onClick={() => setTimes([...value.times, '06:00'])}>
+              + {t('schedule.addTime', { defaultValue: 'Uhrzeit' })}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Advanced cron escape hatch */}
+      {!showAdvanced ? (
+        <button className="n-btn" style={{ height: 28, padding: '0 10px', fontSize: 12, alignSelf: 'flex-start' }}
+          onClick={() => setShowAdvanced(true)}>{t('schedule.advanced', { defaultValue: 'Erweitert (Cron)' })}</button>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={labelStyle}>{t('schedule.advanced', { defaultValue: 'Erweitert (Cron)' })}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <input style={{ ...inputStyle, width: 160, fontFamily: 'var(--n-mono, monospace)' }}
+              placeholder="*/30 * * * *" value={value.cron ?? ''}
+              onChange={(e) => onChange({ ...value, cron: e.target.value })} />
+            <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12 }}
+              onClick={() => { onChange({ ...value, cron: null }); setShowAdvanced(false) }}>
+              {t('schedule.usePicker', { defaultValue: 'Auswahl verwenden' })}
+            </button>
+          </div>
+          {advancedActive && (
+            <span style={{ fontSize: 11, color: 'var(--n-paused)' }}>
+              {t('schedule.advancedActive', { defaultValue: 'Cron-Ausdruck überschreibt die Auswahl oben.' })}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Evening-reminder time: a daily clock-time picker that reads/writes the stored
+// "M H * * *" cron, with a raw cron fallback for non-daily expressions.
+function ReminderTime({ value, onChange }: { value: string; onChange: (cron: string) => void }) {
+  const { t } = useTranslation()
+  const time = dailyCronToTime(value)
+  const [advanced, setAdvanced] = useState(time === null)
+
+  if (advanced) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <input style={{ ...inputStyle, width: 160, fontFamily: 'var(--n-mono, monospace)' }}
+          value={value} onChange={(e) => onChange(e.target.value)} />
+        {dailyCronToTime(value) !== null && (
+          <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12 }}
+            onClick={() => setAdvanced(false)}>{t('schedule.usePicker', { defaultValue: 'Auswahl verwenden' })}</button>
+        )}
+      </div>
+    )
+  }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <input type="time" style={{ ...inputStyle, width: 120, fontVariantNumeric: 'tabular-nums' }}
+        value={time ?? '21:00'} onChange={(e) => onChange(timeToDailyCron(e.target.value))} />
+      <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12 }}
+        onClick={() => setAdvanced(true)}>{t('schedule.advanced', { defaultValue: 'Erweitert (Cron)' })}</button>
     </div>
   )
 }
