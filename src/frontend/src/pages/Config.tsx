@@ -711,10 +711,10 @@ function StringList({ values, placeholder, onChange }: {
 }) {
   const { t } = useTranslation()
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', maxWidth: 344 }}>
       {values.map((v, i) => (
         <div key={i} style={{ display: 'flex', gap: 6 }}>
-          <input style={{ ...inputStyle, width: 300 }} value={v} placeholder={placeholder}
+          <input style={{ ...inputStyle, flex: 1, minWidth: 0 }} value={v} placeholder={placeholder}
             onChange={(e) => onChange(values.map((x, j) => (j === i ? e.target.value : x)))} />
           <DeleteButton onClick={() => onChange(values.filter((_, j) => j !== i))} />
         </div>
