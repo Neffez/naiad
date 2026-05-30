@@ -8,9 +8,16 @@
 ha:
   url: ws://homeassistant.local:8123/api/websocket
   token: ${HA_TOKEN}  # read from environment
+  # Each notify target picks which categories it receives and how. A plain string
+  # (just the service) is also accepted and means "all categories".
   notify_targets:
-    - notify.mobile_app_pixel
-    # - notify.mobile_app_iphone
+    - service: notify.mobile_app_pixel
+      categories: [start, skip, abort, reminder]   # which kinds this phone wants
+      quiet: false                                  # silent / low-priority delivery
+      platform: auto                                # auto | ios | android (tunes quiet)
+    # - service: notify.mobile_app_iphone
+    #   categories: [reminder]                      # e.g. only the evening reminder
+    #   platform: ios
 
 auth:
   mode: password  # password | forward_header | none
@@ -85,3 +92,8 @@ factors:
     reduce_above_mm: 5.0      # mm — linear reduction starts here
     zero_above_mm: 20.0       # mm — factor = 0.0 at or above this
     forecast_decay: 0.5       # tomorrow's values multiplied by this
+
+notifications:
+  # When the nightly reminder fires (who receives it is per-target, via the
+  # "reminder" category on each notify target above).
+  evening_reminder_cron: "0 21 * * *"

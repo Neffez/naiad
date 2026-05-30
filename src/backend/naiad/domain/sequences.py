@@ -111,6 +111,17 @@ class SequenceRunner:
         # Invoked once a run actually opens its first valve (sequence_id, triggered_by),
         # so "running" is broadcast only after the run is confirmed, not when it's scheduled.
         self.on_started: Callable[[str, str], Awaitable[None]] | None = None
+        # Invoked for noteworthy run events that warrant a notification
+        # (message, level), e.g. a watchdog abort. Wired to push/broadcast in main.
+        self.on_notification: Callable[[str, str], Awaitable[None]] | None = None
+
+    async def _emit_notification(self, message: str, level: str) -> None:
+        if self.on_notification is None:
+            return
+        try:
+            await self.on_notification(message, level)
+        except Exception:
+            logger.exception("on_notification callback failed")
 
     def is_managed(self, zone_id: str) -> bool:
         if self._running is None:
@@ -459,6 +470,11 @@ class SequenceRunner:
                 return
             if result == _WATCHDOG:
                 logger.warning("Watchdog triggered for zone %s", zone_id)
+                seq_label = seq.label or sequence_id
+                await self._emit_notification(
+                    f"🚨 Watchdog: {seq_label} — Zone {zone_cfg.label} lief zu lange, gestoppt.",
+                    "warning",
+                )
                 self._clear_active_run()
                 return
             if result == _PAUSE:
