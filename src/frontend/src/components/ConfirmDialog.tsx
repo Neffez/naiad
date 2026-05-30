@@ -2,6 +2,24 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { IGauge, IPlay, IX } from './icons'
 
+// 1 min, then 5-minute increments up to 90. A manual run may need just a minute
+// (e.g. flushing a line), so the leftmost stop is 1 min, then 5, 10, 15, …
+const DURATION_STEPS = [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90]
+
+/** Index of the step closest to a given duration (snaps off-grid defaults). */
+function nearestStepIdx(value: number): number {
+  let best = 0
+  let bestDist = Infinity
+  DURATION_STEPS.forEach((step, i) => {
+    const dist = Math.abs(step - value)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = i
+    }
+  })
+  return best
+}
+
 interface ConfirmDialogProps {
   open: boolean
   title: string
@@ -41,7 +59,10 @@ export function ConfirmDialog({
   if (!open) return null
 
   const estLiters = Math.round(zones * duration * 7.7)
-  const pct = ((duration - 5) / 85) * 100
+  // Non-linear steps: 1 min on the far left, then 5-minute increments. The slider
+  // index maps to a discrete duration so dragging snaps to these values.
+  const sliderIdx = nearestStepIdx(duration)
+  const pct = (sliderIdx / (DURATION_STEPS.length - 1)) * 100
 
   return (
     <div className="n-backdrop" ref={backdropRef} onClick={handleBackdropClick}>
@@ -113,18 +134,18 @@ export function ConfirmDialog({
           </div>
           <input
             type="range"
-            min="5"
-            max="90"
-            step="5"
-            value={duration}
-            onChange={(e) => setDuration(+e.target.value)}
+            min="0"
+            max={DURATION_STEPS.length - 1}
+            step="1"
+            value={sliderIdx}
+            onChange={(e) => setDuration(DURATION_STEPS[+e.target.value])}
             className="n-slider"
             style={{ '--p': `${pct}%` } as React.CSSProperties}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--n-fg-muted)', fontSize: 11 }}>
-            <span className="mono">5 min</span>
+            <span className="mono">{DURATION_STEPS[0]} min</span>
             <span className="mono" style={{ color: 'var(--n-fg)' }}>{duration} min</span>
-            <span className="mono">90 min</span>
+            <span className="mono">{DURATION_STEPS[DURATION_STEPS.length - 1]} min</span>
           </div>
         </div>
 

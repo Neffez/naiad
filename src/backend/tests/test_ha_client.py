@@ -46,3 +46,61 @@ def test_get_services_requires_connection() -> None:
     client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
     with pytest.raises(HAError):
         asyncio.run(client.get_services())
+
+
+def test_fetch_history_max_picks_largest_numeric() -> None:
+    from datetime import UTC, datetime
+
+    client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+    client._connected.set()
+    client._ws = object()  # type: ignore[assignment]
+
+    async def fake_send(ws: Any, msg: dict[str, Any], timeout: float = 10.0) -> Any:
+        assert msg["type"] == "history/history_during_period"
+        return {
+            "sensor.temp": [
+                {"s": "12.0", "lu": 1.0},
+                {"s": "unavailable", "lu": 2.0},  # non-numeric → ignored
+                {"s": "27.4", "lu": 3.0},
+                {"s": "19.1", "lu": 4.0},
+            ]
+        }
+
+    client._send_command = fake_send  # type: ignore[assignment]
+    start = datetime(2026, 5, 29, tzinfo=UTC)
+    end = datetime(2026, 5, 30, tzinfo=UTC)
+    result = asyncio.run(client.fetch_history_max("sensor.temp", start, end))
+    assert result == pytest.approx(27.4)
+
+
+def test_refresh_daily_max_caches_value() -> None:
+    from datetime import UTC, datetime
+
+    client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+    client._connected.set()
+    client._ws = object()  # type: ignore[assignment]
+
+    async def fake_send(ws: Any, msg: dict[str, Any], timeout: float = 10.0) -> Any:
+        return {"sensor.temp": [{"s": "22.5"}]}
+
+    client._send_command = fake_send  # type: ignore[assignment]
+    assert client.get_cached_daily_max("sensor.temp") is None
+    asyncio.run(
+        client.refresh_daily_max(
+            "sensor.temp", datetime(2026, 5, 29, tzinfo=UTC), datetime(2026, 5, 30, tzinfo=UTC)
+        )
+    )
+    assert client.get_cached_daily_max("sensor.temp") == pytest.approx(22.5)
+
+
+def test_refresh_daily_max_swallows_errors() -> None:
+    from datetime import UTC, datetime
+
+    client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+    # Not connected → fetch raises; refresh must not propagate and leaves cache empty.
+    asyncio.run(
+        client.refresh_daily_max(
+            "sensor.temp", datetime(2026, 5, 29, tzinfo=UTC), datetime(2026, 5, 30, tzinfo=UTC)
+        )
+    )
+    assert client.get_cached_daily_max("sensor.temp") is None

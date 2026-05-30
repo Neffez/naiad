@@ -426,6 +426,20 @@ class SequenceRunner:
                 save_active_run(
                     session, sequence_id, i, started_at, zone_duration, duration_min, triggered_by
                 )
+            # Record the run in history immediately at start (ended_at/duration/
+            # liters filled in when the zone ends) so it shows up in the history
+            # while still running, not only after completion.
+            with self._session_factory() as session:
+                history_row = RunHistory(
+                    zone_id=zone_id,
+                    sequence_id=sequence_id,
+                    started_at=started_at,
+                    triggered_by=triggered_by,
+                )
+                session.add(history_row)
+                session.commit()
+                session.refresh(history_row)
+                history_id = history_row.id
             await self._driver.turn_on(zone_cfg)
             logger.info("zone %s ON  (%.1f min)", zone_id, zone_duration)
 
@@ -454,20 +468,32 @@ class SequenceRunner:
             elif result == _STOP:
                 abort_reason = self._stop_reason
 
+            # Finalize the history row created at zone start.
             with self._session_factory() as session:
-                session.add(
-                    RunHistory(
-                        zone_id=zone_id,
-                        sequence_id=sequence_id,
-                        started_at=started_at,
-                        ended_at=off_time,
-                        duration_min=actual_min,
-                        liters=liters,
-                        triggered_by=triggered_by,
-                        aborted=aborted,
-                        abort_reason=abort_reason,
+                row = session.get(RunHistory, history_id) if history_id is not None else None
+                if row is not None:
+                    row.ended_at = off_time
+                    row.duration_min = actual_min
+                    row.liters = liters
+                    row.aborted = aborted
+                    row.abort_reason = abort_reason
+                    session.add(row)
+                else:
+                    # Fallback: the start row vanished (shouldn't happen) — record a
+                    # complete row so the run is never lost from history.
+                    session.add(
+                        RunHistory(
+                            zone_id=zone_id,
+                            sequence_id=sequence_id,
+                            started_at=started_at,
+                            ended_at=off_time,
+                            duration_min=actual_min,
+                            liters=liters,
+                            triggered_by=triggered_by,
+                            aborted=aborted,
+                            abort_reason=abort_reason,
+                        )
                     )
-                )
                 session.commit()
 
             if result == _STOP:

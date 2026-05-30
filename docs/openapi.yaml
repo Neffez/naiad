@@ -150,10 +150,14 @@ components:
         sequence_label: { type: string }
         scheduled_at:   { type: string, format: date-time }
         duration_min:   { type: integer }
+        plan_id:
+          type: string
+          nullable: true
+          description: Set for one-off planned runs; null for recurring cron runs.
 
     SystemStatus:
       type: object
-      required: [master_on, ha_connected, weather, today_factor, liters_today, liters_week, week_series]
+      required: [master_on, ha_connected, weather, today_factor, upcoming_runs, liters_today, liters_week, week_series]
       properties:
         master_on:    { type: boolean }
         ha_connected: { type: boolean }
@@ -169,6 +173,12 @@ components:
           oneOf:
             - { $ref: '#/components/schemas/NextRunSummary' }
             - { type: 'null' }
+        upcoming_runs:
+          type: array
+          items: { $ref: '#/components/schemas/NextRunSummary' }
+          description: >-
+            All upcoming runs of the next day that has any — today if runs remain
+            today, otherwise the next day with scheduled runs.
         liters_today: { type: number }
         liters_week:  { type: number }
         week_series:
@@ -469,6 +479,38 @@ paths:
                 type: object
                 properties:
                   master_on: { type: boolean }
+
+  /status/skip-run:
+    post:
+      operationId: skipRun
+      summary: Skip a single upcoming run
+      description: >-
+        Suppresses one scheduled occurrence. A one-off plan is deleted; a
+        recurring cron occurrence is recorded as skipped so only that fire is
+        suppressed and the next scheduled run happens as usual.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sequence_id, scheduled_at]
+              properties:
+                sequence_id:  { type: string }
+                scheduled_at: { type: string, format: date-time }
+                plan_id:      { type: string, nullable: true }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skipped: { type: string }
+        '404':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   # ── Sequences ───────────────────────────────────────────────────────────────
 

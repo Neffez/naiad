@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -12,7 +12,7 @@ from sqlmodel import Session, col, select
 from naiad.api.ws import broadcast_notification, broadcast_sequence_changed
 from naiad.config import NOTIFICATION_CATEGORIES, AppConfig, target_service_data
 from naiad.domain.factors import compute_factors
-from naiad.domain.models import Plan, SequenceOverride, UserPreference
+from naiad.domain.models import Plan, SequenceOverride, SkippedRun, UserPreference
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.domain.sequences import MutexConflict, SequenceRunner
 from naiad.ha_client import HAClient
@@ -26,6 +26,37 @@ def _master_on(session_factory: SessionFactory) -> bool:
     with session_factory() as session:
         pref = session.get(UserPreference, "master_on")
         return pref is None or pref.value == "1"
+
+
+# Tolerance for matching a one-off skip to the fire time of a cron run. A cron job
+# fires on the minute, so a 2-minute window comfortably absorbs scheduler jitter.
+_SKIP_MATCH_TOLERANCE_S = 120.0
+
+
+def _consume_skip(session_factory: SessionFactory, sequence_id: str, now: datetime) -> bool:
+    """Return True if this run was marked to be skipped once (and consume it).
+
+    Also prunes clearly-stale skip records so the table can't grow unbounded.
+    """
+    now_naive = now.replace(tzinfo=None)
+    with session_factory() as session:
+        rows = list(
+            session.exec(select(SkippedRun).where(SkippedRun.sequence_id == sequence_id)).all()
+        )
+        hit = False
+        changed = False
+        for row in rows:
+            delta = abs((row.scheduled_at - now_naive).total_seconds())
+            if delta <= _SKIP_MATCH_TOLERANCE_S:
+                session.delete(row)
+                hit = True
+                changed = True
+            elif row.scheduled_at < now_naive - timedelta(hours=6):
+                session.delete(row)  # stale (its occurrence has long passed)
+                changed = True
+        if changed:
+            session.commit()
+    return hit
 
 
 async def push_notification(
@@ -54,6 +85,24 @@ async def push_notification(
         logger.debug("No target subscribed to category '%s'", category)
 
 
+async def refresh_fallback_temp_max(config: AppConfig, ha: HAClient) -> None:
+    """Refresh the cached fallback max temperature (yesterday's recorded max).
+
+    Only needed when no forecast max-temperature sensor is configured — that's the
+    case where the temperature adjustment falls back to yesterday's max. The
+    current temperature is never a good proxy (cold at night), so it isn't used.
+    """
+    if config.sensors.temperature_max or not config.sensors.temperature:
+        return
+    tz = ZoneInfo(config.timezone)
+    today_local = datetime.now(tz).date()
+    start = datetime.combine(today_local - timedelta(days=1), time.min, tzinfo=tz)
+    end = datetime.combine(today_local, time.min, tzinfo=tz)
+    await ha.refresh_daily_max(
+        config.sensors.temperature, start.astimezone(UTC), end.astimezone(UTC)
+    )
+
+
 async def _run_sequence_job(
     sequence_id: str,
     runner: SequenceRunner,
@@ -70,6 +119,12 @@ async def _run_sequence_job(
     """
     seq_cfg = config.sequences.get(sequence_id)
     if seq_cfg is None or not seq_cfg.enabled:
+        return "skipped"
+
+    # A user may skip a single scheduled occurrence; only the matching cron fire
+    # consumes it (manual starts and plans don't go through this skip gate).
+    if triggered_by == "cron" and _consume_skip(session_factory, sequence_id, datetime.now(UTC)):
+        logger.info("Skipped (%s): user skipped this scheduled run", sequence_id)
         return "skipped"
 
     with session_factory() as session:
@@ -114,7 +169,14 @@ async def _run_sequence_job(
         )
     except MutexConflict as e:
         logger.warning("Conflict for '%s': %s", sequence_id, e)
-        conflict_note = f"⚠️ Zeitplan-Konflikt: {seq_cfg.label} — läuft bereits"
+        # Name the sequence that is actually blocking (the running one), not the
+        # one we just tried to start.
+        running_id = runner.status().sequence_id
+        running_cfg = config.sequences.get(running_id) if running_id else None
+        running_label = running_cfg.label if running_cfg else (running_id or "?")
+        conflict_note = (
+            f"⚠️ Zeitplan-Konflikt: {seq_cfg.label} übersprungen — {running_label} läuft noch"
+        )
         await push_notification(ha, config, conflict_note, category="skip")
         await broadcast_notification(conflict_note, level="warning")
         return "conflict"
@@ -261,6 +323,25 @@ def next_run_for_sequence(scheduler: AsyncIOScheduler, seq_id: str) -> datetime 
     return min(runs) if runs else None
 
 
+def upcoming_cron_runs(scheduler: AsyncIOScheduler, seq_id: str, until: datetime) -> list[datetime]:
+    """All upcoming cron fire times of a sequence up to ``until`` (inclusive).
+
+    A sequence can have several cron times per day, so this enumerates each
+    trigger forward instead of returning only the single earliest fire.
+    """
+    out: list[datetime] = []
+    for job in scheduler.get_jobs():
+        if not (job.id.startswith("cron-") and job.args and job.args[0] == seq_id):
+            continue
+        nxt = job.next_run_time
+        guard = 0
+        while nxt is not None and nxt <= until and guard < 64:
+            out.append(nxt)
+            nxt = job.trigger.get_next_fire_time(nxt, nxt + timedelta(seconds=1))
+            guard += 1
+    return out
+
+
 def _register_reminder_job(
     scheduler: AsyncIOScheduler,
     config: AppConfig,
@@ -374,6 +455,19 @@ def setup_scheduler(
     )
 
     _register_reminder_job(scheduler, config, ha, session_factory)
+
+    # Keep the fallback max temperature (yesterday's recorded max) fresh so it
+    # rolls over shortly after local midnight. The initial fetch is triggered from
+    # the HA-connected callback once the socket is up (see main).
+    scheduler.add_job(
+        refresh_fallback_temp_max,
+        trigger=IntervalTrigger(hours=1),
+        args=[config, ha],
+        id="fallback-temp-max",
+        name="Fallback temp max refresh",
+        max_instances=1,
+        misfire_grace_time=600,
+    )
 
     async def _rain_cb(entity_id: str, new_state: dict[str, Any]) -> None:
         await _on_rain(entity_id, new_state, runner, config, ha)

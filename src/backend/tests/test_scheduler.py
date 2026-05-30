@@ -6,9 +6,9 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from naiad.config import AppConfig
-from naiad.domain.models import Plan, UserPreference
+from naiad.domain.models import Plan, SkippedRun, UserPreference
 from naiad.domain.sequences import SequenceRunner
-from naiad.scheduler import _plan_tick, _run_sequence_job, push_notification
+from naiad.scheduler import _consume_skip, _plan_tick, _run_sequence_job, push_notification
 from tests.conftest import MINIMAL_CONFIG_DATA
 
 
@@ -44,6 +44,9 @@ class FakeHA:
 
     def get_state_value(self, entity_id: str) -> str | None:
         return self._states.get(entity_id)
+
+    def get_cached_daily_max(self, entity_id: str) -> float | None:
+        return None
 
     @property
     def is_connected(self) -> bool:
@@ -121,6 +124,54 @@ async def test_plan_kept_on_conflict_then_consumed(fast_config: AppConfig, engin
     with Session(engine) as s:
         assert list(s.exec(select(Plan)).all()) == []  # plan consumed
     await runner.stop()
+
+
+async def test_cron_run_skipped_when_occurrence_marked(fast_config: AppConfig, engine) -> None:
+    """A user-skipped scheduled occurrence is consumed and suppresses that run."""
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(fast_config, FakeDriver(), sf)
+    ha = FakeHA()
+
+    now = datetime.now(UTC).replace(tzinfo=None, second=0, microsecond=0)
+    with Session(engine) as s:
+        s.add(SkippedRun(sequence_id="seq_1", scheduled_at=now))
+        s.commit()
+
+    result = await _run_sequence_job("seq_1", runner, ha, fast_config, sf, triggered_by="cron")
+    assert result == "skipped"
+    # The skip record is consumed (one-off), so the next run is unaffected.
+    with Session(engine) as s:
+        assert list(s.exec(select(SkippedRun)).all()) == []
+
+
+async def test_manual_trigger_ignores_skip(fast_config: AppConfig, engine) -> None:
+    """A skip only suppresses the matching cron fire, not a manual/plan start."""
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(fast_config, FakeDriver(), sf)
+    ha = FakeHA()
+
+    now = datetime.now(UTC).replace(tzinfo=None, second=0, microsecond=0)
+    with Session(engine) as s:
+        s.add(SkippedRun(sequence_id="seq_1", scheduled_at=now))
+        s.commit()
+
+    result = await _run_sequence_job("seq_1", runner, ha, fast_config, sf, triggered_by="plan")
+    assert result == "started"
+    await runner.stop()
+
+
+def test_consume_skip_prunes_stale(engine) -> None:
+    sf = lambda: Session(engine)  # noqa: E731
+    now = datetime.now(UTC)
+    stale = now.replace(tzinfo=None) - timedelta(days=2)
+    with Session(engine) as s:
+        s.add(SkippedRun(sequence_id="seq_1", scheduled_at=stale))
+        s.commit()
+
+    # No match for "now", but the stale record is pruned.
+    assert _consume_skip(sf, "seq_1", now) is False
+    with Session(engine) as s:
+        assert list(s.exec(select(SkippedRun)).all()) == []
 
 
 # ── Notifications: gating + quiet (push_notification) ──────────────────────────

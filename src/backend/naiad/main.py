@@ -22,7 +22,7 @@ from naiad.domain.sequences import SequenceRunner
 from naiad.domain.tracking import LiterTracker
 from naiad.drivers.ha_driver import HAEntityDriver
 from naiad.ha_client import HAClient
-from naiad.scheduler import setup_scheduler
+from naiad.scheduler import refresh_fallback_temp_max, setup_scheduler
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -193,7 +193,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         await broadcast_ha_state(connected)
         if connected:
             if runner.status().sequence_id is not None:
-                return  # a run is live (reconnect mid-run) — don't interfere
+                # A run is live (reconnect mid-run) — don't interfere with it, but
+                # still refresh the fallback max temperature in the background.
+                await refresh_fallback_temp_max(config, ha)
+                return
             if not recovery_done:
                 # First time HA is reachable: recover an interrupted run if its
                 # zone window is still open, otherwise close orphaned valves.
@@ -206,6 +209,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 # Naiad treats itself as the authoritative valve controller.
                 await runner.reconcile_valves()
                 logger.info("Valve reconciliation complete")
+            # Recovery/reconciliation done — now populate the fallback max
+            # temperature (yesterday's recorded max); the hourly job keeps it fresh.
+            await refresh_fallback_temp_max(config, ha)
         else:
             # Do NOT abort a live run on disconnect: the run task does not depend
             # on HA, and aborting cannot physically close the valve anyway (HA is

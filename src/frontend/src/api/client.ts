@@ -94,6 +94,8 @@ export const getHealth = () => api.get<HealthInfo>('/health')
 export const getStatus = () => api.get<SystemStatus>('/status')
 export const setMaster = (on: boolean) => api.patch('/status/master', { on })
 export const getValves = () => api.get<ValveState[]>('/valves')
+export const skipRun = (body: { sequence_id: string; scheduled_at: string; plan_id?: string | null }) =>
+  api.post('/status/skip-run', body)
 
 // History
 export const getHistory = (params: HistoryParams) => {
@@ -196,6 +198,7 @@ export interface SystemStatus {
   today_factor: { temp_pct: number; rain_pct: number; combined_pct: number; wind_blocking_sequences: string[] }
   next_run: NextRun | null
   after_next: NextRun | null
+  upcoming_runs: NextRun[]
   liters_today: number
   liters_week: number
   week_series: number[]
@@ -206,6 +209,7 @@ export interface NextRun {
   sequence_label: string
   scheduled_at: string
   duration_min: number
+  plan_id?: string | null
 }
 
 export interface ValveState {
@@ -313,6 +317,7 @@ export interface SensorsConfig {
   wind: string
   season: string
   temperature: string
+  temperature_max: string
   precipitation_prob_today: string
   precipitation_prob_tomorrow: string
   precipitation_today: string
