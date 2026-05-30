@@ -36,8 +36,19 @@ def read_sensor_snapshot(ha: HAClient, config: AppConfig) -> SensorSnapshot:
             return safe_default
         return val == "on"
 
+    # Temperature used for the adjustment: prefer the forecast daily max; when no
+    # forecast sensor is configured (or it's unavailable) fall back to yesterday's
+    # recorded max — the current temperature is a poor proxy (cold at night), so it
+    # is only the last resort, applied in compute_factors.
+    max_temperature_c: float | None = None
+    if sensors.temperature_max:
+        max_temperature_c = _float_or_none(sensors.temperature_max)
+    if max_temperature_c is None:
+        max_temperature_c = ha.get_cached_daily_max(sensors.temperature)
+
     return SensorSnapshot(
         temperature_c=_float_or_none(sensors.temperature),
+        max_temperature_c=max_temperature_c,
         season_on=_bool(sensors.season, safe_default=False),
         wind_on=_bool(sensors.wind, safe_default=False),
         precipitation_prob_today=_float(sensors.precipitation_prob_today),
