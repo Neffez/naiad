@@ -174,6 +174,7 @@ export default function Config() {
             <NotifyTargetList
               values={draft.ha.notify_targets}
               services={notifyServices.data?.services}
+              dirty={dirty}
               onChange={(vals) => patch((d) => { d.ha.notify_targets = vals })}
             />
             <button
@@ -599,13 +600,28 @@ function StringList({ values, placeholder, onChange }: {
 
 // Per-recipient notify targets: each is an HA notify.* service plus which
 // categories it wants, whether to deliver quietly, and a platform hint.
-function NotifyTargetList({ values, services, onChange }: {
-  values: NotifyTarget[]; services?: string[]; onChange: (vals: NotifyTarget[]) => void
+function NotifyTargetList({ values, services, dirty, onChange }: {
+  values: NotifyTarget[]; services?: string[]; dirty: boolean; onChange: (vals: NotifyTarget[]) => void
 }) {
   const { t } = useTranslation()
+  const [testStates, setTestStates] = useState<Record<number, 'pending' | 'ok' | 'error'>>({})
   const options = (services ?? []).map((s) => ({ value: s, label: s }))
   const update = (i: number, mut: (tg: NotifyTarget) => NotifyTarget) =>
     onChange(values.map((x, j) => (j === i ? mut(x) : x)))
+
+  async function handleTestTarget(i: number, service: string) {
+    setTestStates((prev) => ({ ...prev, [i]: 'pending' }))
+    try {
+      const r = await testNotify(service)
+      setTestStates((prev) => ({ ...prev, [i]: 'ok' }))
+      setTimeout(() => setTestStates((prev) => { const n = { ...prev }; delete n[i]; return n }), 2500)
+      toast(t('config.notifyTestOk', { count: r.sent, defaultValue: `Test an ${r.sent} Ziel(e) gesendet` }), 'success')
+    } catch (e) {
+      setTestStates((prev) => { const n = { ...prev }; delete n[i]; return n })
+      toast(e instanceof Error ? e.message : String(e), 'error')
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
       {values.map((tg, i) => (
@@ -621,6 +637,15 @@ function NotifyTargetList({ values, services, onChange }: {
               hint={t('config.entityType.notify', { defaultValue: 'Notify-Service' })}
               width={300}
             />
+            <button
+              className="n-btn"
+              title={dirty ? t('config.saveFirst', { defaultValue: 'Erst speichern' }) : t('config.notifyTestThis', { defaultValue: 'Test-Benachrichtigung an dieses Ziel senden' })}
+              style={{ height: 36, width: 36, padding: 0, fontSize: 15, color: testStates[i] === 'ok' ? 'var(--n-teal-400)' : 'var(--n-fg-muted)' }}
+              disabled={dirty || !tg.service || testStates[i] === 'pending'}
+              onClick={() => handleTestTarget(i, tg.service)}
+            >
+              {testStates[i] === 'ok' ? '✓' : '✉'}
+            </button>
             <DeleteButton onClick={() => onChange(values.filter((_, j) => j !== i))} />
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
