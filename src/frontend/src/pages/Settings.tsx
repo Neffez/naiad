@@ -1,16 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { getHealth, getSequences, getSettings, getStatus, logout, updateSettings } from '../api/client'
-import { seqColor } from '../theme/sequenceColors'
+import {
+  type ConfigDoc,
+  type NotifyTarget,
+  getConfig,
+  getHealth,
+  getServices,
+  getSettings,
+  getStatus,
+  logout,
+  putConfig,
+  updateSettings,
+} from '../api/client'
+import { InfoTip } from '../components/InfoTip'
+import { NotifyTargetList, ReminderTime } from './Config'
 
 export default function Settings() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
-  const { data: sequences = [] } = useQuery({ queryKey: ['sequences'], queryFn: getSequences })
   const { data: status } = useQuery({ queryKey: ['status'], queryFn: getStatus })
   const { data: health } = useQuery({ queryKey: ['health'], queryFn: getHealth })
   const [saved, setSaved] = useState(false)
@@ -34,16 +45,6 @@ export default function Settings() {
     },
   })
 
-  function saveSeqBasis(seqId: string, val: string) {
-    const num = parseFloat(val)
-    if (isNaN(num)) return
-    mut.mutate({ sequences: { [seqId]: { basis_min_per_zone: num } } })
-  }
-
-  function savePaused(seqId: string, paused: boolean) {
-    mut.mutate({ sequences: { [seqId]: { paused } } })
-  }
-
   if (!settings) return (
     <div style={{ padding: 20, color: 'var(--n-fg-muted)' }}>
       {t('settings.loading', { defaultValue: 'Laden…' })}
@@ -65,67 +66,40 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Sequenzen */}
-      <SettingsSection title={t('settings.sequences', { defaultValue: 'Sequenzen' })}>
-        {sequences.map((seq, i) => {
-          const ov = settings.sequences[seq.id]
-          return (
-            <SettingsRow
-              key={seq.id}
-              label={
-                <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ width: 4, height: 22, borderRadius: 2, background: seqColor(seq.id) }} />
-                  <span style={{ fontWeight: 500, color: 'var(--n-fg)' }}>{seq.label}</span>
-                </span>
-              }
-              last={i === sequences.length - 1}
-            >
-              <NumInput
-                value={ov?.basis_min_per_zone ?? seq.basis_min_per_zone}
-                unit="min"
-                onBlur={(v) => saveSeqBasis(seq.id, String(v))}
-              />
-              <CheckToggle
-                label={t('settings.pause', { defaultValue: 'Pause' })}
-                checked={ov?.paused ?? false}
-                onChange={(checked) => savePaused(seq.id, checked)}
-              />
-            </SettingsRow>
-          )
-        })}
-      </SettingsSection>
-
       {/* Temperatur-Faktor */}
       <SettingsSection title={t('settings.factorTemp')}>
-        <SettingsRow label={t('settings.basisC')}>
+        <SettingsRow label={t('settings.basisC')} info={t('settings.help.basisC')}>
           <NumInput value={settings.factors.temp.basis_c} unit="°C" onBlur={(v) => mut.mutate({ factors: { temp: { basis_c: v } } })} />
         </SettingsRow>
-        <SettingsRow label={t('settings.pctPerC')}>
+        <SettingsRow label={t('settings.pctPerC')} info={t('settings.help.pctPerC')}>
           <NumInput value={settings.factors.temp.pct_per_c} unit="%" onBlur={(v) => mut.mutate({ factors: { temp: { pct_per_c: v } } })} />
         </SettingsRow>
-        <SettingsRow label={t('settings.minPct')}>
+        <SettingsRow label={t('settings.minPct')} info={t('settings.help.minPct')}>
           <NumInput value={settings.factors.temp.min_pct} unit="%" onBlur={(v) => mut.mutate({ factors: { temp: { min_pct: v } } })} />
         </SettingsRow>
-        <SettingsRow label={t('settings.maxPct')} last>
+        <SettingsRow label={t('settings.maxPct')} info={t('settings.help.maxPct')} last>
           <NumInput value={settings.factors.temp.max_pct} unit="%" onBlur={(v) => mut.mutate({ factors: { temp: { max_pct: v } } })} />
         </SettingsRow>
       </SettingsSection>
 
       {/* Regen-Faktor */}
       <SettingsSection title={t('settings.factorRain')}>
-        <SettingsRow label={t('settings.thresholdProb')}>
+        <SettingsRow label={t('settings.thresholdProb')} info={t('settings.help.thresholdProb')}>
           <NumInput value={settings.factors.rain.threshold_prob} unit="%" onBlur={(v) => mut.mutate({ factors: { rain: { threshold_prob: v } } })} />
         </SettingsRow>
-        <SettingsRow label={t('settings.reduceAbove')}>
+        <SettingsRow label={t('settings.reduceAbove')} info={t('settings.help.reduceAbove')}>
           <NumInput value={settings.factors.rain.reduce_above_mm} unit="mm" onBlur={(v) => mut.mutate({ factors: { rain: { reduce_above_mm: v } } })} />
         </SettingsRow>
-        <SettingsRow label={t('settings.zeroAbove')}>
+        <SettingsRow label={t('settings.zeroAbove')} info={t('settings.help.zeroAbove')}>
           <NumInput value={settings.factors.rain.zero_above_mm} unit="mm" onBlur={(v) => mut.mutate({ factors: { rain: { zero_above_mm: v } } })} />
         </SettingsRow>
-        <SettingsRow label={t('settings.forecastDecay')} last>
+        <SettingsRow label={t('settings.forecastDecay')} info={t('settings.help.forecastDecay')} last>
           <NumInput value={settings.factors.rain.forecast_decay} unit="" width={60} step={0.1} onBlur={(v) => mut.mutate({ factors: { rain: { forecast_decay: v } } })} />
         </SettingsRow>
       </SettingsSection>
+
+      {/* Benachrichtigungen */}
+      <NotificationsSection />
 
       {/* System */}
       <SettingsSection title={t('settings.system', { defaultValue: 'System' })}>
@@ -213,6 +187,91 @@ export default function Settings() {
   )
 }
 
+// Notification targets + reminder time, mirroring the Config page's notification
+// settings so they can be managed here too. Edits the full config document via a
+// local draft and saves with putConfig.
+function NotificationsSection() {
+  const { t } = useTranslation()
+  const qc = useQueryClient()
+  const { data: config } = useQuery({ queryKey: ['config'], queryFn: getConfig })
+  const notifyServices = useQuery({ queryKey: ['services', 'notify'], queryFn: () => getServices('notify') })
+
+  const [targets, setTargets] = useState<NotifyTarget[] | null>(null)
+  const [reminderCron, setReminderCron] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (config) {
+      setTargets(structuredClone(config.ha.notify_targets))
+      setReminderCron(config.notifications.evening_reminder_cron)
+    }
+  }, [config])
+
+  const saveMut = useMutation({
+    mutationFn: (body: ConfigDoc) => putConfig(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['config'] })
+    },
+  })
+
+  if (!config || targets === null || reminderCron === null) {
+    return (
+      <SettingsSection title={t('config.notifications', { defaultValue: 'Benachrichtigungen' })}>
+        <div style={{ padding: '16px 20px', fontSize: 13, color: 'var(--n-fg-dim)' }}>
+          {t('settings.loading', { defaultValue: 'Laden…' })}
+        </div>
+      </SettingsSection>
+    )
+  }
+
+  const dirty =
+    JSON.stringify(targets) !== JSON.stringify(config.ha.notify_targets) ||
+    reminderCron !== config.notifications.evening_reminder_cron
+
+  function save() {
+    if (!config || targets === null || reminderCron === null) return
+    saveMut.mutate({
+      ...config,
+      ha: { ...config.ha, notify_targets: targets },
+      notifications: { ...config.notifications, evening_reminder_cron: reminderCron },
+    })
+  }
+
+  return (
+    <SettingsSection title={t('config.notifications', { defaultValue: 'Benachrichtigungen' })}>
+      <SettingsRow label={t('config.notifyTargets', { defaultValue: 'Notify-Ziele' })} align="start">
+        <NotifyTargetList
+          values={targets}
+          services={notifyServices.data?.services}
+          dirty={dirty}
+          onChange={setTargets}
+        />
+      </SettingsRow>
+      <SettingsRow label={t('config.notifyReminderTime', { defaultValue: 'Erinnerungszeit' })}>
+        <ReminderTime value={reminderCron} onChange={setReminderCron} />
+      </SettingsRow>
+      <SettingsRow label="" last>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            className="n-btn primary"
+            disabled={!dirty || saveMut.isPending}
+            style={{ height: 34, padding: '0 16px', fontSize: 13 }}
+            onClick={save}
+          >
+            {saveMut.isPending
+              ? t('config.saving', { defaultValue: 'Speichern…' })
+              : t('config.save', { defaultValue: 'Speichern' })}
+          </button>
+          {dirty && (
+            <span style={{ fontSize: 12, color: 'var(--n-fg-muted)' }}>
+              {t('config.unsaved', { defaultValue: 'Ungespeichert' })}
+            </span>
+          )}
+        </div>
+      </SettingsRow>
+    </SettingsSection>
+  )
+}
+
 function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div style={{
@@ -233,17 +292,20 @@ function SettingsSection({ title, children }: { title: string; children: ReactNo
   )
 }
 
-function SettingsRow({ label, children, last = false }: {
-  label: ReactNode; children: ReactNode; last?: boolean
+function SettingsRow({ label, children, last = false, info, align = 'center' }: {
+  label: ReactNode; children: ReactNode; last?: boolean; info?: string; align?: 'center' | 'start'
 }) {
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      display: 'flex', alignItems: align === 'start' ? 'flex-start' : 'center', justifyContent: 'space-between',
       padding: '12px 20px',
       borderBottom: last ? 'none' : '1px solid var(--n-line)',
-      minHeight: 52,
+      minHeight: 52, gap: 16,
     }}>
-      <span style={{ fontSize: 14, color: 'var(--n-fg-soft)' }}>{label}</span>
+      <span style={{ fontSize: 14, color: 'var(--n-fg-soft)', display: 'inline-flex', alignItems: 'center', gap: 7, paddingTop: align === 'start' ? 6 : 0 }}>
+        {label}
+        {info && <InfoTip text={info} />}
+      </span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         {children}
       </div>
@@ -294,29 +356,5 @@ function NumInput({ value, unit, width = 72, step = 1, onBlur }: {
         </span>
       )}
     </div>
-  )
-}
-
-function CheckToggle({ label, checked, onChange }: {
-  label: string; checked: boolean; onChange: (checked: boolean) => void
-}) {
-  return (
-    <label style={{
-      display: 'flex', alignItems: 'center', gap: 8,
-      cursor: 'pointer', fontSize: 13, color: 'var(--n-fg-muted)',
-      userSelect: 'none',
-    }}>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        style={{
-          width: 16, height: 16,
-          accentColor: 'var(--n-teal-400)',
-          cursor: 'pointer',
-        }}
-      />
-      {label}
-    </label>
   )
 }

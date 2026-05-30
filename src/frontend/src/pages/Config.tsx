@@ -388,6 +388,7 @@ const SENSOR_FIELDS: { key: keyof ConfigDoc['sensors']; domain: string; fallback
   { key: 'wind', domain: 'binary_sensor', fallback: 'Wind' },
   { key: 'season', domain: 'binary_sensor', fallback: 'Saison' },
   { key: 'temperature', domain: 'sensor', fallback: 'Temperatur' },
+  { key: 'temperature_max', domain: 'sensor', fallback: 'Max-Temperatur (Prognose)' },
   { key: 'precipitation_prob_today', domain: 'sensor', fallback: 'Regenwahrscheinlichkeit heute' },
   { key: 'precipitation_prob_tomorrow', domain: 'sensor', fallback: 'Regenwahrscheinlichkeit morgen' },
   { key: 'precipitation_today', domain: 'sensor', fallback: 'Niederschlag heute' },
@@ -590,7 +591,7 @@ function SchedulePicker({ value, onChange }: {
 
 // Evening-reminder time: a daily clock-time picker that reads/writes the stored
 // "M H * * *" cron, with a raw cron fallback for non-daily expressions.
-function ReminderTime({ value, onChange }: { value: string; onChange: (cron: string) => void }) {
+export function ReminderTime({ value, onChange }: { value: string; onChange: (cron: string) => void }) {
   const { t } = useTranslation()
   const time = dailyCronToTime(value)
   const [advanced, setAdvanced] = useState(time === null)
@@ -728,7 +729,7 @@ function StringList({ values, placeholder, onChange }: {
 
 // Per-recipient notify targets: each is an HA notify.* service plus which
 // categories it wants, whether to deliver quietly, and a platform hint.
-function NotifyTargetList({ values, services, dirty, onChange }: {
+export function NotifyTargetList({ values, services, dirty, onChange }: {
   values: NotifyTarget[]; services?: string[]; dirty: boolean; onChange: (vals: NotifyTarget[]) => void
 }) {
   const { t } = useTranslation()
