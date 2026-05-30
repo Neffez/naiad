@@ -1,8 +1,22 @@
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
-import type { SequenceState } from '../api/client'
+import type { FactorNotes, SequenceState } from '../api/client'
 import { seqColor } from '../theme/sequenceColors'
 import { ICal, IPause, IPlay, IStop } from './icons'
 import { StatusChip } from './StatusChip'
+
+/** Localized one-line summary of why the factor deviates from 100%. */
+function buildFactorNote(notes: FactorNotes, t: TFunction): string | null {
+  const parts: string[] = []
+  if (notes.season_off) parts.push(t('sequence.noteSeasonOff'))
+  if (notes.wind_blocked) parts.push(t('sequence.noteWindBlocked'))
+  if (notes.rain_factor_pct != null) parts.push(t('sequence.noteRain', { pct: notes.rain_factor_pct }))
+  if (notes.temp_delta_pct != null) {
+    const sign = notes.temp_delta_pct > 0 ? '+' : ''
+    parts.push(t('sequence.noteTemp', { pct: `${sign}${notes.temp_delta_pct}` }))
+  }
+  return parts.length > 0 ? parts.join(' · ') : null
+}
 
 interface SequenceCardProps {
   seq: SequenceState
@@ -115,7 +129,7 @@ function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedu
               {seq.factor_pct}%
             </span>
             <span className="n-eyebrow" style={{ fontSize: 9 }}>
-              {seq.factor_note || t('sequence.factor')}
+              {buildFactorNote(seq.factor_notes, t) || t('sequence.factor')}
             </span>
           </div>
         )}
@@ -244,7 +258,7 @@ function SequenceCardRich({ seq, onStart, onPause, onResume, onStop, onSchedule 
               {seq.factor_pct}%
             </span>
             <span className="n-eyebrow" style={{ fontSize: 9.5 }}>
-              {seq.factor_note || t('sequence.factor')}
+              {buildFactorNote(seq.factor_notes, t) || t('sequence.factor')}
             </span>
           </div>
         )}
