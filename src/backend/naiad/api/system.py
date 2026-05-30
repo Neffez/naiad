@@ -20,6 +20,7 @@ from naiad.domain.factors import compute_factors
 from naiad.domain.models import Plan, RunHistory, SequenceOverride, UserPreference
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.ha_client import HAClient
+from naiad.scheduler import next_run_for_sequence
 from naiad.timeutil import local_day_start_utc, local_week_start_utc
 
 router = APIRouter(tags=["system"])
@@ -114,8 +115,7 @@ def _next_runs(
     for seq_id, seq_cfg in config.sequences.items():
         if not seq_cfg.enabled:
             continue
-        job = scheduler.get_job(f"cron-{seq_id}")
-        nxt: datetime | None = job.next_run_time if job else None
+        nxt: datetime | None = next_run_for_sequence(scheduler, seq_id)
         if nxt is None:
             continue
         candidates.append(

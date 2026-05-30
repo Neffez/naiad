@@ -75,7 +75,13 @@ sequences:
     range: [10, 60]
     watchdog_min: 60
     schedule:
-      cron: "0 6 * * *"  # daily 06:00
+      # Clock times on selected weekdays — the form the UI edits. ISO weekdays
+      # 1=Mon … 7=Sun; empty `days` means every day. One trigger is registered
+      # per time. For expressions the picker can't represent (e.g. intervals),
+      # set `cron:` instead — it overrides days/times. Legacy `cron: "0 6 * * *"`
+      # is still accepted and migrated automatically.
+      days: []           # every day
+      times: ["06:00"]
     enabled: false
     wind_blocks: false
 
