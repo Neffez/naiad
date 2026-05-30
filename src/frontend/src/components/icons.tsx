@@ -171,6 +171,15 @@ export function ICloud(p: IconProps) {
   return <Icon {...p}><path d="M17 18a4 4 0 0 0 0-8 6 6 0 0 0-11.7-1A4 4 0 0 0 6 17" /></Icon>
 }
 
+export function ISnow(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M2 12h20M12 2v20" />
+      <path d="m20 16-4-4 4-4M4 8l4 4-4 4M16 4l-4 4-4-4M8 20l4-4 4 4" />
+    </Icon>
+  )
+}
+
 export function IMoon(p: IconProps) {
   return <Icon {...p}><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" /></Icon>
 }
