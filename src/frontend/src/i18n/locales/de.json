@@ -97,10 +97,20 @@
     "pctPerC": "% pro °C",
     "minPct": "Min %",
     "maxPct": "Max %",
-    "thresholdProb": "Schwelle Prob %",
+    "thresholdProb": "Regen-Schwelle %",
     "reduceAbove": "Reduz. ab mm",
     "zeroAbove": "Null ab mm",
-    "forecastDecay": "Forecast Decay",
+    "forecastDecay": "Prognose-Gewichtung",
+    "help": {
+      "basisC": "Referenztemperatur, bei der die Bewässerung 100 % beträgt. Darüber wird länger, darunter kürzer bewässert.",
+      "pctPerC": "Um wie viel Prozent sich die Bewässerungsdauer je Grad Abweichung von der Basistemperatur ändert.",
+      "minPct": "Untergrenze des Temperatur-Faktors — die Bewässerung sinkt nie unter diesen Prozentwert.",
+      "maxPct": "Obergrenze des Temperatur-Faktors — die Bewässerung steigt nie über diesen Prozentwert.",
+      "thresholdProb": "Mindest-Regenwahrscheinlichkeit, ab der eine Regenprognose die Bewässerung überhaupt reduziert.",
+      "reduceAbove": "Prognostizierte Regenmenge (mm), ab der die Bewässerung reduziert wird.",
+      "zeroAbove": "Prognostizierte Regenmenge (mm), ab der die Bewässerung ganz entfällt.",
+      "forecastDecay": "Gewichtung (0–1) des morgigen Regens gegenüber dem heutigen. 1 = zählt voll, 0 = wird ignoriert."
+    },
     "version": "Version",
     "haIntegration": "HA Integration",
     "theme": "Darstellung",
@@ -138,6 +148,7 @@
       "wind": "Wind",
       "season": "Saison",
       "temperature": "Temperatur",
+      "temperature_max": "Max-Temperatur (Prognose)",
       "precipitation_prob_today": "Regenwahrscheinlichkeit heute",
       "precipitation_prob_tomorrow": "Regenwahrscheinlichkeit morgen",
       "precipitation_today": "Niederschlag heute",
@@ -270,7 +281,11 @@
     "after": "Danach",
     "adjustment": "Anpassung",
     "auto": "auto",
-    "blocked": "{{seqs}} blockiert"
+    "blocked": "{{seqs}} blockiert",
+    "today": "Heute",
+    "tomorrow": "Morgen",
+    "skip": "Überspringen",
+    "skipped": "{{name}} übersprungen"
   },
   "time": {
     "now": "jetzt",

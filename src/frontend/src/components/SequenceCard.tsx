@@ -172,14 +172,11 @@ function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedu
           disabled={isDisabled || (!isRunning && !isPaused)}
           title={t('sequence.stop')}
           style={{
-            flex: 1,
+            width: 44,
             height: 44,
+            flex: '0 0 44px',
             opacity: isDisabled || (!isRunning && !isPaused) ? 0.4 : 1,
-            gap: 8,
-            fontSize: 12.5,
             color: 'var(--n-fg-soft)',
-            paddingLeft: 12,
-            justifyContent: 'flex-start',
           }}
         >
           <IStop size={15} />

@@ -39,6 +39,7 @@ function BottomNav() {
         background: 'var(--n-bg-elev)',
         height: 64,
         padding: '0 4px',
+        flexShrink: 0,
       }}
     >
       {items.map(({ to, label, icon, end }) => (
@@ -100,7 +101,9 @@ function AppShell() {
 
   return (
     <Router basename={BASE_PATH || undefined}>
-      <div style={{ minHeight: '100vh', display: 'flex' }}>
+      {/* Bounded to the viewport so the content area scrolls internally and the
+          mobile bottom nav stays pinned (sticky) instead of scrolling off. */}
+      <div style={{ height: '100dvh', display: 'flex', overflow: 'hidden' }}>
         {/* Sidebar — visible on desktop (≥1024px), hidden on mobile */}
         <div className="desktop-only">
           <Sidebar />

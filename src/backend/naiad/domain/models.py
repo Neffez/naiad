@@ -28,6 +28,22 @@ class Plan(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class SkippedRun(SQLModel, table=True):
+    """A single scheduled cron occurrence the user chose to skip.
+
+    Matched by sequence and the occurrence's fire time (naive UTC, minute
+    precision). The scheduler consumes a matching record when the cron job fires,
+    so only that one run is skipped — the next scheduled run happens as usual.
+    """
+
+    __tablename__ = "skipped_runs"
+
+    id: int | None = Field(default=None, primary_key=True)
+    sequence_id: str
+    scheduled_at: datetime  # naive UTC, minute precision
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class AuthToken(SQLModel, table=True):
     __tablename__ = "auth_tokens"
 
