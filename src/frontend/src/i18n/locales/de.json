@@ -1,6 +1,7 @@
 {
   "toast": {
-    "started": "{{name}} gestartet"
+    "started": "{{name}} gestartet",
+    "resumed": "{{name}} fortgesetzt"
   },
   "nav": {
     "dashboard": "Dashboard",
