@@ -1,7 +1,7 @@
 <div align="center">
   <img src="docs/assets/logo.svg" alt="Naiad" width="420">
 
-  **Garden irrigation controller for Home Assistant, optimized for KNX.**
+  **Garden irrigation controller for Home Assistant.**
 </div>
 
 ---
@@ -16,9 +16,9 @@ The HA-native irrigation stack is powerful but spread across too many layers. A 
 
 ## Scope
 
-- **Optimized for** KNX setups with switch actuators, rain/wind/season sensors, and OpenWeatherMap forecasts — specifically developed and tested on **KNX** hardware.
-- **Hardware-agnostic by design.** Any Home Assistant `switch.*` entity works as a valve through the abstract driver layer. Non-KNX setups are experimental and untested.
-- **Requires Home Assistant** as the hardware driver layer (v1). A direct KNX/IP driver via xknx is planned for v2.
+- **Hardware-agnostic.** A valve is any Home Assistant `switch.*` entity, so whatever HA can switch (KNX, Zigbee, Shelly, Tasmota, …) works — Naiad itself knows nothing about the underlying bus.
+- **Requires Home Assistant** as the hardware driver layer: it switches valves and supplies the rain/wind/season sensors and weather forecasts over the HA WebSocket API.
+- Developed and run against a KNX setup, so that combination is the most exercised; other `switch.*`/`binary_sensor.*` hardware is supported by the same driver layer but less tested.
 
 ## Tech stack
 
@@ -124,18 +124,17 @@ environment only (see [`.env.example`](.env.example)).
 
 ## Hardware compatibility
 
-Naiad is developed and tested against a specific KNX setup. Anything that
-exposes the right entity types in Home Assistant should work, but only the
-combinations below are exercised in practice.
+Naiad works with any hardware that Home Assistant exposes as the right entity
+types — it talks only to HA, never to a specific bus. The table notes which
+combinations are actually exercised in practice (the author runs KNX).
 
 | Component | Status | Notes |
 |---|---|---|
-| KNX switch actuators | ✅ tested | Any HA `switch.*` works. The actuator's 3 h staircase timer acts as an external hardware watchdog. |
-| Generic HA `switch.*` valves | 🟡 experimental | Supported by design via the driver layer; not tested on non-KNX hardware. |
-| KNX rain / wind / season `binary_sensor.*` | ✅ tested | Mapped through `sensors`. Any `binary_sensor.*` works. |
+| Valves — any HA `switch.*` | ✅ works | Whatever HA can switch (KNX, Zigbee, Shelly, Tasmota, …). Most exercised on KNX actuators, whose staircase timer also acts as an external hardware watchdog. |
+| Sensors — any `binary_sensor.*` / `sensor.*` | ✅ works | Rain / wind / season + temperature, mapped through `sensors`. Most exercised with KNX sensors. |
 | OpenWeatherMap precipitation sensors | ✅ tested | Probability + amount, today and tomorrow. |
-| Direct KNX/IP (xknx) driver | ⬜ planned (v2) | Designed for; not implemented. v1 talks to hardware only via the HA WebSocket API. |
 | Push via `notify.mobile_app_*` | ✅ tested | HA Companion app. |
+| Direct KNX/IP (xknx) driver | ⬜ planned (v2) | Designed for via the driver layer; not implemented. v1 talks to hardware only through Home Assistant. |
 
 ## Local Development (without Docker)
 

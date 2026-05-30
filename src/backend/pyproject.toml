@@ -1,7 +1,7 @@
 [project]
 name = "naiad"
 dynamic = ["version"]
-description = "Garden irrigation controller for Home Assistant, optimized for KNX"
+description = "Garden irrigation controller for Home Assistant"
 readme = "../../README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
