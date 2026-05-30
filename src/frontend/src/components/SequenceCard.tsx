@@ -9,6 +9,7 @@ interface SequenceCardProps {
   size?: 'regular' | 'rich'
   onStart?: () => void
   onPause?: () => void
+  onResume?: () => void
   onStop?: () => void
   onSchedule?: () => void
 }
@@ -20,18 +21,18 @@ function runProgress(run: { elapsed_min: number; remaining_min: number } | null 
   return Math.min(100, (run.elapsed_min / total) * 100)
 }
 
-export function SequenceCard({ seq, size = 'regular', onStart, onPause, onStop, onSchedule }: SequenceCardProps) {
+export function SequenceCard({ seq, size = 'regular', onStart, onPause, onResume, onStop, onSchedule }: SequenceCardProps) {
   if (size === 'rich') {
     return (
-      <SequenceCardRich seq={seq} onStart={onStart} onPause={onPause} onStop={onStop} onSchedule={onSchedule} />
+      <SequenceCardRich seq={seq} onStart={onStart} onPause={onPause} onResume={onResume} onStop={onStop} onSchedule={onSchedule} />
     )
   }
   return (
-    <SequenceCardRegular seq={seq} onStart={onStart} onPause={onPause} onStop={onStop} onSchedule={onSchedule} />
+    <SequenceCardRegular seq={seq} onStart={onStart} onPause={onPause} onResume={onResume} onStop={onStop} onSchedule={onSchedule} />
   )
 }
 
-function SequenceCardRegular({ seq, onStart, onPause, onStop, onSchedule }: Omit<SequenceCardProps, 'size'>) {
+function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedule }: Omit<SequenceCardProps, 'size'>) {
   const { t, i18n } = useTranslation()
   const isRunning = seq.status === 'running'
   const isPaused = seq.status === 'paused'
@@ -134,7 +135,7 @@ function SequenceCardRegular({ seq, onStart, onPause, onStop, onSchedule }: Omit
       <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
         <button
           className={`n-iconbtn${isRunning ? ' paused-state' : ' accent'}`}
-          onClick={isRunning ? onPause : onStart}
+          onClick={isRunning ? onPause : isPaused ? onResume : onStart}
           disabled={isDisabled}
           style={{ width: 44, height: 44, opacity: isDisabled ? 0.4 : 1 }}
           title={isRunning ? t('sequence.pause') : t('sequence.start')}
@@ -153,12 +154,12 @@ function SequenceCardRegular({ seq, onStart, onPause, onStop, onSchedule }: Omit
         <button
           className="n-iconbtn"
           onClick={onStop}
-          disabled={isDisabled || !isRunning}
+          disabled={isDisabled || (!isRunning && !isPaused)}
           title={t('sequence.stop')}
           style={{
             flex: 1,
             height: 44,
-            opacity: isDisabled || !isRunning ? 0.4 : 1,
+            opacity: isDisabled || (!isRunning && !isPaused) ? 0.4 : 1,
             gap: 8,
             fontSize: 12.5,
             color: 'var(--n-fg-soft)',
@@ -173,7 +174,7 @@ function SequenceCardRegular({ seq, onStart, onPause, onStop, onSchedule }: Omit
   )
 }
 
-function SequenceCardRich({ seq, onStart, onPause, onStop, onSchedule }: Omit<SequenceCardProps, 'size'>) {
+function SequenceCardRich({ seq, onStart, onPause, onResume, onStop, onSchedule }: Omit<SequenceCardProps, 'size'>) {
   const { t, i18n } = useTranslation()
   const isRunning = seq.status === 'running'
   const isPaused = seq.status === 'paused'
@@ -383,7 +384,7 @@ function SequenceCardRich({ seq, onStart, onPause, onStop, onSchedule }: Omit<Se
       <div style={{ display: 'flex', gap: 8 }}>
         <button
           className={`n-btn ${isRunning ? '' : 'primary'}`}
-          onClick={isRunning ? onPause : onStart}
+          onClick={isRunning ? onPause : isPaused ? onResume : onStart}
           disabled={isDisabled}
           style={{ flex: 1, height: 44, minWidth: 0, padding: '0 12px', fontSize: 13, opacity: isDisabled ? 0.4 : 1, whiteSpace: 'nowrap' }}
         >
@@ -402,9 +403,9 @@ function SequenceCardRich({ seq, onStart, onPause, onStop, onSchedule }: Omit<Se
         <button
           className="n-iconbtn"
           onClick={onStop}
-          disabled={isDisabled || !isRunning}
+          disabled={isDisabled || (!isRunning && !isPaused)}
           title={t('sequence.stop')}
-          style={{ width: 44, height: 44, flex: '0 0 44px', opacity: isDisabled || !isRunning ? 0.4 : 1 }}
+          style={{ width: 44, height: 44, flex: '0 0 44px', opacity: isDisabled || (!isRunning && !isPaused) ? 0.4 : 1 }}
         >
           <IStop size={16} />
         </button>
