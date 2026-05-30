@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from naiad.config import (
     AutoLoginConfig,
@@ -42,7 +42,7 @@ class AuthTokenResponse(BaseModel):
 
 
 class StartSequenceRequest(BaseModel):
-    duration_min: int | None = None
+    duration_min: int | None = Field(default=None, gt=0)
 
 
 class ZoneSummaryResponse(BaseModel):
@@ -157,7 +157,7 @@ class CreatePlanRequest(BaseModel):
     sequence_id: str
     mode: str  # in_hours | at_datetime
     value: float | str
-    duration_min: int | None = None
+    duration_min: int | None = Field(default=None, gt=0)
 
 
 class PlanResponse(BaseModel):
