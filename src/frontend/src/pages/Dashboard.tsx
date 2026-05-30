@@ -18,6 +18,7 @@ import { EmergencyStop } from '../components/EmergencyStop'
 import { ILogo } from '../components/icons'
 import { MasterToggle } from '../components/MasterToggle'
 import { SequenceCard } from '../components/SequenceCard'
+import { toast } from '../components/Toast'
 import { TodayBlock } from '../components/TodayBlock'
 import { ValveGrid } from '../components/ValveGrid'
 import { WeatherStrip } from '../components/WeatherStrip'
@@ -63,9 +64,10 @@ export default function Dashboard() {
   async function handleStart(seq: SequenceState, durationMin?: number) {
     try {
       await startSequence(seq.id, durationMin)
+      toast(t('toast.started', { name: seq.label, defaultValue: `${seq.label} gestartet` }), 'success')
       qc.invalidateQueries({ queryKey: ['sequences'] })
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e))
+      toast(e instanceof Error ? e.message : String(e), 'error')
     }
   }
 
@@ -73,7 +75,7 @@ export default function Dashboard() {
     try {
       await stopSequence(id)
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e))
+      toast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
       qc.invalidateQueries({ queryKey: ['sequences'] })
     }
@@ -83,7 +85,7 @@ export default function Dashboard() {
     try {
       await pauseSequence(id)
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e))
+      toast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
       qc.invalidateQueries({ queryKey: ['sequences'] })
     }
