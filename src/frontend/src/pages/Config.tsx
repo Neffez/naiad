@@ -12,7 +12,9 @@ import {
   getServices,
   importConfig,
   putConfig,
+  testNotify,
 } from '../api/client'
+import { toast } from '../components/Toast'
 
 const inputStyle: CSSProperties = {
   height: 36,
@@ -120,6 +122,15 @@ export default function Config() {
     e.target.value = '' // allow re-selecting the same file
   }
 
+  async function handleTestNotify() {
+    try {
+      const r = await testNotify()
+      toast(t('config.notifyTestOk', { count: r.sent, defaultValue: `Test an ${r.sent} Ziel(e) gesendet` }), 'success')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'error')
+    }
+  }
+
   const zoneIds = Object.keys(draft.zones)
 
   // HA entities grouped by domain, for the searchable entity pickers.
@@ -142,11 +153,22 @@ export default function Config() {
           />
         </Row>
         <Row label={t('config.notifyTargets', { defaultValue: 'Notify-Ziele' })} last align="start">
-          <NotifyTargetList
-            values={draft.ha.notify_targets}
-            services={notifyServices.data?.services}
-            onChange={(vals) => patch((d) => { d.ha.notify_targets = vals })}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+            <NotifyTargetList
+              values={draft.ha.notify_targets}
+              services={notifyServices.data?.services}
+              onChange={(vals) => patch((d) => { d.ha.notify_targets = vals })}
+            />
+            <button
+              className="n-btn"
+              style={{ height: 32, padding: '0 12px', fontSize: 12.5, alignSelf: 'flex-start' }}
+              disabled={dirty || draft.ha.notify_targets.length === 0}
+              title={dirty ? t('config.saveFirst', { defaultValue: 'Erst speichern' }) : undefined}
+              onClick={handleTestNotify}
+            >
+              {t('config.notifyTest', { defaultValue: 'Test-Benachrichtigung senden' })}
+            </button>
+          </div>
         </Row>
       </Section>
 
