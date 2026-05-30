@@ -297,7 +297,8 @@ export default function Dashboard() {
               key={seq.id}
               seq={seq}
               onStart={() => setConfirmSeq(seq)}
-              onPause={() => (seq.status === 'running' ? handlePause(seq.id) : handleStart(seq))}
+              onPause={() => handlePause(seq.id)}
+              onResume={() => handleResume(seq)}
               onStop={() => handleStop(seq.id)}
               onSchedule={() => navigate(`/planner?seq=${seq.id}`)}
             />

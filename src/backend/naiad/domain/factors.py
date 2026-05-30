@@ -20,6 +20,9 @@ class SensorSnapshot:
     precipitation_prob_tomorrow: float
     precipitation_today_mm: float
     precipitation_tomorrow_mm: float
+    # The day's forecast maximum temperature, when a max-temperature sensor is
+    # configured. Preferred over ``temperature_c`` for the temperature factor.
+    max_temperature_c: float | None = None
     unavailable: list[str] = field(default_factory=list)
 
 
@@ -141,8 +144,15 @@ def compute_factors(
         eff_rain,
     )
 
-    if snapshot.temperature_c is not None:
-        temp_multiplier = _compute_temp_factor(snapshot.temperature_c, eff_temp)
+    # Prefer the day's forecast maximum so a night-time run still scales to the
+    # daytime peak; fall back to the current temperature when no max is available.
+    temp_for_factor = (
+        snapshot.max_temperature_c
+        if snapshot.max_temperature_c is not None
+        else snapshot.temperature_c
+    )
+    if temp_for_factor is not None:
+        temp_multiplier = _compute_temp_factor(temp_for_factor, eff_temp)
     else:
         temp_multiplier = 1.0
 

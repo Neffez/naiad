@@ -128,6 +128,11 @@ class SensorsConfig(BaseModel):
     wind: str
     season: str
     temperature: str
+    # Optional forecast of the day's maximum temperature. When set it is used for
+    # the temperature adjustment instead of the current temperature, so a run
+    # scheduled at night still scales to the (warmer) daytime peak. Empty = fall
+    # back to the current temperature sensor.
+    temperature_max: str = ""
     precipitation_prob_today: str
     precipitation_prob_tomorrow: str
     precipitation_today: str

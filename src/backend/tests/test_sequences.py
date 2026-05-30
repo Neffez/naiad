@@ -77,6 +77,26 @@ async def test_normal_completion(runner: SequenceRunner, driver: FakeDriver) -> 
     assert "switch.zone_a" in driver.off_calls
 
 
+async def test_history_row_created_at_start(runner: SequenceRunner, engine) -> None:
+    """A run shows up in history immediately at start (ended_at unset), then is
+    finalized when the zone ends."""
+    await runner.start("seq_1")
+    await asyncio.sleep(0)  # let the run open its first zone
+
+    with Session(engine) as session:
+        rows = list(session.exec(select(RunHistory)).all())
+    assert len(rows) == 1
+    assert rows[0].zone_id == "zone_a"
+    assert rows[0].ended_at is None  # in-flight: not finalized yet
+
+    await asyncio.wait_for(runner._task, timeout=2.0)  # type: ignore[arg-type]
+    with Session(engine) as session:
+        rows = list(session.exec(select(RunHistory)).all())
+    assert len(rows) == 1  # same row finalized, not a second one
+    assert rows[0].ended_at is not None
+    assert rows[0].duration_min is not None
+
+
 async def test_mutex_conflict(runner: SequenceRunner) -> None:
     await runner.start("seq_1")
     with pytest.raises(MutexConflict):

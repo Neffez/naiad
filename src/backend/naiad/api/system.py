@@ -1,14 +1,15 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, func, select
 
 from naiad.api.schemas import (
     FactorBreakdownResponse,
     MasterToggleRequest,
     NextRunResponse,
+    SkipRunRequest,
     SystemStatusResponse,
     ValveStateResponse,
     WeatherSummaryResponse,
@@ -17,10 +18,10 @@ from naiad.config import AppConfig
 from naiad.database import get_session
 from naiad.dependencies import get_config, get_ha_client, get_scheduler, require_auth
 from naiad.domain.factors import compute_factors
-from naiad.domain.models import Plan, RunHistory, SequenceOverride, UserPreference
+from naiad.domain.models import Plan, RunHistory, SequenceOverride, SkippedRun, UserPreference
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.ha_client import HAClient
-from naiad.scheduler import next_run_for_sequence
+from naiad.scheduler import next_run_for_sequence, upcoming_cron_runs
 from naiad.timeutil import local_day_start_utc, local_week_start_utc
 
 router = APIRouter(tags=["system"])
@@ -134,6 +135,84 @@ def _next_runs(
     return [run for _, run in candidates[:limit]]
 
 
+def _upcoming_day_runs(
+    session: Session,
+    config: AppConfig,
+    scheduler: AsyncIOScheduler,
+) -> list[NextRunResponse]:
+    """Upcoming runs for the next day that has any (local calendar day).
+
+    If runs remain today, returns all of today's remaining runs; otherwise all
+    runs of the next day that has scheduled runs. Both one-off plans and recurring
+    cron schedules are merged, and user-skipped cron occurrences are excluded.
+    """
+    tz = ZoneInfo(config.timezone)
+    now = datetime.now(UTC)
+    until = now + timedelta(days=8)
+
+    # User-skipped cron occurrences, keyed by sequence → set of minute-truncated
+    # naive-UTC fire times.
+    skip_set: dict[str, set[datetime]] = {}
+    for s in session.exec(select(SkippedRun)).all():
+        skip_set.setdefault(s.sequence_id, set()).add(
+            s.scheduled_at.replace(second=0, microsecond=0)
+        )
+
+    candidates: list[tuple[datetime, NextRunResponse]] = []
+
+    plans = session.exec(select(Plan).where(Plan.scheduled_at >= now.replace(tzinfo=None))).all()
+    for p in plans:
+        seq_cfg = config.sequences.get(p.sequence_id)
+        if seq_cfg is None:
+            continue
+        when = p.scheduled_at if p.scheduled_at.tzinfo else p.scheduled_at.replace(tzinfo=UTC)
+        duration = (
+            p.duration_min
+            if p.duration_min is not None
+            else _effective_basis(session, config, p.sequence_id)
+        )
+        candidates.append(
+            (
+                when,
+                NextRunResponse(
+                    sequence_id=p.sequence_id,
+                    sequence_label=seq_cfg.label,
+                    scheduled_at=p.scheduled_at,
+                    duration_min=duration,
+                    plan_id=p.id,
+                ),
+            )
+        )
+
+    for seq_id, seq_cfg in config.sequences.items():
+        if not seq_cfg.enabled:
+            continue
+        skipped = skip_set.get(seq_id, set())
+        for fire in upcoming_cron_runs(scheduler, seq_id, until):
+            fire_utc = fire.astimezone(UTC)
+            naive_min = fire_utc.replace(tzinfo=None, second=0, microsecond=0)
+            if naive_min in skipped:
+                continue
+            candidates.append(
+                (
+                    fire_utc,
+                    NextRunResponse(
+                        sequence_id=seq_id,
+                        sequence_label=seq_cfg.label,
+                        scheduled_at=naive_min,
+                        duration_min=_effective_basis(session, config, seq_id),
+                    ),
+                )
+            )
+
+    if not candidates:
+        return []
+
+    candidates.sort(key=lambda c: c[0])
+    target_date = candidates[0][0].astimezone(tz).date()
+    return [run for when, run in candidates if when.astimezone(tz).date() == target_date]
+
+
 @router.get("/status", response_model=SystemStatusResponse)
 async def get_status(
     _: None = Depends(require_auth),
@@ -155,6 +234,7 @@ async def get_status(
     today_start = local_day_start_utc(config.timezone)
     week_start = local_week_start_utc(config.timezone)
 
+    upcoming_runs = _upcoming_day_runs(session, config, scheduler)
     next_runs = _next_runs(session, config, scheduler, 2)
 
     return SystemStatusResponse(
@@ -177,6 +257,7 @@ async def get_status(
         ),
         next_run=next_runs[0] if len(next_runs) > 0 else None,
         after_next=next_runs[1] if len(next_runs) > 1 else None,
+        upcoming_runs=upcoming_runs,
         liters_today=_liters_since(session, today_start),
         liters_week=_liters_since(session, week_start),
         week_series=_week_series(session, config.timezone),
@@ -191,6 +272,36 @@ async def set_master(
 ) -> dict[str, bool]:
     _set_master(session, body.on)
     return {"master_on": body.on}
+
+
+@router.post("/status/skip-run")
+async def skip_run(
+    body: SkipRunRequest,
+    _: None = Depends(require_auth),
+    config: AppConfig = Depends(get_config),
+    session: Session = Depends(get_session),
+) -> dict[str, str]:
+    """Skip a single upcoming run. A one-off plan is deleted; a recurring cron
+    occurrence is recorded as skipped so only that fire is suppressed."""
+    if body.sequence_id not in config.sequences:
+        raise HTTPException(404, f"Sequence '{body.sequence_id}' not found")
+
+    if body.plan_id is not None:
+        plan = session.get(Plan, body.plan_id)
+        if plan is not None:
+            session.delete(plan)
+            session.commit()
+        return {"skipped": "plan"}
+
+    # Recurring cron occurrence — store its fire time as naive UTC (minute precision)
+    # to match how the scheduler compares it when the job fires.
+    sched = body.scheduled_at
+    if sched.tzinfo is not None:
+        sched = sched.astimezone(UTC).replace(tzinfo=None)
+    sched = sched.replace(second=0, microsecond=0)
+    session.add(SkippedRun(sequence_id=body.sequence_id, scheduled_at=sched))
+    session.commit()
+    return {"skipped": "occurrence"}
 
 
 @router.get("/valves", response_model=list[ValveStateResponse])
