@@ -88,9 +88,7 @@ def _next_runs(
     now = datetime.now(UTC)
     candidates: list[tuple[datetime, NextRunResponse]] = []
 
-    plans = session.exec(
-        select(Plan).where(Plan.scheduled_at >= now.replace(tzinfo=None))
-    ).all()
+    plans = session.exec(select(Plan).where(Plan.scheduled_at >= now.replace(tzinfo=None))).all()
     for p in plans:
         seq_cfg = config.sequences.get(p.sequence_id)
         if seq_cfg is None:
