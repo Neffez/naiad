@@ -46,6 +46,7 @@ export function ConfirmDialog({
   const backdropRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (open) setDuration(defaultDuration)
   }, [open, defaultDuration])
 
