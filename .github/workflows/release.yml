@@ -57,8 +57,9 @@ jobs:
           cache-to: type=gha,mode=max
 
   # Keep the Home Assistant add-on (separate repo) in lockstep with the app: when
-  # naiad is tagged vX.Y.Z, bump the add-on's config.yaml version so the Supervisor
-  # offers an update and rebuilds against the new :latest image.
+  # naiad is tagged vX.Y.Z, bump the add-on's config.yaml version AND prepend a
+  # CHANGELOG.md entry (built from the naiad commits since the previous tag) so the
+  # Supervisor offers an update and shows real release notes instead of a blank log.
   #
   # Requires a (fine-grained) PAT with contents:write on Neffez/app-naiad, as the
   # secret RELEASE_PAT (preferred, shared with tag-on-merge) or APP_NAIAD_TOKEN.
@@ -67,7 +68,12 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Bump add-on version (app-naiad)
+      - name: Checkout naiad (full history for the changelog)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump add-on version + changelog (app-naiad)
         env:
           TOKEN: ${{ secrets.RELEASE_PAT || secrets.APP_NAIAD_TOKEN }}
           VERSION_REF: ${{ github.ref_name }}
@@ -76,17 +82,51 @@ jobs:
             echo "::warning::No RELEASE_PAT/APP_NAIAD_TOKEN — skipping add-on bump. Add a fine-grained PAT with contents:write on Neffez/app-naiad as the secret RELEASE_PAT (or APP_NAIAD_TOKEN), then re-run this job or push a new tag."
             exit 0
           fi
-          echo "Token detected — bumping add-on version."
           VERSION="${VERSION_REF#v}"
+
+          # Release notes = naiad commit subjects since the previous tag, minus the
+          # purely-internal ci/chore noise.
+          git fetch --tags --force
+          PREV=$(git describe --tags --abbrev=0 "${VERSION_REF}^" 2>/dev/null || echo "")
+          if [ -n "$PREV" ]; then RANGE="${PREV}..${VERSION_REF}"; else RANGE="${VERSION_REF}"; fi
+          echo "Collecting notes for ${RANGE:-all history}"
+          NOTES=$(git log --no-merges --pretty=format:'- %s' "$RANGE")
+          FILTERED=$(printf '%s\n' "$NOTES" | grep -viE '^- (chore|ci)(\(|:)' || true)
+          [ -n "$FILTERED" ] && NOTES="$FILTERED"
+          [ -z "$NOTES" ] && NOTES="- Maintenance release."
+          printf 'Notes:\n%s\n' "$NOTES"
+
           git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/Neffez/app-naiad.git" addon
           cd addon
+
           sed -i "s/^version: .*/version: \"${VERSION}\"/" naiad/config.yaml
-          if git diff --quiet -- naiad/config.yaml; then
-            echo "Add-on config.yaml already at ${VERSION}; nothing to do."
+
+          # Prepend a dated section to the add-on CHANGELOG (unless this version is
+          # already documented). Python keeps the multi-line notes intact.
+          python3 - "$VERSION" "$NOTES" <<'PY'
+          import datetime, pathlib, sys
+          version, notes = sys.argv[1], sys.argv[2]
+          p = pathlib.Path("naiad/CHANGELOG.md")
+          text = p.read_text(encoding="utf-8") if p.exists() else "# Changelog\n"
+          if f"## {version} (" in text or text.lstrip().startswith(f"## {version} "):
+              sys.exit(0)  # already documented
+          lines = text.splitlines()
+          if lines and lines[0].startswith("# "):
+              title, rest = lines[0], "\n".join(lines[1:]).lstrip("\n")
+          else:
+              title, rest = "# Changelog", text.lstrip("\n")
+          entry = f"## {version} ({datetime.date.today().isoformat()})\n\n{notes}\n"
+          out = f"{title}\n\n{entry}\n" + (rest + "\n" if rest.strip() else "")
+          p.write_text(out, encoding="utf-8")
+          PY
+
+          git add naiad/config.yaml naiad/CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "Add-on already at ${VERSION}; nothing to do."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -am "chore: bump add-on to ${VERSION} (naiad ${VERSION_REF})"
+          git commit -m "chore: release ${VERSION} (naiad ${VERSION_REF})"
           git push
-          echo "Pushed add-on version ${VERSION}."
+          echo "Pushed add-on ${VERSION} with changelog."
