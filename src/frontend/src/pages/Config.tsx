@@ -174,11 +174,21 @@ export default function Config() {
 
       {/* HA connection */}
       <Section title={t('config.ha', { defaultValue: 'Home Assistant' })}>
-        <Row label={t('config.haUrl', { defaultValue: 'WebSocket-URL' })}>
+        <Row label={t('config.haUrl', { defaultValue: 'WebSocket-URL' })} last>
           <input
             style={{ ...inputStyle, width: 360 }}
             value={draft.ha.url}
             onChange={(e) => patch((d) => { d.ha.url = e.target.value })}
+          />
+        </Row>
+      </Section>
+
+      {/* Notifications (global) — per-recipient choices live on each notify target below */}
+      <Section title={t('config.notifications', { defaultValue: 'Benachrichtigungen' })}>
+        <Row label={t('config.notifyReminderTime', { defaultValue: 'Erinnerungszeit' })}>
+          <ReminderTime
+            value={draft.notifications.evening_reminder_cron}
+            onChange={(cron) => patch((d) => { d.notifications.evening_reminder_cron = cron })}
           />
         </Row>
         <Row label={t('config.notifyTargets', { defaultValue: 'Notify-Ziele' })} last align="start">
@@ -199,16 +209,6 @@ export default function Config() {
               {t('config.notifyTest', { defaultValue: 'Test-Benachrichtigung senden' })}
             </button>
           </div>
-        </Row>
-      </Section>
-
-      {/* Notifications (global) — per-recipient choices live on each notify target above */}
-      <Section title={t('config.notifications', { defaultValue: 'Benachrichtigungen' })}>
-        <Row label={t('config.notifyReminderTime', { defaultValue: 'Erinnerungszeit' })} last>
-          <ReminderTime
-            value={draft.notifications.evening_reminder_cron}
-            onChange={(cron) => patch((d) => { d.notifications.evening_reminder_cron = cron })}
-          />
         </Row>
       </Section>
 
