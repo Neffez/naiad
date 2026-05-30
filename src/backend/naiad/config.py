@@ -1,19 +1,77 @@
 import os
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # ── HA ──────────────────────────────────────────────────────────────────────
+
+# The canonical set of notification kinds. Each notify target subscribes to a
+# subset of these (see NotifyTarget).
+NOTIFICATION_CATEGORIES: tuple[str, ...] = ("start", "skip", "abort", "reminder")
+
+
+class NotifyTarget(BaseModel):
+    """One push recipient (an HA ``notify.*`` service) and what it wants.
+
+    ``categories`` selects which notification kinds this target receives, so e.g.
+    one phone can get only the evening reminder while another gets everything.
+    ``quiet`` asks for silent/low-priority delivery; ``platform`` tunes the silent
+    payload (Android vs iOS use different keys).
+    """
+
+    service: str
+    categories: list[str] = list(NOTIFICATION_CATEGORIES)
+    quiet: bool = False
+    platform: Literal["auto", "ios", "android"] = "auto"
+
+    @field_validator("categories")
+    @classmethod
+    def _known_categories(cls, v: list[str]) -> list[str]:
+        unknown = [c for c in v if c not in NOTIFICATION_CATEGORIES]
+        if unknown:
+            raise ValueError(f"Unknown notification categories: {unknown}")
+        return v
+
+
+def quiet_payload(platform: str) -> dict[str, Any]:
+    """HA ``data`` payload requesting silent/low-priority delivery.
+
+    Android and iOS use different keys, so ``auto`` sends both (each platform
+    ignores the other's): Android → a low-importance channel (no sound); iOS → a
+    passive interruption level with no sound.
+    """
+    data: dict[str, Any] = {}
+    if platform in ("auto", "android"):
+        data["importance"] = "low"
+    if platform in ("auto", "ios"):
+        data["push"] = {"sound": "none", "interruption-level": "passive"}
+    return data
+
+
+def target_service_data(target: "NotifyTarget", message: str) -> dict[str, Any]:
+    service_data: dict[str, Any] = {"message": message}
+    if target.quiet:
+        service_data["data"] = quiet_payload(target.platform)
+    return service_data
 
 
 class HAConfig(BaseModel):
     url: str
     token: str
-    notify_targets: list[str] = []
+    notify_targets: list[NotifyTarget] = []
+
+    @field_validator("notify_targets", mode="before")
+    @classmethod
+    def _coerce_targets(cls, v: object) -> object:
+        # Back-compat: a plain list of service strings becomes targets that
+        # receive every category (the previous behaviour).
+        if isinstance(v, list):
+            return [{"service": x} if isinstance(x, str) else x for x in v]
+        return v
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
@@ -149,6 +207,16 @@ class FactorsConfig(BaseModel):
     rain: RainFactorConfig = RainFactorConfig()
 
 
+# ── Notifications ──────────────────────────────────────────────────────────────
+
+
+class NotificationsConfig(BaseModel):
+    """Global notification settings. Per-recipient choices (which categories, quiet,
+    platform) live on each :class:`NotifyTarget`."""
+
+    evening_reminder_cron: str = "0 21 * * *"  # when the nightly reminder is sent
+
+
 # ── Root ─────────────────────────────────────────────────────────────────────
 
 
@@ -161,6 +229,7 @@ class AppConfig(BaseModel):
     zones: dict[str, ZoneConfig]
     sequences: dict[str, SequenceConfig]
     factors: FactorsConfig = FactorsConfig()
+    notifications: NotificationsConfig = NotificationsConfig()
     timezone: str = "Europe/Berlin"  # IANA tz for cron schedules and day bucketing
 
     @model_validator(mode="after")
