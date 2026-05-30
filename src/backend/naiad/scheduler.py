@@ -10,7 +10,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from sqlmodel import Session, col, select
 
 from naiad.api.ws import broadcast_notification, broadcast_sequence_changed
-from naiad.config import AppConfig
+from naiad.config import NOTIFICATION_CATEGORIES, AppConfig, target_service_data
 from naiad.domain.factors import compute_factors
 from naiad.domain.models import Plan, SequenceOverride, UserPreference
 from naiad.domain.sensors import read_sensor_snapshot
@@ -28,40 +28,30 @@ def _master_on(session_factory: SessionFactory) -> bool:
         return pref is None or pref.value == "1"
 
 
-_NOTIFY_GATE = {"start": "on_start", "skip": "on_skip", "abort": "on_abort"}
-
-
 async def push_notification(
     ha: HAClient, config: AppConfig, message: str, *, category: str = "info"
 ) -> None:
-    """Push a message to the configured notify targets.
+    """Push to every notify target subscribed to ``category`` (``info`` → all).
 
-    ``category`` (start/skip/abort/reminder/info) is gated by the per-event toggles
-    in ``notifications``. ``notifications.quiet`` asks for silent/low-priority
-    delivery (best-effort across platforms).
+    Each target chooses its own categories and silent/platform settings.
     """
-    nc = config.notifications
-    gate = _NOTIFY_GATE.get(category)
-    if gate is not None and not getattr(nc, gate):
-        logger.debug("Notify suppressed by config (%s): %s", category, message)
-        return
-    if not config.ha.notify_targets:
+    targets = config.ha.notify_targets
+    if not targets:
         logger.debug("Notify skipped — no notify_targets configured (%s)", message)
         return
-
-    service_data: dict[str, Any] = {"message": message}
-    if nc.quiet:
-        # Android (FCM) low priority + iOS passive interruption level; the platform
-        # that doesn't recognise a key ignores it.
-        service_data["data"] = {"priority": "low", "push": {"interruption-level": "passive"}}
-
-    for target in config.ha.notify_targets:
-        service = target.removeprefix("notify.")
+    sent = 0
+    for target in targets:
+        if category in NOTIFICATION_CATEGORIES and category not in target.categories:
+            continue
+        service = target.service.removeprefix("notify.")
         try:
-            await ha.call_service("notify", service, **service_data)
-            logger.info("Notified %s (%s)", target, category)
+            await ha.call_service("notify", service, **target_service_data(target, message))
+            sent += 1
+            logger.info("Notified %s (%s)", target.service, category)
         except Exception:
-            logger.warning("Notify failed for '%s'", target, exc_info=True)
+            logger.warning("Notify failed for '%s'", target.service, exc_info=True)
+    if sent == 0:
+        logger.debug("No target subscribed to category '%s'", category)
 
 
 async def _run_sequence_job(
@@ -218,8 +208,12 @@ async def _evening_reminder(
     ha: HAClient,
     session_factory: SessionFactory,
 ) -> None:
-    """Push a summary of the next day's scheduled runs (nightly)."""
-    if not config.notifications.evening_reminder:
+    """Push a summary of the next day's scheduled runs (nightly).
+
+    push_notification gates delivery per target (category "reminder"); we just skip
+    the work when nobody is subscribed.
+    """
+    if not any("reminder" in t.categories for t in config.ha.notify_targets):
         return
     tz = ZoneInfo(config.timezone)
     tomorrow = (datetime.now(tz) + timedelta(days=1)).date()
@@ -260,10 +254,10 @@ def _register_reminder_job(
     ha: HAClient,
     session_factory: SessionFactory,
 ) -> None:
-    """(Re)register the nightly reminder from config; remove it when disabled."""
+    """(Re)register the nightly reminder; only when a target wants the reminder."""
     if scheduler.get_job("evening-reminder") is not None:
         scheduler.remove_job("evening-reminder")
-    if not config.notifications.evening_reminder:
+    if not any("reminder" in t.categories for t in config.ha.notify_targets):
         return
     try:
         trigger = CronTrigger.from_crontab(

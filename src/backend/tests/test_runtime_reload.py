@@ -92,12 +92,7 @@ def test_reschedule_adds_removes_and_keeps_plan_tick(
     runner = SequenceRunner(minimal_config, driver, session_factory)
     scheduler = setup_scheduler(minimal_config, runner, ha, session_factory)
 
-    assert _job_ids(scheduler) == {
-        "cron-seq_1",
-        "cron-seq_wind",
-        "plan-tick",
-        "evening-reminder",
-    }
+    assert _job_ids(scheduler) == {"cron-seq_1", "cron-seq_wind", "plan-tick"}
 
     fresh = _add_zone_and_sequence(minimal_config)
     mutate_config_in_place(minimal_config, fresh)
