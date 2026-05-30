@@ -82,7 +82,6 @@ export const startSequence = (id: string, duration_min?: number) =>
   api.post(`/sequences/${id}/start`, duration_min != null ? { duration_min } : undefined)
 export const stopSequence = (id: string) => api.post(`/sequences/${id}/stop`)
 export const pauseSequence = (id: string) => api.post(`/sequences/${id}/pause`)
-export const resumeSequence = (id: string) => api.post(`/sequences/${id}/resume`)
 
 // System
 export interface HealthInfo {
