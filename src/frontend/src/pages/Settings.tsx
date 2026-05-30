@@ -1,21 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import {
-  type ConfigDoc,
-  type NotifyTarget,
-  getConfig,
   getHealth,
-  getServices,
   getSettings,
   getStatus,
   logout,
-  putConfig,
   updateSettings,
 } from '../api/client'
 import { InfoTip } from '../components/InfoTip'
-import { NotifyTargetList, ReminderTime } from './Config'
 
 export default function Settings() {
   const { t, i18n } = useTranslation()
@@ -97,9 +91,6 @@ export default function Settings() {
           <NumInput value={settings.factors.rain.forecast_decay} unit="" width={60} step={0.1} onBlur={(v) => mut.mutate({ factors: { rain: { forecast_decay: v } } })} />
         </SettingsRow>
       </SettingsSection>
-
-      {/* Benachrichtigungen */}
-      <NotificationsSection />
 
       {/* System */}
       <SettingsSection title={t('settings.system', { defaultValue: 'System' })}>
@@ -184,91 +175,6 @@ export default function Settings() {
         {t('settings.logout')}
       </button>
     </div>
-  )
-}
-
-// Notification targets + reminder time, mirroring the Config page's notification
-// settings so they can be managed here too. Edits the full config document via a
-// local draft and saves with putConfig.
-function NotificationsSection() {
-  const { t } = useTranslation()
-  const qc = useQueryClient()
-  const { data: config } = useQuery({ queryKey: ['config'], queryFn: getConfig })
-  const notifyServices = useQuery({ queryKey: ['services', 'notify'], queryFn: () => getServices('notify') })
-
-  const [targets, setTargets] = useState<NotifyTarget[] | null>(null)
-  const [reminderCron, setReminderCron] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (config) {
-      setTargets(structuredClone(config.ha.notify_targets))
-      setReminderCron(config.notifications.evening_reminder_cron)
-    }
-  }, [config])
-
-  const saveMut = useMutation({
-    mutationFn: (body: ConfigDoc) => putConfig(body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['config'] })
-    },
-  })
-
-  if (!config || targets === null || reminderCron === null) {
-    return (
-      <SettingsSection title={t('config.notifications', { defaultValue: 'Benachrichtigungen' })}>
-        <div style={{ padding: '16px 20px', fontSize: 13, color: 'var(--n-fg-dim)' }}>
-          {t('settings.loading', { defaultValue: 'Laden…' })}
-        </div>
-      </SettingsSection>
-    )
-  }
-
-  const dirty =
-    JSON.stringify(targets) !== JSON.stringify(config.ha.notify_targets) ||
-    reminderCron !== config.notifications.evening_reminder_cron
-
-  function save() {
-    if (!config || targets === null || reminderCron === null) return
-    saveMut.mutate({
-      ...config,
-      ha: { ...config.ha, notify_targets: targets },
-      notifications: { ...config.notifications, evening_reminder_cron: reminderCron },
-    })
-  }
-
-  return (
-    <SettingsSection title={t('config.notifications', { defaultValue: 'Benachrichtigungen' })}>
-      <SettingsRow label={t('config.notifyTargets', { defaultValue: 'Notify-Ziele' })} align="start">
-        <NotifyTargetList
-          values={targets}
-          services={notifyServices.data?.services}
-          dirty={dirty}
-          onChange={setTargets}
-        />
-      </SettingsRow>
-      <SettingsRow label={t('config.notifyReminderTime', { defaultValue: 'Erinnerungszeit' })}>
-        <ReminderTime value={reminderCron} onChange={setReminderCron} />
-      </SettingsRow>
-      <SettingsRow label="" last>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button
-            className="n-btn primary"
-            disabled={!dirty || saveMut.isPending}
-            style={{ height: 34, padding: '0 16px', fontSize: 13 }}
-            onClick={save}
-          >
-            {saveMut.isPending
-              ? t('config.saving', { defaultValue: 'Speichern…' })
-              : t('config.save', { defaultValue: 'Speichern' })}
-          </button>
-          {dirty && (
-            <span style={{ fontSize: 12, color: 'var(--n-fg-muted)' }}>
-              {t('config.unsaved', { defaultValue: 'Ungespeichert' })}
-            </span>
-          )}
-        </div>
-      </SettingsRow>
-    </SettingsSection>
   )
 }
 
