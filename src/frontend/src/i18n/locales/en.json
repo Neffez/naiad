@@ -261,6 +261,14 @@
     "cancel": "Cancel",
     "start": "Start now"
   },
+  "confirmStop": {
+    "title": "Stop run?",
+    "message": "{{name}} will be stopped immediately."
+  },
+  "confirmSkip": {
+    "title": "Skip run?",
+    "message": "{{name}} at {{time}} will be skipped and will only run again at the next schedule."
+  },
   "dashboard": {
     "title": "Garden",
     "sequences": "Sequences",
