@@ -115,6 +115,15 @@
     "notifyQuiet": "Quiet (no sound, low priority)",
     "notifyReminder": "Evening reminder (tomorrow's runs)",
     "notifyReminderCron": "Reminder time (cron)",
+    "notifyQuiet": "Quiet (no sound)",
+    "notifyPlatform": "Platform",
+    "platformAuto": "Auto",
+    "notifyCat": {
+      "start": "Start",
+      "skip": "Skipped",
+      "abort": "Abort",
+      "reminder": "Reminder"
+    },
     "sensors": "Sensors",
     "sensor": {
       "rain": "Rain",

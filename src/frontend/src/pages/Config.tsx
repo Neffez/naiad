@@ -3,8 +3,10 @@ import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import {
+  NOTIFICATION_CATEGORIES,
   type ConfigDoc,
   type EntityInfo,
+  type NotifyTarget,
   type SequenceConfig,
   exportConfig,
   getConfig,
@@ -187,31 +189,10 @@ export default function Config() {
         </Row>
       </Section>
 
-      {/* Notifications */}
+      {/* Notifications (global) — per-recipient choices live on each notify target above */}
       <Section title={t('config.notifications', { defaultValue: 'Benachrichtigungen' })}>
-        <Row label={t('config.notifyOnStart', { defaultValue: 'Bei Start' })}>
-          <Check label="" checked={draft.notifications.on_start}
-            onChange={(c) => patch((d) => { d.notifications.on_start = c })} />
-        </Row>
-        <Row label={t('config.notifyOnSkip', { defaultValue: 'Bei Überspringen (Wind/Konflikt)' })}>
-          <Check label="" checked={draft.notifications.on_skip}
-            onChange={(c) => patch((d) => { d.notifications.on_skip = c })} />
-        </Row>
-        <Row label={t('config.notifyOnAbort', { defaultValue: 'Bei Abbruch (Regen/Watchdog)' })}>
-          <Check label="" checked={draft.notifications.on_abort}
-            onChange={(c) => patch((d) => { d.notifications.on_abort = c })} />
-        </Row>
-        <Row label={t('config.notifyQuiet', { defaultValue: 'Leise (ohne Ton, niedrige Priorität)' })}>
-          <Check label="" checked={draft.notifications.quiet}
-            onChange={(c) => patch((d) => { d.notifications.quiet = c })} />
-        </Row>
-        <Row label={t('config.notifyReminder', { defaultValue: 'Abend-Erinnerung (morgige Läufe)' })}>
-          <Check label="" checked={draft.notifications.evening_reminder}
-            onChange={(c) => patch((d) => { d.notifications.evening_reminder = c })} />
-        </Row>
         <Row label={t('config.notifyReminderCron', { defaultValue: 'Erinnerungszeit (Cron)' })} last>
           <input style={{ ...inputStyle, width: 160 }} value={draft.notifications.evening_reminder_cron}
-            disabled={!draft.notifications.evening_reminder}
             onChange={(e) => patch((d) => { d.notifications.evening_reminder_cron = e.target.value })} />
         </Row>
       </Section>
@@ -616,29 +597,65 @@ function StringList({ values, placeholder, onChange }: {
   )
 }
 
-// Notify targets are HA *services* (notify.*), so each row is a searchable combobox
-// fed by get_services rather than the entity state cache.
+// Per-recipient notify targets: each is an HA notify.* service plus which
+// categories it wants, whether to deliver quietly, and a platform hint.
 function NotifyTargetList({ values, services, onChange }: {
-  values: string[]; services?: string[]; onChange: (vals: string[]) => void
+  values: NotifyTarget[]; services?: string[]; onChange: (vals: NotifyTarget[]) => void
 }) {
   const { t } = useTranslation()
   const options = (services ?? []).map((s) => ({ value: s, label: s }))
+  const update = (i: number, mut: (tg: NotifyTarget) => NotifyTarget) =>
+    onChange(values.map((x, j) => (j === i ? mut(x) : x)))
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {values.map((v, i) => (
-        <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-          <EntityCombobox
-            value={v}
-            onChange={(nv) => onChange(values.map((x, j) => (j === i ? nv : x)))}
-            options={options}
-            hint={t('config.entityType.notify', { defaultValue: 'Notify-Service' })}
-            width={300}
-          />
-          <DeleteButton onClick={() => onChange(values.filter((_, j) => j !== i))} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+      {values.map((tg, i) => (
+        <div key={i} style={{
+          display: 'flex', flexDirection: 'column', gap: 8,
+          padding: '12px', border: '1px solid var(--n-line)', borderRadius: 'var(--n-r-md)',
+        }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+            <EntityCombobox
+              value={tg.service}
+              onChange={(nv) => update(i, (x) => ({ ...x, service: nv }))}
+              options={options}
+              hint={t('config.entityType.notify', { defaultValue: 'Notify-Service' })}
+              width={300}
+            />
+            <DeleteButton onClick={() => onChange(values.filter((_, j) => j !== i))} />
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {NOTIFICATION_CATEGORIES.map((cat) => {
+              const on = tg.categories.includes(cat)
+              return (
+                <button key={cat} type="button" className={`n-chip${on ? ' active' : ''}`}
+                  style={{ cursor: 'pointer', opacity: on ? 1 : 0.55 }}
+                  onClick={() => update(i, (x) => ({
+                    ...x,
+                    categories: on ? x.categories.filter((c) => c !== cat) : [...x.categories, cat],
+                  }))}>
+                  {t(`config.notifyCat.${cat}`, { defaultValue: cat })}
+                </button>
+              )
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Check label={t('config.notifyQuiet', { defaultValue: 'Leise' })} checked={tg.quiet}
+              onChange={(c) => update(i, (x) => ({ ...x, quiet: c }))} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--n-fg-muted)' }}>
+              {t('config.notifyPlatform', { defaultValue: 'Plattform' })}
+              <select value={tg.platform}
+                onChange={(e) => update(i, (x) => ({ ...x, platform: e.target.value as NotifyTarget['platform'] }))}
+                style={{ ...inputStyle, height: 30, width: 110 }}>
+                <option value="auto">{t('config.platformAuto', { defaultValue: 'Auto' })}</option>
+                <option value="ios">iOS</option>
+                <option value="android">Android</option>
+              </select>
+            </label>
+          </div>
         </div>
       ))}
       <button className="n-btn" style={{ height: 32, padding: '0 12px', fontSize: 12.5, alignSelf: 'flex-start' }}
-        onClick={() => onChange([...values, ''])}>
+        onClick={() => onChange([...values, { service: '', categories: [...NOTIFICATION_CATEGORIES], quiet: false, platform: 'auto' }])}>
         + {t('config.addEntry', { defaultValue: 'Hinzufügen' })}
       </button>
     </div>
