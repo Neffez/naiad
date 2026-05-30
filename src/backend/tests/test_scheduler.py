@@ -45,6 +45,9 @@ class FakeHA:
     def get_state_value(self, entity_id: str) -> str | None:
         return self._states.get(entity_id)
 
+    def get_cached_daily_max(self, entity_id: str) -> float | None:
+        return None
+
     @property
     def is_connected(self) -> bool:
         return True
