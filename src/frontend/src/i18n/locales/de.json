@@ -55,7 +55,9 @@
     "windCalm": "ruhig",
     "seasonActive": "aktiv",
     "seasonPaused": "Pause",
-    "seasonHint": "Saison: Ist die Bewässerungssaison aktiv? Bei „Pause“ (außerhalb der Saison) werden alle Läufe übersprungen."
+    "seasonSummer": "Sommer",
+    "seasonWinter": "Winter",
+    "seasonHint": "Saison: Ist die Bewässerungssaison aktiv? Im „Winter“ (außerhalb der Saison) werden alle Läufe übersprungen."
   },
   "history": {
     "title": "Verlauf",
