@@ -29,13 +29,15 @@ def _master_on(session_factory: SessionFactory) -> bool:
 
 async def _notify(ha: HAClient, config: AppConfig, message: str) -> None:
     if not config.ha.notify_targets:
+        logger.debug("Notify skipped — no notify_targets configured (%s)", message)
         return
     for target in config.ha.notify_targets:
         service = target.removeprefix("notify.")
         try:
             await ha.call_service("notify", service, message=message)
+            logger.info("Notified %s", target)
         except Exception:
-            logger.warning("Notify failed for '%s'", target)
+            logger.warning("Notify failed for '%s'", target, exc_info=True)
 
 
 async def _run_sequence_job(
