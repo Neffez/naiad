@@ -117,13 +117,19 @@ class TempFactorConfig(BaseModel):
     formula: Literal["linear"] = "linear"
     basis_c: float = 20.0
     pct_per_c: float = 7.0
-    min_pct: int = 80
-    max_pct: int = 150
+    min_pct: int = Field(default=80, ge=0)
+    max_pct: int = Field(default=150, ge=0)
+
+    @model_validator(mode="after")
+    def validate_pct_bounds(self) -> "TempFactorConfig":
+        if self.min_pct > self.max_pct:
+            raise ValueError(f"min_pct ({self.min_pct}) must be <= max_pct ({self.max_pct})")
+        return self
 
 
 class RainFactorConfig(BaseModel):
-    forecast_days: int = 2
-    threshold_prob: int = 70
+    forecast_days: int = Field(default=2, ge=1)
+    threshold_prob: int = Field(default=70, ge=0, le=100)
     reduce_above_mm: float = 5.0
     zero_above_mm: float = 20.0
     forecast_decay: float = Field(default=0.5, ge=0.0, le=1.0)
