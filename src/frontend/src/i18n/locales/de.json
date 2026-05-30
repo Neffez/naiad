@@ -29,6 +29,10 @@
     "pause": "Pause",
     "resume": "Fortsetzen",
     "factor": "Faktor",
+    "noteSeasonOff": "Saison aus",
+    "noteWindBlocked": "Wind blockiert",
+    "noteRain": "Regen-Faktor: {{pct}}%",
+    "noteTemp": "Temperatur: {{pct}}%",
     "nextRun": "Nächster Lauf",
     "zone": "Zone",
     "zones": "Zonen",
@@ -50,7 +54,8 @@
     "windActive": "aktiv",
     "windCalm": "ruhig",
     "seasonActive": "aktiv",
-    "seasonPaused": "Pause"
+    "seasonPaused": "Pause",
+    "seasonHint": "Saison: Ist die Bewässerungssaison aktiv? Bei „Pause“ (außerhalb der Saison) werden alle Läufe übersprungen."
   },
   "history": {
     "title": "Verlauf",
