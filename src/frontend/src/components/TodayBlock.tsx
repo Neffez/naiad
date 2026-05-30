@@ -7,6 +7,12 @@ interface TodayBlockProps {
   dense?: boolean
 }
 
+/** Format a signed percentage delta, e.g. 12 → "+12 %", -5 → "-5 %", 0 → "0 %". */
+function fmtDelta(pct: number): string {
+  if (pct === 0) return '0 %'
+  return `${pct > 0 ? '+' : ''}${pct} %`
+}
+
 function formatRelative(isoDate: string, t: TFunction): string {
   const diff = new Date(isoDate).getTime() - Date.now()
   if (diff < 0) return t('time.now')
@@ -35,9 +41,10 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
   const { t, i18n } = useTranslation()
   const f = sys.today_factor
 
+  // temp_pct and rain_pct are signed deltas from neutral (0 = no adjustment).
   const breakdown = [
-    { label: t('weather.temp'), delta: `${f.temp_pct > 100 ? '+' : ''}${f.temp_pct - 100} %`, positive: f.temp_pct >= 100 },
-    { label: t('weather.rain'), delta: `${f.rain_pct > 100 ? '+' : '±'}${f.rain_pct - 100} %`, positive: f.rain_pct >= 100 },
+    { label: t('weather.temp'), delta: fmtDelta(f.temp_pct), positive: f.temp_pct >= 0 },
+    { label: t('weather.rain'), delta: fmtDelta(f.rain_pct), positive: f.rain_pct >= 0 },
   ]
 
   if (f.wind_blocking_sequences.length > 0) {

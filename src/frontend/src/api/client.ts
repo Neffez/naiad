@@ -157,6 +157,13 @@ export interface ZoneSummary {
   valve_state: 'on' | 'off' | 'unknown'
 }
 
+export interface FactorNotes {
+  season_off: boolean
+  wind_blocked: boolean
+  rain_factor_pct: number | null
+  temp_delta_pct: number | null
+}
+
 export interface SequenceState {
   id: string
   label: string
@@ -164,7 +171,7 @@ export interface SequenceState {
   enabled: boolean
   paused: boolean
   factor_pct: number
-  factor_note: string | null
+  factor_notes: FactorNotes
   schedule_label: string
   next_run_at: string | null
   zones: ZoneSummary[]
@@ -176,6 +183,7 @@ export interface SystemStatus {
   master_on: boolean
   ha_connected: boolean
   weather: { temp_c: number | null; rain_24h_mm: number; wind_label: string; season_active: boolean }
+  // temp_pct and rain_pct are signed deltas from neutral (0 = no adjustment); combined_pct is the overall factor (100 = neutral).
   today_factor: { temp_pct: number; rain_pct: number; combined_pct: number; wind_blocking_sequences: string[] }
   next_run: NextRun | null
   after_next: NextRun | null
