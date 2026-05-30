@@ -1,7 +1,7 @@
-from datetime import datetime
-from typing import Literal
+from datetime import UTC, datetime
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PlainSerializer
 
 from naiad.config import (
     AutoLoginConfig,
@@ -13,6 +13,22 @@ from naiad.config import (
     SequenceConfig,
     ZoneConfig,
 )
+
+
+def _serialize_utc(dt: datetime) -> str:
+    """Serialize a datetime as an explicit-UTC ISO 8601 string.
+
+    Timestamps are stored as *naive* UTC (SQLModel strips tzinfo), so without
+    this they would be emitted without an offset and parsed as local time by the
+    browser. Tagging them as UTC lets the frontend convert to local correctly.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC).isoformat()
+
+
+# Use for every datetime returned to clients so the wire format is unambiguous UTC.
+UtcDatetime = Annotated[datetime, PlainSerializer(_serialize_utc, return_type=str)]
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -29,15 +45,15 @@ class AutoLoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     token: str
-    expires_at: datetime
+    expires_at: UtcDatetime
 
 
 class AuthTokenResponse(BaseModel):
     token_prefix: str
     device_label: str | None
-    created_at: datetime
-    last_used_at: datetime | None
-    expires_at: datetime
+    created_at: UtcDatetime
+    last_used_at: UtcDatetime | None
+    expires_at: UtcDatetime
 
 
 # ── Sequences ─────────────────────────────────────────────────────────────────
@@ -56,11 +72,24 @@ class ZoneSummaryResponse(BaseModel):
 class CurrentRunResponse(BaseModel):
     zone_id: str
     zone_label: str
-    started_at: datetime
+    started_at: UtcDatetime
     elapsed_min: float
     remaining_min: float
     total_min: float
     triggered_by: str
+
+
+class FactorNotesResponse(BaseModel):
+    """Structured reasons behind a sequence's current factor.
+
+    Kept machine-readable so the frontend can localize; the backend never emits
+    user-facing prose (see CLAUDE.md i18n rule).
+    """
+
+    season_off: bool = False
+    wind_blocked: bool = False
+    rain_factor_pct: int | None = None  # set only when rain reduces watering (<100)
+    temp_delta_pct: int | None = None  # signed; set only when |delta| >= 5
 
 
 class SequenceStateResponse(BaseModel):
@@ -70,9 +99,9 @@ class SequenceStateResponse(BaseModel):
     enabled: bool
     paused: bool
     factor_pct: int
-    factor_note: str | None
+    factor_notes: FactorNotesResponse
     schedule_label: str
-    next_run_at: datetime | None
+    next_run_at: UtcDatetime | None
     zones: list[ZoneSummaryResponse]
     basis_min_per_zone: int
     current_run: CurrentRunResponse | None
@@ -89,16 +118,18 @@ class WeatherSummaryResponse(BaseModel):
 
 
 class FactorBreakdownResponse(BaseModel):
+    # Both are signed deltas from the neutral baseline (0 = no adjustment):
+    # temp_pct = temperature contribution, rain_pct = rain contribution.
     temp_pct: int
     rain_pct: int
-    combined_pct: int
+    combined_pct: int  # overall factor as a percentage (100 = neutral)
     wind_blocking_sequences: list[str]
 
 
 class NextRunResponse(BaseModel):
     sequence_id: str
     sequence_label: str
-    scheduled_at: datetime
+    scheduled_at: UtcDatetime
     duration_min: int
 
 
@@ -123,7 +154,7 @@ class ValveStateResponse(BaseModel):
     zone_id: str
     label: str
     state: str
-    on_since: datetime | None
+    on_since: UtcDatetime | None
     runtime_min: float | None
 
 
@@ -136,8 +167,8 @@ class HistoryEntryResponse(BaseModel):
     zone_label: str
     sequence_id: str
     sequence_label: str
-    started_at: datetime
-    ended_at: datetime | None
+    started_at: UtcDatetime
+    ended_at: UtcDatetime | None
     duration_min: float | None
     liters: float | None
     triggered_by: str
@@ -166,10 +197,10 @@ class PlanResponse(BaseModel):
     id: str
     sequence_id: str
     sequence_label: str
-    scheduled_at: datetime
+    scheduled_at: UtcDatetime
     duration_min: int | None
     estimated_liters: float | None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────

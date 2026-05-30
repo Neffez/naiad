@@ -29,6 +29,10 @@
     "pause": "Pause",
     "resume": "Resume",
     "factor": "Factor",
+    "noteSeasonOff": "Season off",
+    "noteWindBlocked": "Wind blocked",
+    "noteRain": "Rain factor: {{pct}}%",
+    "noteTemp": "Temperature: {{pct}}%",
     "nextRun": "Next run",
     "zone": "Zone",
     "zones": "Zones",
@@ -50,7 +54,8 @@
     "windActive": "active",
     "windCalm": "calm",
     "seasonActive": "active",
-    "seasonPaused": "paused"
+    "seasonPaused": "paused",
+    "seasonHint": "Season: is the irrigation season active? When \"paused\" (off-season), all runs are skipped."
   },
   "history": {
     "title": "History",

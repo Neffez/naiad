@@ -378,7 +378,7 @@ export interface components {
             enabled: boolean;
             paused: boolean;
             factor_pct: number;
-            factor_note?: string | null;
+            factor_notes: components["schemas"]["FactorNotes"];
             schedule_label: string;
             /** Format: date-time */
             next_run_at?: string | null;
@@ -395,6 +395,12 @@ export interface components {
             rain_24h_mm: number;
             wind_label: string;
             season_active: boolean;
+        };
+        FactorNotes: {
+            season_off: boolean;
+            wind_blocked: boolean;
+            rain_factor_pct?: number | null;
+            temp_delta_pct?: number | null;
         };
         FactorBreakdown: {
             temp_pct: number;
