@@ -182,6 +182,11 @@ class SequenceRunner:
         if self._task:
             await self._task
 
+    def discard_snapshot(self, sequence_id: str) -> None:
+        """Drop a paused sequence's resume snapshot (cancel without resuming)."""
+        with self._session_factory() as session:
+            clear_snapshot(session, sequence_id)
+
     async def _execute(
         self,
         sequence_id: str,
