@@ -65,6 +65,7 @@ def build_config_response(config: AppConfig, *, restart_required: bool = False) 
         zones=config.zones,
         sequences=config.sequences,
         factors=config.factors,
+        notifications=config.notifications,
         timezone=config.timezone,
         restart_required=restart_required,
     )

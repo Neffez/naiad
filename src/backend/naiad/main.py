@@ -153,13 +153,26 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     scheduler.start()
     logger.info("Scheduler started (%d jobs)", len(scheduler.get_jobs()))
 
-    from naiad.api.ws import broadcast_ha_state, broadcast_sequence_changed, broadcast_valve_changed
+    from naiad.api.ws import (
+        broadcast_ha_state,
+        broadcast_notification,
+        broadcast_sequence_changed,
+        broadcast_valve_changed,
+    )
     from naiad.api.ws import manager as ws_manager
+    from naiad.scheduler import push_notification
 
     async def _on_run_started(sequence_id: str, triggered_by: str) -> None:
         await broadcast_sequence_changed(sequence_id, "running", triggered_by)
 
     runner.on_started = _on_run_started
+
+    async def _on_run_notification(message: str, level: str) -> None:
+        # Watchdog (and future runner events): push to phones + broadcast in-app.
+        await push_notification(ha, config, message, category="abort")
+        await broadcast_notification(message, level)
+
+    runner.on_notification = _on_run_notification
 
     valve_entities = {z.switch: z_id for z_id, z in config.zones.items()}
 

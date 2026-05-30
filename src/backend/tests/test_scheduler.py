@@ -8,7 +8,8 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from naiad.config import AppConfig
 from naiad.domain.models import Plan, UserPreference
 from naiad.domain.sequences import SequenceRunner
-from naiad.scheduler import _plan_tick, _run_sequence_job
+from naiad.scheduler import _plan_tick, _run_sequence_job, push_notification
+from tests.conftest import MINIMAL_CONFIG_DATA
 
 
 class FakeDriver:
@@ -120,3 +121,58 @@ async def test_plan_kept_on_conflict_then_consumed(fast_config: AppConfig, engin
     with Session(engine) as s:
         assert list(s.exec(select(Plan)).all()) == []  # plan consumed
     await runner.stop()
+
+
+# ── Notifications: gating + quiet (push_notification) ──────────────────────────
+
+
+class _RecordingHA:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    async def call_service(self, domain: str, service: str, **data: Any) -> None:
+        self.calls.append((domain, service, data))
+
+
+def _notif_config(targets: list[str], **notifications: Any) -> AppConfig:
+    import copy
+
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["ha"]["notify_targets"] = targets
+    data["notifications"] = notifications
+    return AppConfig.model_validate(data)
+
+
+async def test_push_notification_sends_when_enabled() -> None:
+    ha = _RecordingHA()
+    cfg = _notif_config(["notify.mobile_app_x"], on_start=True)
+    await push_notification(ha, cfg, "hi", category="start")
+    assert ha.calls == [("notify", "mobile_app_x", {"message": "hi"})]
+
+
+async def test_push_notification_gated_by_category() -> None:
+    ha = _RecordingHA()
+    cfg = _notif_config(["notify.mobile_app_x"], on_start=False)
+    await push_notification(ha, cfg, "hi", category="start")
+    assert ha.calls == []
+
+
+async def test_push_notification_reminder_not_gated_by_event_toggles() -> None:
+    ha = _RecordingHA()
+    # reminder isn't one of the on_* categories, so it sends regardless.
+    cfg = _notif_config(["notify.mobile_app_x"], on_start=False)
+    await push_notification(ha, cfg, "x", category="reminder")
+    assert len(ha.calls) == 1
+
+
+async def test_push_notification_quiet_sets_low_priority() -> None:
+    ha = _RecordingHA()
+    cfg = _notif_config(["notify.mobile_app_x"], quiet=True)
+    await push_notification(ha, cfg, "hi", category="abort")
+    assert ha.calls[0][2]["data"]["priority"] == "low"
+
+
+async def test_push_notification_no_targets_is_noop() -> None:
+    ha = _RecordingHA()
+    await push_notification(ha, _notif_config([]), "hi", category="start")
+    assert ha.calls == []
