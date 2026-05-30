@@ -127,7 +127,8 @@
     "entityType": {
       "switch": "Schalter (an/aus)",
       "sensor": "Sensor (Messwert)",
-      "binary_sensor": "Binärsensor (an/aus)"
+      "binary_sensor": "Binärsensor (an/aus)",
+      "notify": "Notify-Service"
     },
     "switch": "Switch",
     "flowLph": "Durchfluss (L/h)",
