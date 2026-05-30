@@ -154,6 +154,7 @@
     "exportedCopied": "Configuration exported (also copied to the clipboard).",
     "notifyTest": "Send test notification",
     "notifyTestOk": "Test sent to {{count}} target(s)",
+    "notifyTestThis": "Send test notification to this target",
     "saveFirst": "Save first",
     "entitySearch": "Search or entity id…",
     "expects": "Expects",

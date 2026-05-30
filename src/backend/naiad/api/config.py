@@ -13,7 +13,7 @@ from typing import Any
 
 import yaml
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import ValidationError
 from sqlmodel import Session
 
@@ -247,14 +247,21 @@ async def list_services(
 
 @router.post("/test-notify")
 async def test_notify(
+    service: str | None = Query(default=None),
     _: None = Depends(require_auth),
     config: AppConfig = Depends(get_config),
     ha: HAClient = Depends(get_ha_client),
 ) -> dict[str, object]:
-    """Send a test push to every configured notify target, to verify the chain
-    (config → HA notify service → phone). Reports exactly what failed."""
+    """Send a test push to configured notify targets.
+
+    If *service* is given, only that target is tested; otherwise all targets are
+    tested. Reports exactly what failed."""
     targets = config.ha.notify_targets
-    if not targets:
+    if service is not None:
+        targets = [t for t in targets if t.service == service]
+        if not targets:
+            raise HTTPException(404, f"Notify target '{service}' not found in configuration.")
+    elif not targets:
         raise HTTPException(
             400, "No notify targets configured. Add at least one (notify.*) in the configuration."
         )
