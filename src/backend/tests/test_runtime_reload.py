@@ -65,6 +65,11 @@ def _job_ids(scheduler) -> set[str]:
     return {j.id for j in scheduler.get_jobs()}
 
 
+def _has_cron(scheduler, seq_id: str) -> bool:
+    # A sequence registers one cron job per scheduled time, id "cron-<seq>#<i>".
+    return any(j.id.startswith(f"cron-{seq_id}#") for j in scheduler.get_jobs())
+
+
 # ── mutate_config_in_place ────────────────────────────────────────────────────
 
 
@@ -92,17 +97,16 @@ def test_reschedule_adds_removes_and_keeps_plan_tick(
     runner = SequenceRunner(minimal_config, driver, session_factory)
     scheduler = setup_scheduler(minimal_config, runner, ha, session_factory)
 
-    assert _job_ids(scheduler) == {"cron-seq_1", "cron-seq_wind", "plan-tick"}
+    assert _job_ids(scheduler) == {"cron-seq_1#0", "cron-seq_wind#0", "plan-tick"}
 
     fresh = _add_zone_and_sequence(minimal_config)
     mutate_config_in_place(minimal_config, fresh)
     reschedule_sequences(scheduler, minimal_config, runner, ha, session_factory)
 
-    ids = _job_ids(scheduler)
-    assert "cron-seq_1" in ids
-    assert "cron-seq_new" in ids  # newly enabled sequence
-    assert "cron-seq_wind" not in ids  # now disabled
-    assert "plan-tick" in ids  # untouched
+    assert _has_cron(scheduler, "seq_1")
+    assert _has_cron(scheduler, "seq_new")  # newly enabled sequence
+    assert not _has_cron(scheduler, "seq_wind")  # now disabled
+    assert "plan-tick" in _job_ids(scheduler)  # untouched
 
 
 # ── tracker rebuild ───────────────────────────────────────────────────────────
@@ -156,5 +160,5 @@ async def test_apply_reloaded_config_end_to_end(minimal_config: AppConfig, sessi
 
     # Runner sees the new sequence through the shared, mutated config.
     assert "seq_new" in minimal_config.sequences
-    assert "cron-seq_new" in _job_ids(scheduler)
+    assert _has_cron(scheduler, "seq_new")
     assert "switch.zone_c" in tracker._entity_to_zone

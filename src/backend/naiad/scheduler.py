@@ -222,8 +222,7 @@ async def _evening_reminder(
     for seq_id, seq_cfg in config.sequences.items():
         if not seq_cfg.enabled:
             continue
-        job = scheduler.get_job(f"cron-{seq_id}")
-        nxt = job.next_run_time if job else None
+        nxt = next_run_for_sequence(scheduler, seq_id)
         if nxt is not None and nxt.astimezone(tz).date() == tomorrow:
             runs.append((nxt.astimezone(tz), seq_cfg.label))
 
@@ -246,6 +245,20 @@ async def _evening_reminder(
     else:
         message = "🌙 Morgen keine Bewässerung geplant."
     await push_notification(ha, config, message, category="reminder")
+
+
+def next_run_for_sequence(scheduler: AsyncIOScheduler, seq_id: str) -> datetime | None:
+    """Earliest upcoming fire time across all cron triggers of a sequence.
+
+    A sequence may have several cron jobs (one per scheduled time), so the next
+    run is the minimum of their individual next-run times.
+    """
+    runs = [
+        job.next_run_time
+        for job in scheduler.get_jobs()
+        if job.id.startswith("cron-") and job.args and job.args[0] == seq_id and job.next_run_time
+    ]
+    return min(runs) if runs else None
 
 
 def _register_reminder_job(
@@ -301,18 +314,23 @@ def _register_sequence_jobs(
                 seq_cfg.watchdog_min,
                 seq_cfg.basis_min_per_zone,
             )
-        trigger = CronTrigger.from_crontab(seq_cfg.schedule.cron, timezone=config.timezone)
-        scheduler.add_job(
-            _run_sequence_job,
-            trigger=trigger,
-            args=[seq_id, runner, ha, config, session_factory],
-            kwargs={"triggered_by": "cron"},
-            id=f"cron-{seq_id}",
-            name=f"Cron: {seq_cfg.label}",
-            misfire_grace_time=300,
-            replace_existing=True,
-        )
-        logger.info("Cron job registered: '%s' (%s)", seq_id, seq_cfg.schedule.cron)
+        for idx, cron in enumerate(seq_cfg.schedule.to_crons()):
+            try:
+                trigger = CronTrigger.from_crontab(cron, timezone=config.timezone)
+            except Exception:
+                logger.warning("Sequence '%s': invalid cron '%s' — skipped", seq_id, cron)
+                continue
+            scheduler.add_job(
+                _run_sequence_job,
+                trigger=trigger,
+                args=[seq_id, runner, ha, config, session_factory],
+                kwargs={"triggered_by": "cron"},
+                id=f"cron-{seq_id}#{idx}",
+                name=f"Cron: {seq_cfg.label}",
+                misfire_grace_time=300,
+                replace_existing=True,
+            )
+            logger.info("Cron job registered: '%s' (%s)", seq_id, cron)
 
 
 def reschedule_sequences(
