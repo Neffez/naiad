@@ -15,7 +15,6 @@ import {
 } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
-import { EmergencyStop } from '../components/EmergencyStop'
 import { ILogo } from '../components/icons'
 import { MasterToggle } from '../components/MasterToggle'
 import { SequenceCard } from '../components/SequenceCard'
@@ -107,16 +106,6 @@ export default function Dashboard() {
     }
   }
 
-  async function handleEmergency() {
-    // Master off is the authoritative kill; stop every running sequence even if
-    // some individual stop calls fail (e.g. a sequence already ended → 409).
-    await masterMut.mutateAsync(false)
-    await Promise.allSettled(
-      sequences.filter((s) => s.status === 'running').map((seq) => stopSequence(seq.id)),
-    )
-    qc.invalidateQueries({ queryKey: ['sequences'] })
-  }
-
   const masterOn = status?.master_on ?? true
 
   const weekData = buildWeekData(status, t('weekdaysShort', { returnObjects: true }) as string[])
@@ -166,12 +155,10 @@ export default function Dashboard() {
           <div className="desktop-only" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <div className="n-vdivider" style={{ height: 40 }} />
             <MasterToggle on={masterOn} onToggle={() => masterMut.mutate(!masterOn)} />
-            <EmergencyStop onFire={handleEmergency} />
           </div>
 
           <div className="mobile-only" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <MasterToggle on={masterOn} onToggle={() => masterMut.mutate(!masterOn)} compact />
-            <EmergencyStop onFire={handleEmergency} compact />
           </div>
         </div>
       </header>
