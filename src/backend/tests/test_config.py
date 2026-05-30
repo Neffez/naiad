@@ -99,3 +99,23 @@ def test_resolve_ha_connection_addon(monkeypatch: pytest.MonkeyPatch) -> None:
     assert url == SUPERVISOR_WS_URL
     assert token == "supervisor-secret"
     assert is_addon_context() is True
+
+
+# ── Notify targets (per-recipient) ────────────────────────────────────────────
+
+
+def test_notify_target_string_coercion() -> None:
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["ha"]["notify_targets"] = ["notify.a"]
+    cfg = AppConfig.model_validate(data)
+    t = cfg.ha.notify_targets[0]
+    assert t.service == "notify.a"
+    assert set(t.categories) == {"start", "skip", "abort", "reminder"}  # all by default
+    assert t.quiet is False and t.platform == "auto"
+
+
+def test_notify_target_unknown_category_raises() -> None:
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["ha"]["notify_targets"] = [{"service": "notify.a", "categories": ["bogus"]}]
+    with pytest.raises(ValidationError, match="categories"):
+        AppConfig.model_validate(data)
