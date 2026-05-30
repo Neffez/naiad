@@ -71,9 +71,17 @@ components:
         total_min:     { type: number }
         triggered_by:  { $ref: '#/components/schemas/TriggerSource' }
 
+    ScheduleSummary:
+      type: object
+      required: [days, times]
+      properties:
+        days:   { type: array, items: { type: integer }, description: "ISO weekdays 1=Mon..7=Sun; empty = every day" }
+        times:  { type: array, items: { type: string }, description: "Clock times HH:MM" }
+        cron:   { type: string, nullable: true, description: "Advanced cron override; set only when active" }
+
     SequenceState:
       type: object
-      required: [id, label, status, enabled, paused, factor_pct, factor_notes, schedule_label, zones, basis_min_per_zone]
+      required: [id, label, status, enabled, paused, factor_pct, factor_notes, schedule, zones, basis_min_per_zone]
       properties:
         id:                 { type: string }
         label:              { type: string }
@@ -82,7 +90,7 @@ components:
         paused:             { type: boolean }
         factor_pct:         { type: integer }
         factor_notes:       { $ref: '#/components/schemas/FactorNotes' }
-        schedule_label:     { type: string }
+        schedule:           { $ref: '#/components/schemas/ScheduleSummary' }
         next_run_at:        { type: string, format: date-time, nullable: true }
         zones:
           type: array
