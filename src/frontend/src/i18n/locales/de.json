@@ -261,6 +261,14 @@
     "cancel": "Abbrechen",
     "start": "Jetzt starten"
   },
+  "confirmStop": {
+    "title": "Lauf stoppen?",
+    "message": "{{name}} wird sofort gestoppt."
+  },
+  "confirmSkip": {
+    "title": "Lauf überspringen?",
+    "message": "{{name}} um {{time}} wird übersprungen und läuft erst beim nächsten Zeitplan wieder."
+  },
   "dashboard": {
     "title": "Garten",
     "sequences": "Sequenzen",
