@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -21,6 +22,7 @@ from naiad.domain.sequences import MutexConflict, NotRunning, SequenceRunner, Se
 from naiad.ha_client import HAClient
 
 router = APIRouter(prefix="/sequences", tags=["sequences"])
+logger = logging.getLogger(__name__)
 
 
 def _master_on(session: Session) -> bool:
@@ -183,32 +185,42 @@ async def start_sequence(
     ha: HAClient = Depends(get_ha_client),
     session: Session = Depends(get_session),
 ) -> dict[str, str]:
+    logger.info("Manual start requested for '%s'", sequence_id)
+
+    def _reject(code: int, detail: str) -> HTTPException:
+        # Log why a start was refused so it's visible (the UI also shows it).
+        logger.info("Start of '%s' refused: %s", sequence_id, detail)
+        return HTTPException(code, detail)
+
     if sequence_id not in config.sequences:
-        raise HTTPException(404, f"Sequence '{sequence_id}' not found")
+        raise _reject(404, f"Sequence '{sequence_id}' not found")
 
     seq_cfg = config.sequences[sequence_id]
     if not seq_cfg.enabled:
-        raise HTTPException(422, "Sequence is disabled")
+        raise _reject(422, "Sequence is disabled")
 
-    # A zone without a switch entity would "start" but never open a valve. Reject
-    # early with a clear message instead of failing silently mid-run.
+    # A sequence with no zones would "start" and finish instantly without opening
+    # anything — the most common reason a manual start seems to do nothing.
+    if not seq_cfg.zones:
+        raise _reject(422, "Sequence has no zones. Add at least one zone in the configuration.")
+
+    # A zone without a switch entity would "start" but never open a valve.
     no_switch = [z for z in seq_cfg.zones if not config.zones.get(z) or not config.zones[z].switch]
     if no_switch:
-        raise HTTPException(
-            422,
-            f"Zone(s) without a switch entity: {', '.join(no_switch)}. Set it in the config.",
+        raise _reject(
+            422, f"Zone(s) without a switch entity: {', '.join(no_switch)}. Set it in the config."
         )
 
     seq_override = session.get(SequenceOverride, sequence_id)
     if seq_override and seq_override.paused:
-        raise HTTPException(422, "Sequence is paused (skipped)")
+        raise _reject(422, "Sequence is paused (skipped)")
 
     if not _master_on(session):
-        raise HTTPException(422, "Master switch is off")
+        raise _reject(422, "Master switch is off")
 
     snapshot = read_sensor_snapshot(ha, config)
     if seq_cfg.wind_blocks and snapshot.wind_on:
-        raise HTTPException(422, "Wind sensor active — sequence is wind-blocked")
+        raise _reject(422, "Wind sensor active — sequence is wind-blocked")
 
     factors = compute_factors(snapshot, config, session)
     override_min = float(body.duration_min) if body and body.duration_min is not None else None
@@ -216,7 +228,16 @@ async def start_sequence(
     try:
         await runner.start(sequence_id, factor_pct=factors.factor_pct, override_min=override_min)
     except MutexConflict as e:
-        raise HTTPException(409, str(e)) from e
+        raise _reject(409, str(e)) from e
+
+    logger.info(
+        "Sequence '%s' started: %d zone(s), %s",
+        sequence_id,
+        len(seq_cfg.zones),
+        f"{override_min:.0f} min/zone (manual override)"
+        if override_min is not None
+        else f"factor {factors.factor_pct:.0f}%",
+    )
 
     # "running" is broadcast by the runner's on_started callback once a valve opens.
     return {"started": sequence_id}
