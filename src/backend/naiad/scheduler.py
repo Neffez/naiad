@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -83,6 +83,24 @@ async def push_notification(
             logger.warning("Notify failed for '%s'", target.service, exc_info=True)
     if sent == 0:
         logger.debug("No target subscribed to category '%s'", category)
+
+
+async def refresh_fallback_temp_max(config: AppConfig, ha: HAClient) -> None:
+    """Refresh the cached fallback max temperature (yesterday's recorded max).
+
+    Only needed when no forecast max-temperature sensor is configured — that's the
+    case where the temperature adjustment falls back to yesterday's max. The
+    current temperature is never a good proxy (cold at night), so it isn't used.
+    """
+    if config.sensors.temperature_max or not config.sensors.temperature:
+        return
+    tz = ZoneInfo(config.timezone)
+    today_local = datetime.now(tz).date()
+    start = datetime.combine(today_local - timedelta(days=1), time.min, tzinfo=tz)
+    end = datetime.combine(today_local, time.min, tzinfo=tz)
+    await ha.refresh_daily_max(
+        config.sensors.temperature, start.astimezone(UTC), end.astimezone(UTC)
+    )
 
 
 async def _run_sequence_job(
@@ -437,6 +455,19 @@ def setup_scheduler(
     )
 
     _register_reminder_job(scheduler, config, ha, session_factory)
+
+    # Keep the fallback max temperature (yesterday's recorded max) fresh so it
+    # rolls over shortly after local midnight. The initial fetch is triggered from
+    # the HA-connected callback once the socket is up (see main).
+    scheduler.add_job(
+        refresh_fallback_temp_max,
+        trigger=IntervalTrigger(hours=1),
+        args=[config, ha],
+        id="fallback-temp-max",
+        name="Fallback temp max refresh",
+        max_instances=1,
+        misfire_grace_time=600,
+    )
 
     async def _rain_cb(entity_id: str, new_state: dict[str, Any]) -> None:
         await _on_rain(entity_id, new_state, runner, config, ha)

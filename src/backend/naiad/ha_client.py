@@ -3,6 +3,7 @@ import contextlib
 import json
 import logging
 from collections.abc import Callable, Coroutine
+from datetime import datetime
 from typing import Any
 
 import websockets
@@ -28,6 +29,9 @@ class HAClient:
         self._msg_id = 0
         self._pending: dict[int, asyncio.Future[Any]] = {}
         self._state_cache: dict[str, dict[str, Any]] = {}
+        # Cached "max value over a period" per entity (e.g. yesterday's max
+        # temperature), refreshed out-of-band so synchronous callers can read it.
+        self._daily_max_cache: dict[str, float | None] = {}
         self._state_callbacks: list[StateCallback] = []
         self._connected = asyncio.Event()
         self._loop_task: asyncio.Task[None] | None = None
@@ -236,6 +240,51 @@ class HAClient:
     def get_state_value(self, entity_id: str) -> str | None:
         state = self._state_cache.get(entity_id)
         return state["state"] if state else None
+
+    async def fetch_history_max(
+        self, entity_id: str, start: datetime, end: datetime
+    ) -> float | None:
+        """Maximum numeric state of ``entity_id`` in ``[start, end)`` from the HA
+        recorder, or None if there's no numeric history in the window."""
+        if not self._connected.is_set() or self._ws is None:
+            raise HAError({"message": "Not connected to Home Assistant"})
+        result: dict[str, list[dict[str, Any]]] = await self._send_command(
+            self._ws,
+            {
+                "type": "history/history_during_period",
+                "start_time": start.isoformat(),
+                "end_time": end.isoformat(),
+                "entity_ids": [entity_id],
+                "minimal_response": True,
+                "no_attributes": True,
+            },
+            timeout=30.0,
+        )
+        values: list[float] = []
+        for entry in (result or {}).get(entity_id, []):
+            raw = entry.get("s", entry.get("state"))
+            if raw is None:
+                continue
+            try:
+                values.append(float(raw))
+            except (TypeError, ValueError):
+                continue  # ignore "unavailable"/"unknown"/non-numeric states
+        return max(values) if values else None
+
+    def get_cached_daily_max(self, entity_id: str) -> float | None:
+        """Last refreshed max for ``entity_id`` (see ``refresh_daily_max``)."""
+        return self._daily_max_cache.get(entity_id)
+
+    async def refresh_daily_max(self, entity_id: str, start: datetime, end: datetime) -> None:
+        """Refresh the cached max for ``entity_id`` over ``[start, end)``. Best-effort:
+        a failed fetch leaves the previous cached value untouched."""
+        try:
+            self._daily_max_cache[entity_id] = await self.fetch_history_max(entity_id, start, end)
+            logger.debug(
+                "Refreshed daily max for %s: %s", entity_id, self._daily_max_cache[entity_id]
+            )
+        except Exception:
+            logger.warning("Could not fetch history max for '%s'", entity_id, exc_info=True)
 
     def list_entities(self, domain: str | None = None) -> list[dict[str, Any]]:
         """List cached entities (optionally filtered by domain) for the UI entity picker."""
