@@ -55,7 +55,9 @@
     "windCalm": "calm",
     "seasonActive": "active",
     "seasonPaused": "paused",
-    "seasonHint": "Season: is the irrigation season active? When \"paused\" (off-season), all runs are skipped."
+    "seasonSummer": "Summer",
+    "seasonWinter": "Winter",
+    "seasonHint": "Season: is the irrigation season active? In \"Winter\" (off-season), all runs are skipped."
   },
   "history": {
     "title": "History",
