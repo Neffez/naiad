@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, col, select
@@ -9,6 +10,7 @@ from naiad.config import AppConfig
 from naiad.database import get_session
 from naiad.dependencies import get_config, require_auth
 from naiad.domain.models import Plan
+from naiad.timeutil import to_naive_utc
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -66,10 +68,12 @@ async def create_plan(
     elif body.mode == "at_datetime":
         try:
             scheduled_at = datetime.fromisoformat(str(body.value))
-            if scheduled_at.tzinfo is None:
-                scheduled_at = scheduled_at.replace(tzinfo=UTC)
         except (TypeError, ValueError) as e:
             raise HTTPException(422, "value must be an ISO 8601 datetime string") from e
+        # A naive wall-clock time is meant in the app timezone, not UTC; an aware
+        # value is converted from its own offset. Both are stored as naive UTC.
+        if scheduled_at.tzinfo is None:
+            scheduled_at = scheduled_at.replace(tzinfo=ZoneInfo(config.timezone))
     else:
         raise HTTPException(422, f"Unknown mode: {body.mode!r}")
 
@@ -79,7 +83,7 @@ async def create_plan(
     plan = Plan(
         id=str(uuid.uuid4()),
         sequence_id=body.sequence_id,
-        scheduled_at=scheduled_at,
+        scheduled_at=to_naive_utc(scheduled_at, config.timezone),
         duration_min=body.duration_min,
         created_at=datetime.now(UTC),
     )
