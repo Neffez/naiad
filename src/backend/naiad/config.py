@@ -146,8 +146,123 @@ class ZoneConfig(BaseModel):
 # ── Sequences ────────────────────────────────────────────────────────────────
 
 
+# Day-of-week mapping between ISO weekday numbers (1=Mon … 7=Sun, used by the
+# UI and stored in config) and the lowercase names APScheduler understands.
+# Names are emitted in generated cron strings so the schedule is unambiguous,
+# regardless of the 0=Sun vs 0=Mon convention confusion around numeric crons.
+_ISO_BY_NAME = {"mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6, "sun": 7}
+_NAME_BY_ISO = {iso: name for name, iso in _ISO_BY_NAME.items()}
+_TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+_MAX_TIMES = 5
+
+
+def _parse_dow_names(field: str) -> list[int] | None:
+    """Parse a cron day-of-week field into ISO weekday numbers (1=Mon … 7=Sun).
+
+    Only the unambiguous forms are accepted: ``*`` (every day) and name-based
+    tokens (``mon``, ``mon-fri``, ``mon,wed,fri``). Numeric tokens are rejected
+    (return ``None``) because the 0=Sun/0=Mon convention is ambiguous — such
+    expressions are kept verbatim as an advanced cron override instead.
+    """
+    field = field.strip().lower()
+    if field == "*":
+        return []
+    out: set[int] = set()
+    for token in field.split(","):
+        token = token.strip()
+        if "-" in token:
+            lo_name, _, hi_name = token.partition("-")
+            if lo_name not in _ISO_BY_NAME or hi_name not in _ISO_BY_NAME:
+                return None
+            lo, hi = _ISO_BY_NAME[lo_name], _ISO_BY_NAME[hi_name]
+            if lo > hi:
+                return None
+            out.update(range(lo, hi + 1))
+        elif token in _ISO_BY_NAME:
+            out.add(_ISO_BY_NAME[token])
+        else:
+            return None
+    return sorted(out)
+
+
+def parse_simple_cron(expr: str) -> tuple[list[int], str] | None:
+    """Convert a cron expression into ``(days, "HH:MM")`` if it represents a
+    single daily time on whole-day-of-week selection, else ``None``."""
+    parts = expr.split()
+    if len(parts) != 5:
+        return None
+    minute, hour, dom, month, dow = parts
+    if dom != "*" or month != "*":
+        return None
+    if not (minute.isdigit() and hour.isdigit()):
+        return None
+    m, h = int(minute), int(hour)
+    if not (0 <= m < 60 and 0 <= h < 24):
+        return None
+    days = _parse_dow_names(dow)
+    if days is None:
+        return None
+    return days, f"{h:02d}:{m:02d}"
+
+
+def cron_for_time(time_str: str, days: list[int]) -> str:
+    """Build a cron expression firing at ``time_str`` (HH:MM) on the given ISO
+    weekdays (empty = every day)."""
+    hh, _, mm = time_str.partition(":")
+    dow = ",".join(_NAME_BY_ISO[d] for d in sorted(set(days))) if days else "*"
+    return f"{int(mm)} {int(hh)} * * {dow}"
+
+
 class ScheduleConfig(BaseModel):
-    cron: str
+    """When a sequence runs automatically.
+
+    Expressed as a list of clock times on a set of weekdays — the friendly form
+    the UI edits. ``cron`` is an advanced escape hatch: when set it overrides
+    ``days``/``times`` and is used verbatim, for expressions the picker can't
+    represent (e.g. interval schedules).
+    """
+
+    days: list[int] = Field(default_factory=list)  # ISO 1=Mon … 7=Sun; empty = every day
+    times: list[str] = Field(default_factory=list)  # "HH:MM", up to _MAX_TIMES
+    cron: str | None = None  # advanced override; takes precedence when set
+
+    @model_validator(mode="after")
+    def _normalize(self) -> "ScheduleConfig":
+        # Migrate a simple/legacy cron into the picker model so the UI can edit
+        # it; keep anything the picker can't represent as an advanced override.
+        if self.cron and not self.times:
+            parsed = parse_simple_cron(self.cron.strip())
+            if parsed is not None:
+                self.days, time = parsed
+                self.times = [time]
+                self.cron = None
+        if self.cron is not None and not self.cron.strip():
+            self.cron = None
+
+        normalized: list[str] = []
+        for raw in self.times:
+            match = _TIME_RE.match(raw.strip())
+            if match is None:
+                raise ValueError(f"Invalid time {raw!r}, expected HH:MM")
+            candidate = f"{int(match.group(1)):02d}:{match.group(2)}"
+            if candidate not in normalized:
+                normalized.append(candidate)
+        if len(normalized) > _MAX_TIMES:
+            raise ValueError(f"At most {_MAX_TIMES} times per schedule")
+        self.times = normalized
+
+        for day in self.days:
+            if not 1 <= day <= 7:
+                raise ValueError(f"Invalid weekday {day}, expected 1..7")
+        self.days = sorted(set(self.days))
+        return self
+
+    def to_crons(self) -> list[str]:
+        """The cron expressions to register — one trigger per clock time, or the
+        single advanced override when set."""
+        if self.cron:
+            return [self.cron]
+        return [cron_for_time(t, self.days) for t in self.times]
 
 
 class SequenceConfig(BaseModel):

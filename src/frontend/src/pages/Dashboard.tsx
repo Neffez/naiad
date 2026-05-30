@@ -24,6 +24,7 @@ import { ValveGrid } from '../components/ValveGrid'
 import { WeatherStrip } from '../components/WeatherStrip'
 import { WeekChart } from '../components/WeekChart'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { formatSchedule } from '../lib/schedule'
 
 export default function Dashboard() {
   const { t } = useTranslation()
@@ -342,7 +343,7 @@ export default function Dashboard() {
         <ConfirmDialog
           open={!!confirmSeq}
           title={confirmSeq.label}
-          subtitle={`${confirmSeq.schedule_label} · ${confirmSeq.zones.length} × ${confirmSeq.basis_min_per_zone} min`}
+          subtitle={`${formatSchedule(confirmSeq.schedule, t)} · ${confirmSeq.zones.length} × ${confirmSeq.basis_min_per_zone} min`}
           zones={confirmSeq.zones.length}
           defaultDuration={confirmSeq.basis_min_per_zone}
           onConfirm={(dur) => {
