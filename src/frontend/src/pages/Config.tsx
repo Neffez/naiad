@@ -64,6 +64,7 @@ export default function Config() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (data) setDraft(structuredClone(data))
   }, [data])
 
@@ -686,6 +687,7 @@ function IdTag({ id }: { id: string }) {
 
 function Num({ value, step = 1, onChange }: { value: number; step?: number; onChange: (v: number) => void }) {
   const [local, setLocal] = useState(String(value))
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setLocal(String(value)) }, [value])
   return (
     <input type="number" step={step} value={local}
