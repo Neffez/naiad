@@ -124,6 +124,10 @@
     "noZones": "Keine Zonen",
     "label": "Bezeichnung",
     "namePlaceholder": "Bezeichnung",
+    "seqNoZonesDefined": "Lege zuerst oben eine Zone an.",
+    "seqNoZonesAssigned": "Keine Zone zugewiesen — unten anklicken (sonst startet die Sequenz nicht).",
+    "exported": "Konfiguration exportiert.",
+    "exportedCopied": "Konfiguration exportiert (auch in die Zwischenablage kopiert).",
     "notifyTest": "Test-Benachrichtigung senden",
     "notifyTestOk": "Test an {{count}} Ziel(e) gesendet",
     "saveFirst": "Erst speichern",
@@ -189,7 +193,7 @@
     "error": "Falsches Passwort"
   },
   "emergency": {
-    "title": "Notaus — System + alle Ventile sofort stoppen",
+    "title": "Notaus — System + alle Zonen sofort stoppen",
     "label": "Notaus",
     "confirm": "Bestätigen?"
   },
@@ -210,8 +214,8 @@
     "configured": "konfiguriert",
     "running": "läuft",
     "ready": "bereit",
-    "valvesLive": "Ventile · Live",
-    "valves": "Ventile",
+    "valvesLive": "Zonen · Live",
+    "valves": "Zonen",
     "live": "live",
     "usage7d": "Verbrauch · 7 Tage",
     "usage": "Verbrauch",

@@ -124,6 +124,10 @@
     "noZones": "No zones",
     "label": "Label",
     "namePlaceholder": "Name",
+    "seqNoZonesDefined": "Create a zone above first.",
+    "seqNoZonesAssigned": "No zone assigned — click one below (otherwise the sequence won't start).",
+    "exported": "Configuration exported.",
+    "exportedCopied": "Configuration exported (also copied to the clipboard).",
     "notifyTest": "Send test notification",
     "notifyTestOk": "Test sent to {{count}} target(s)",
     "saveFirst": "Save first",
@@ -189,7 +193,7 @@
     "error": "Wrong password"
   },
   "emergency": {
-    "title": "Emergency stop — stop system + all valves immediately",
+    "title": "Emergency stop — stop system + all zones immediately",
     "label": "Emergency",
     "confirm": "Confirm?"
   },
@@ -210,8 +214,8 @@
     "configured": "configured",
     "running": "running",
     "ready": "ready",
-    "valvesLive": "Valves · Live",
-    "valves": "Valves",
+    "valvesLive": "Zones · Live",
+    "valves": "Zones",
     "live": "live",
     "usage7d": "Usage · 7 days",
     "usage": "Usage",
