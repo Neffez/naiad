@@ -5,6 +5,7 @@ import { NavLink, Navigate, Route, BrowserRouter as Router, Routes } from 'react
 import { IChart, IHome, ICal, ISettings } from './components/icons'
 import { MasterToggle } from './components/MasterToggle'
 import { Sidebar } from './components/Sidebar'
+import { Toaster } from './components/Toast'
 import { WeatherStrip } from './components/WeatherStrip'
 import './i18n'
 import './index.css'
@@ -185,6 +186,7 @@ export default function App() {
   return (
     <QueryClientProvider client={qc}>
       <AppShell />
+      <Toaster />
     </QueryClientProvider>
   )
 }

@@ -1,4 +1,7 @@
 {
+  "toast": {
+    "started": "{{name}} gestartet"
+  },
   "nav": {
     "dashboard": "Dashboard",
     "planner": "Planen",
