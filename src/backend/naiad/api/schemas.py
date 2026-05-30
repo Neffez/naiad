@@ -309,3 +309,7 @@ class EntityInfo(BaseModel):
 
 class EntitiesResponse(BaseModel):
     entities: list[EntityInfo]
+
+
+class ServicesResponse(BaseModel):
+    services: list[str]

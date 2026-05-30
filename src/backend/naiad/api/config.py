@@ -24,6 +24,7 @@ from naiad.api.schemas import (
     EntitiesResponse,
     EntityInfo,
     HAConfigPublic,
+    ServicesResponse,
 )
 from naiad.config import AppConfig
 from naiad.config_store import save_config_doc, to_export_dict
@@ -38,7 +39,7 @@ from naiad.dependencies import (
 )
 from naiad.domain.sequences import SequenceRunner
 from naiad.domain.tracking import LiterTracker
-from naiad.ha_client import HAClient
+from naiad.ha_client import HAClient, HAError
 from naiad.runtime_reload import apply_reloaded_config
 
 logger = logging.getLogger(__name__)
@@ -226,3 +227,18 @@ async def list_entities(
 ) -> EntitiesResponse:
     """List cached HA entities for the UI entity picker (optionally by domain)."""
     return EntitiesResponse(entities=[EntityInfo(**e) for e in ha.list_entities(domain)])
+
+
+@router.get("/services", response_model=ServicesResponse)
+async def list_services(
+    domain: str | None = None,
+    _: None = Depends(require_auth),
+    ha: HAClient = Depends(get_ha_client),
+) -> ServicesResponse:
+    """List HA services (e.g. notify.*) for the picker. Services aren't entities, so
+    this queries HA directly; returns empty if HA is unreachable."""
+    try:
+        services = await ha.get_services(domain)
+    except HAError:
+        services = []
+    return ServicesResponse(services=services)
