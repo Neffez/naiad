@@ -178,6 +178,8 @@
     "rangeMin": "Min",
     "rangeMax": "Max",
     "cron": "Cron",
+    "schedule": "Schedule",
+    "notifyReminderTime": "Reminder time",
     "advanced": "Advanced",
     "timezone": "Timezone",
     "authMode": "Auth mode",
@@ -194,6 +196,30 @@
     "addEntry": "Add",
     "add": "OK",
     "delete": "Delete"
+  },
+  "schedule": {
+    "days": "Weekdays",
+    "times": "Times",
+    "addTime": "Time",
+    "daily": "Daily",
+    "weekdays": "Weekdays",
+    "weekend": "Weekend",
+    "none": "No schedule",
+    "noTimes": "No time set — won't run automatically.",
+    "advanced": "Advanced (cron)",
+    "advancedActive": "Cron expression overrides the selection above.",
+    "usePicker": "Use picker"
+  },
+  "weekday": {
+    "short": {
+      "1": "Mon",
+      "2": "Tue",
+      "3": "Wed",
+      "4": "Thu",
+      "5": "Fri",
+      "6": "Sat",
+      "7": "Sun"
+    }
   },
   "planner": {
     "title": "Planner",

@@ -167,6 +167,12 @@ export interface FactorNotes {
   temp_delta_pct: number | null
 }
 
+export interface ScheduleSummary {
+  days: number[] // ISO weekdays 1=Mon … 7=Sun; empty = every day
+  times: string[] // "HH:MM"
+  cron: string | null // advanced override; set only when active
+}
+
 export interface SequenceState {
   id: string
   label: string
@@ -175,7 +181,7 @@ export interface SequenceState {
   paused: boolean
   factor_pct: number
   factor_notes: FactorNotes
-  schedule_label: string
+  schedule: ScheduleSummary
   next_run_at: string | null
   zones: ZoneSummary[]
   basis_min_per_zone: number
@@ -297,7 +303,7 @@ export interface SequenceConfig {
   basis_min_per_zone: number
   range: [number, number]
   watchdog_min: number
-  schedule: { cron: string }
+  schedule: ScheduleSummary
   enabled: boolean
   wind_blocks: boolean
 }

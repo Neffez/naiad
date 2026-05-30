@@ -371,6 +371,14 @@ export interface components {
             total_min: number;
             triggered_by: components["schemas"]["TriggerSource"];
         };
+        ScheduleSummary: {
+            /** @description ISO weekdays 1=Mon..7=Sun; empty = every day */
+            days: number[];
+            /** @description Clock times HH:MM */
+            times: string[];
+            /** @description Advanced cron override; set only when active */
+            cron?: string | null;
+        };
         SequenceState: {
             id: string;
             label: string;
@@ -379,7 +387,7 @@ export interface components {
             paused: boolean;
             factor_pct: number;
             factor_notes: components["schemas"]["FactorNotes"];
-            schedule_label: string;
+            schedule: components["schemas"]["ScheduleSummary"];
             /** Format: date-time */
             next_run_at?: string | null;
             zones: components["schemas"]["ZoneSummary"][];
