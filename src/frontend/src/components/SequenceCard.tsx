@@ -1,6 +1,7 @@
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import type { FactorNotes, SequenceState } from '../api/client'
+import { formatSchedule } from '../lib/schedule'
 import { seqColor } from '../theme/sequenceColors'
 import { ICal, IPause, IPlay, IStop } from './icons'
 import { StatusChip } from './StatusChip'
@@ -102,7 +103,7 @@ function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedu
               <span>
                 {seq.next_run_at
                   ? `${t('sequence.nextRun')} · ${new Date(seq.next_run_at).toLocaleString(i18n.language, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`
-                  : seq.schedule_label}{' '}
+                  : formatSchedule(seq.schedule, t)}{' '}
                 · {seq.zones.length} × {seq.basis_min_per_zone} min
               </span>
             )}
@@ -232,7 +233,7 @@ function SequenceCardRich({ seq, onStart, onPause, onResume, onStop, onSchedule 
             <StatusChip status={seq.status} />
           </div>
           <span className="n-label" style={{ fontSize: 13 }}>
-            {seq.schedule_label} · {seq.zones.length}{' '}
+            {formatSchedule(seq.schedule, t)} · {seq.zones.length}{' '}
             {seq.zones.length === 1 ? t('sequence.zone') : t('sequence.zones')}
             {seq.basis_min_per_zone
               ? ` · ${t('sequence.regularPerZone', { min: seq.basis_min_per_zone })}`
@@ -321,7 +322,7 @@ function SequenceCardRich({ seq, onStart, onPause, onResume, onStop, onSchedule 
             >
               {seq.next_run_at
                 ? new Date(seq.next_run_at).toLocaleString(i18n.language, { weekday: 'short', hour: '2-digit', minute: '2-digit' })
-                : seq.schedule_label}
+                : formatSchedule(seq.schedule, t)}
             </span>
           </div>
         </div>
