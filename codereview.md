@@ -42,11 +42,12 @@ What remains clusters in three areas:
   rain drives the rain factor to `0.0` (by design, via `zero_above_mm`), but the
   per-zone duration is floored at `range[0]`, so the run still waters the
   minimum. Only `season_off` and the live rain *sensor* actually stop a run.
-- **A handful of hardening / clarity items** (per-zone watchdog semantics, rain
-  vs. paused runs, config-reload atomicity, token in `localStorage`, two
-  hardcoded hex colors, a now-misleading "7 days" label).
+- **A handful of hardening items** (config-reload atomicity, unbounded
+  per-event task fan-out, token in `localStorage`).
 
-Counts: **High 1 · Medium 2 · Low 7.**
+Counts: **High 1 · Medium 2 · Low 3.** A second pass in this branch fixed the
+four low-risk doc/UI/behaviour items (watchdog docs, rain vs. paused, hardcoded
+colors, the "7 days" label) — see §6.
 
 ---
 
@@ -173,19 +174,6 @@ behaviour given the existing `zero_above_mm` configuration.
 
 ## 5. Low
 
-- **L-1. Per-zone watchdog semantics are undocumented.** `_wait_zone`
-  (`domain/sequences.py:578-580`) is invoked per zone with the full
-  `watchdog_min`, so a run of *N* zones can stay active up to *N × watchdog_min*.
-  The scheduler only warns when `watchdog_min <= basis_min_per_zone`
-  (`scheduler.py:458-465`). Document that the watchdog bounds a single zone, not
-  the whole run, so operators size it correctly.
-
-- **L-2. Rain abort ignores paused runs.** `_on_rain`
-  (`scheduler.py:307-309`) returns when no run is *live*. A run that is **paused**
-  (a `ResumeSnapshot` exists, runner reads as IDLE) is untouched, so it can later
-  be resumed even though rain occurred during the pause. Consider clearing the
-  resume snapshot on rain.
-
 - **L-3. Unbounded task spawn per `state_changed` event.** `_dispatch`
   (`ha_client.py:175-176`) spawns one task per registered callback for every
   state change. The tasks are GC-safe, but a busy HA instance can produce a large
@@ -206,21 +194,6 @@ behaviour given the existing `zero_above_mm` configuration.
   remains the weakest point of the auth design and is called out by `CLAUDE.md`'s
   security section.
 
-- **L-6. Hardcoded hex colors violate the design-token rule.**
-  `pages/Planner.tsx:100` and `:185` use a literal `'#04181c'` for active-button
-  text. `CLAUDE.md` requires `var(--n-*)` tokens (the sequence-accent exception
-  doesn't apply here). Replace with a token (e.g. an `--n-on-accent` text color).
-  *(The `icons.tsx` logo fills are intentional branding, not a violation.)*
-
-- **L-7. Dashboard "7 days" label is now misleading.** The backend headline
-  `liters_week` is now the **current local calendar week** (Mon→Sun, summing the
-  `week_series` bars below it). The frontend still labels it
-  `dashboard.usage7d` ("Usage · 7 days" / "Verbrauch · 7 Tage", and the mobile
-  "this week"/"diese Woche"). The number and chart now agree, but the "7 days"
-  wording describes the old rolling window. Relabel to "this week" / "diese
-  Woche" consistently (`pages/Dashboard.tsx:307,375,378`, i18n
-  `dashboard.usage7d`).
-
 ---
 
 ## 6. Resolved since last review (verified, not re-reported)
@@ -237,7 +210,8 @@ backed by passing tests:
   `timeutil.to_naive_utc`.
 - **`liters_week` vs `week_series` (was M-2):** `api/system.py:248,275` both
   bucket from the local Monday (`local_week_start_utc`), so the headline equals
-  the sum of the chart. *(Residual: the UI label still says "7 days" — see L-7.)*
+  the sum of the chart. *(The UI label was relabelled to "this week" to match —
+  see "Fixed in this branch" below.)*
 - **Temperature / rain factor bounds (was M-3):** `TempFactorConfig` validates
   `min_pct <= max_pct` with `ge=0`; `RainFactorConfig` bounds `threshold_prob`
   (0–100), `forecast_days` (≥1), `forecast_decay` (0–1) (`config.py:319-347`).
@@ -245,7 +219,7 @@ backed by passing tests:
 - **Unbounded run durations (was M-4):** `StartSequenceRequest`,
   `StartZoneRequest`, and `CreatePlanRequest` all constrain `duration_min` with
   `gt=0` (`api/schemas.py:62-67, 225`). *(Still no upper bound, but the per-zone
-  watchdog bounds an over-long override — see L-1.)*
+  watchdog bounds an over-long override.)*
 - **HA callback ordering (was L-2):** `ha.on_connection_change` is assigned
   before `await ha.start()` (`main.py:238, 243`), so the first connect (crash
   recovery) can't fire before its handler is attached.
@@ -254,9 +228,25 @@ backed by passing tests:
   in `api/schemas.py:130-136`.
 - **WS per-connection send lock & startup `forward_header` warning** were already
   in place and remain correct.
-- **Cold sensor cache (was L-7):** now fails *safe* — an empty cache leaves the
-  season sensor `unavailable`, which yields `season_off` and *skips* the run
-  rather than over-watering. No longer a concern.
+- **Cold sensor cache:** fails *safe* — an empty cache leaves the season sensor
+  `unavailable`, which yields `season_off` and *skips* the run rather than
+  over-watering. No longer a concern.
+
+**Fixed in this branch (second pass):**
+
+- **Rain abort now honors paused runs.** `_on_rain` discards the resume snapshot
+  when rain starts while a run is paused, so it can't be resumed afterwards
+  (`scheduler.py`, `SequenceRunner.clear_paused_snapshot`,
+  `domain/resume.clear_any_snapshot`; tests in `tests/test_scheduler.py`).
+- **Per-zone watchdog semantics documented.** README "Scheduling & safety" and a
+  comment on `watchdog_min` in `config.example.yaml` now state that the watchdog
+  bounds a single zone (a run of *N* zones can take up to *N × watchdog_min*).
+- **Hardcoded hex colors removed.** `#04181c` is centralized as a new
+  `--n-on-accent` token in `index.css` and referenced from `index.css` and
+  `pages/Planner.tsx` instead of being inlined.
+- **Misleading "7 days" label relabelled.** The dashboard headline key was
+  renamed `usage7d → usageWeek` ("Usage · this week" / "Verbrauch · diese
+  Woche") to match the now calendar-week figure (`Dashboard.tsx`, both locales).
 
 ---
 
@@ -266,6 +256,5 @@ backed by passing tests:
    just warn), then M-1 (login throttling).
 2. **Make the rain knob honest:** M-2 (factor 0 % should skip, or document the
    floor).
-3. **Hardening / clarity:** the Low items — especially L-2 (rain vs. paused) and
-   L-1 (watchdog semantics).
-4. **UI polish:** L-6 (hardcoded colors) and L-7 ("7 days" relabel).
+3. **Hardening:** the remaining Low items — L-3 (per-event task fan-out),
+   L-4 (config-reload atomicity), L-5 (token in `localStorage`).

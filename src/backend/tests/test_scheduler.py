@@ -9,7 +9,13 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from naiad.config import AppConfig
 from naiad.domain.models import Plan, SkippedRun, UserPreference
 from naiad.domain.sequences import SequenceRunner
-from naiad.scheduler import _consume_skip, _plan_tick, _run_sequence_job, push_notification
+from naiad.scheduler import (
+    _consume_skip,
+    _on_rain,
+    _plan_tick,
+    _run_sequence_job,
+    push_notification,
+)
 from tests.conftest import MINIMAL_CONFIG_DATA
 
 
@@ -207,6 +213,29 @@ async def test_manual_trigger_ignores_skip(fast_config: AppConfig, engine) -> No
     result = await _run_sequence_job("seq_1", runner, ha, fast_config, sf, triggered_by="plan")
     assert result == "started"
     await runner.stop()
+
+
+async def test_rain_discards_paused_run(fast_config: AppConfig, engine) -> None:
+    """Rain while a run is paused drops the resume snapshot so it can't resume."""
+    from naiad.domain.resume import load_snapshot, save_pause_snapshot
+
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(fast_config, FakeDriver(), sf)
+    with Session(engine) as s:
+        save_pause_snapshot(s, "seq_1", "zone_a", 0, 5.0)
+
+    await _on_rain("binary_sensor.regen", {"state": "on"}, runner, fast_config, FakeHA())
+
+    with Session(engine) as s:
+        assert load_snapshot(s, "seq_1") is None
+
+
+async def test_rain_noop_when_nothing_running_or_paused(fast_config: AppConfig, engine) -> None:
+    """Rain with no live or paused run is a harmless no-op."""
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(fast_config, FakeDriver(), sf)
+    # Must not raise even though there is no run and no snapshot.
+    await _on_rain("binary_sensor.regen", {"state": "on"}, runner, fast_config, FakeHA())
 
 
 def test_consume_skip_prunes_stale(engine) -> None:
