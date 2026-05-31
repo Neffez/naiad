@@ -1,7 +1,8 @@
 {
   "toast": {
     "started": "{{name}} started",
-    "resumed": "{{name}} resumed"
+    "resumed": "{{name}} resumed",
+    "reorderFailed": "Could not save the new order"
   },
   "nav": {
     "dashboard": "Dashboard",
