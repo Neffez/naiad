@@ -10,11 +10,14 @@ import {
   pauseSequence,
   setMaster,
   startSequence,
+  startZone,
   stopSequence,
+  stopZone,
   updatePreferences,
   type SequenceState,
   type SystemStatus,
   type UserPreferences,
+  type ValveState,
 } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
@@ -92,6 +95,7 @@ export default function Dashboard() {
 
   const [confirmSeq, setConfirmSeq] = useState<SequenceState | null>(null)
   const [confirmStop, setConfirmStop] = useState<SequenceState | null>(null)
+  const [confirmZone, setConfirmZone] = useState<ValveState | null>(null)
 
   async function handleStart(seq: SequenceState, durationMin?: number) {
     try {
@@ -120,6 +124,26 @@ export default function Dashboard() {
       toast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
       qc.invalidateQueries({ queryKey: ['sequences'] })
+    }
+  }
+
+  async function handleStartZone(zone: ValveState, durationMin: number) {
+    try {
+      await startZone(zone.zone_id, durationMin)
+      toast(t('toast.zoneStarted', { name: zone.label, defaultValue: `${zone.label} gestartet` }), 'success')
+      qc.invalidateQueries({ queryKey: ['valves'] })
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'error')
+    }
+  }
+
+  async function handleStopZone(zoneId: string) {
+    try {
+      await stopZone(zoneId)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'error')
+    } finally {
+      qc.invalidateQueries({ queryKey: ['valves'] })
     }
   }
 
@@ -273,7 +297,7 @@ export default function Dashboard() {
                   </span>
                 )}
               </div>
-              <ValveGrid valves={orderedValves} cols={2} onReorder={(ids) => reorderMut.mutate({ zone_order: ids })} />
+              <ValveGrid valves={orderedValves} cols={2} onReorder={(ids) => reorderMut.mutate({ zone_order: ids })} onStartZone={(id) => setConfirmZone(valves.find((v) => v.zone_id === id) ?? null)} onStopZone={handleStopZone} />
             </div>
           )}
 
@@ -341,7 +365,7 @@ export default function Dashboard() {
                 </span>
               )}
             </div>
-            <ValveGrid valves={orderedValves} cols={2} onReorder={(ids) => reorderMut.mutate({ zone_order: ids })} />
+            <ValveGrid valves={orderedValves} cols={2} onReorder={(ids) => reorderMut.mutate({ zone_order: ids })} onStartZone={(id) => setConfirmZone(valves.find((v) => v.zone_id === id) ?? null)} onStopZone={handleStopZone} />
           </section>
         )}
 
@@ -378,6 +402,22 @@ export default function Dashboard() {
             setConfirmSeq(null)
           }}
           onCancel={() => setConfirmSeq(null)}
+        />
+      )}
+
+      {/* Single-zone immediate start */}
+      {confirmZone && (
+        <ConfirmDialog
+          open={!!confirmZone}
+          title={confirmZone.label}
+          subtitle={t('confirmZone.subtitle', { defaultValue: 'Einzelne Zone — Sofortstart' })}
+          zones={1}
+          defaultDuration={10}
+          onConfirm={(dur) => {
+            handleStartZone(confirmZone, dur)
+            setConfirmZone(null)
+          }}
+          onCancel={() => setConfirmZone(null)}
         />
       )}
 
