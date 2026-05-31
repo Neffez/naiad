@@ -77,7 +77,7 @@ export default function Dashboard() {
     },
     onError: (_err, _body, ctx) => {
       if (ctx?.previous) qc.setQueryData(['preferences'], ctx.previous)
-      toast(t('toast.reorderFailed', { defaultValue: 'Reihenfolge konnte nicht gespeichert werden' }), 'error')
+      toast(t('toast.reorderFailed', { defaultValue: 'Could not save the new order' }), 'error')
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ['preferences'] }),
   })
@@ -100,7 +100,7 @@ export default function Dashboard() {
   async function handleStart(seq: SequenceState, durationMin?: number) {
     try {
       await startSequence(seq.id, durationMin)
-      toast(t('toast.started', { name: seq.label, defaultValue: `${seq.label} gestartet` }), 'success')
+      toast(t('toast.started', { name: seq.label, defaultValue: `${seq.label} started` }), 'success')
       qc.invalidateQueries({ queryKey: ['sequences'] })
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
@@ -130,7 +130,7 @@ export default function Dashboard() {
   async function handleStartZone(zone: ValveState, durationMin: number) {
     try {
       await startZone(zone.zone_id, durationMin)
-      toast(t('toast.zoneStarted', { name: zone.label, defaultValue: `${zone.label} gestartet` }), 'success')
+      toast(t('toast.zoneStarted', { name: zone.label, defaultValue: `${zone.label} started` }), 'success')
       qc.invalidateQueries({ queryKey: ['valves'] })
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
@@ -152,7 +152,7 @@ export default function Dashboard() {
     // a paused sequence with no override resumes it from the saved remaining time.
     try {
       await startSequence(seq.id)
-      toast(t('toast.resumed', { name: seq.label, defaultValue: `${seq.label} fortgesetzt` }), 'success')
+      toast(t('toast.resumed', { name: seq.label, defaultValue: `${seq.label} resumed` }), 'success')
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
@@ -410,7 +410,7 @@ export default function Dashboard() {
         <ConfirmDialog
           open={!!confirmZone}
           title={confirmZone.label}
-          subtitle={t('confirmZone.subtitle', { defaultValue: 'Einzelne Zone — Sofortstart' })}
+          subtitle={t('confirmZone.subtitle', { defaultValue: 'Single zone — start now' })}
           zones={1}
           defaultDuration={10}
           onConfirm={(dur) => {
@@ -426,12 +426,12 @@ export default function Dashboard() {
         <ConfirmActionDialog
           open={!!confirmStop}
           tone="danger"
-          title={t('confirmStop.title', { defaultValue: 'Lauf stoppen?' })}
+          title={t('confirmStop.title', { defaultValue: 'Stop run?' })}
           message={t('confirmStop.message', {
             name: confirmStop.label,
-            defaultValue: `${confirmStop.label} wird sofort gestoppt.`,
+            defaultValue: `${confirmStop.label} will be stopped immediately.`,
           })}
-          confirmLabel={t('sequence.stop', { defaultValue: 'Stoppen' })}
+          confirmLabel={t('sequence.stop', { defaultValue: 'Stop' })}
           onConfirm={() => {
             handleStop(confirmStop.id)
             setConfirmStop(null)

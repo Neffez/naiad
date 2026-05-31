@@ -42,7 +42,7 @@ export default function Settings() {
 
   if (!settings) return (
     <div style={{ padding: 20, color: 'var(--n-fg-muted)' }}>
-      {t('settings.loading', { defaultValue: 'Laden…' })}
+      {t('settings.loading', { defaultValue: 'Loading…' })}
     </div>
   )
 
@@ -57,7 +57,7 @@ export default function Settings() {
           border: '1px solid rgba(94,200,216,0.25)',
           color: 'var(--n-teal-200)', fontSize: 13, fontWeight: 500,
         }}>
-          ✓ {t('settings.saved', { defaultValue: 'Gespeichert' })}
+          ✓ {t('settings.saved', { defaultValue: 'Saved' })}
         </div>
       )}
 
@@ -95,16 +95,16 @@ export default function Settings() {
 
       {/* System */}
       <SettingsSection title={t('settings.system', { defaultValue: 'System' })}>
-        <SettingsRow label={t('settings.configuration', { defaultValue: 'Anlagen-Konfiguration' })}>
+        <SettingsRow label={t('settings.configuration', { defaultValue: 'System configuration' })}>
           <button
             className="n-btn"
             style={{ height: 32, padding: '0 14px', fontSize: 12.5 }}
             onClick={() => navigate('/config')}
           >
-            {t('settings.editConfig', { defaultValue: 'Bearbeiten →' })}
+            {t('settings.editConfig', { defaultValue: 'Edit →' })}
           </button>
         </SettingsRow>
-        <SettingsRow label={t('settings.theme', { defaultValue: 'Darstellung' })}>
+        <SettingsRow label={t('settings.theme', { defaultValue: 'Appearance' })}>
           <div style={{ display: 'flex', gap: 6 }}>
             {(['dark', 'light'] as const).map((mode) => (
               <button
@@ -113,7 +113,7 @@ export default function Settings() {
                 style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
                 onClick={() => applyTheme(mode)}
               >
-                {t(`settings.theme_${mode}`, { defaultValue: mode === 'dark' ? 'Dunkel' : 'Hell' })}
+                {t(`settings.theme_${mode}`, { defaultValue: mode === 'dark' ? 'Dark' : 'Light' })}
               </button>
             ))}
           </div>
@@ -134,7 +134,7 @@ export default function Settings() {
               fontSize: 12, fontWeight: 500,
             }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
-              {t('settings.connected', { defaultValue: 'Verbunden' })}
+              {t('settings.connected', { defaultValue: 'Connected' })}
             </span>
           ) : (
             <span style={{
@@ -145,7 +145,7 @@ export default function Settings() {
               fontSize: 12, fontWeight: 500,
             }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-fg-dim)' }} />
-              {t('settings.disconnected', { defaultValue: 'Getrennt' })}
+              {t('settings.disconnected', { defaultValue: 'Disconnected' })}
             </span>
           )}
         </SettingsRow>

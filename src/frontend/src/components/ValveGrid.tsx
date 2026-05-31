@@ -52,7 +52,7 @@ function ValveCell({
             <button
               className="n-iconbtn"
               style={{ width: 26, height: 26 }}
-              title={t('valve.stop', { defaultValue: 'Zone stoppen' })}
+              title={t('valve.stop', { defaultValue: 'Stop zone' })}
               onPointerDown={stop}
               onClick={(e) => { stop(e); onStopZone(valve.zone_id) }}
             >
@@ -62,7 +62,7 @@ function ValveCell({
             <button
               className="n-iconbtn"
               style={{ width: 26, height: 26 }}
-              title={t('valve.start', { defaultValue: 'Zone starten' })}
+              title={t('valve.start', { defaultValue: 'Start zone' })}
               onPointerDown={stop}
               onClick={(e) => { stop(e); onStartZone(valve.zone_id) }}
             >
