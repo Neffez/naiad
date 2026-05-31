@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import Scope
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from naiad import __version__
@@ -310,7 +311,7 @@ _static = Path(__file__).parent.parent / "static"
 if _static.is_dir():
 
     class _SPAStaticFiles(StaticFiles):
-        async def get_response(self, path: str, scope):  # type: ignore[override]
+        async def get_response(self, path: str, scope: Scope) -> Response:
             try:
                 return await super().get_response(path, scope)
             except StarletteHTTPException as exc:
