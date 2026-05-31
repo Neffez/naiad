@@ -46,7 +46,7 @@ export default function Planner() {
       if (!zoneId) return
       // A single-zone plan needs an explicit duration — there is no per-zone default.
       if (!durMin) {
-        setError(t('planner.zoneDurationRequired', { defaultValue: 'Dauer (min) ist für eine Zone erforderlich' }))
+        setError(t('planner.zoneDurationRequired'))
         return
       }
       createMut.mutate({ zone_id: zoneId, mode, value, duration_min: parseInt(durMin) })
@@ -70,8 +70,8 @@ export default function Planner() {
           overflow: 'hidden', height: 48,
         }}>
           {([
-            { id: 'sequence' as const, label: t('planner.targetSequence', { defaultValue: 'Sequenz' }) },
-            { id: 'zone' as const, label: t('planner.targetZone', { defaultValue: 'Einzelne Zone' }) },
+            { id: 'sequence' as const, label: t('planner.targetSequence') },
+            { id: 'zone' as const, label: t('planner.targetZone') },
           ]).map((opt) => (
             <button
               key={opt.id}
@@ -113,7 +113,7 @@ export default function Planner() {
                 appearance: 'none', cursor: 'pointer', outline: 'none',
               }}
             >
-              <option value="">{t('planner.selectSequence', { defaultValue: '— Sequenz wählen —' })}</option>
+              <option value="">{t('planner.selectSequence')}</option>
               {sequences.filter((s) => s.enabled).map((s) => (
                 <option key={s.id} value={s.id}>{s.label}</option>
               ))}
@@ -132,7 +132,7 @@ export default function Planner() {
                 appearance: 'none', cursor: 'pointer', outline: 'none',
               }}
             >
-              <option value="">{t('planner.selectZone', { defaultValue: '— Zone wählen —' })}</option>
+              <option value="">{t('planner.selectZone')}</option>
               {valves.map((v) => (
                 <option key={v.zone_id} value={v.zone_id}>{v.label}</option>
               ))}
@@ -192,7 +192,7 @@ export default function Planner() {
             unit="h"
             size="lg"
             fullWidth
-            placeholder={t('planner.hoursPlaceholder', { defaultValue: 'Stunden' })}
+            placeholder={t('planner.hoursPlaceholder')}
           />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -237,8 +237,8 @@ export default function Planner() {
           size="lg"
           fullWidth
           placeholder={target === 'zone'
-            ? t('planner.durationPlaceholderZone', { defaultValue: 'Dauer (min) — erforderlich' })
-            : t('planner.durationPlaceholder', { defaultValue: 'Dauer (min) — leer = Konfig-Standard' })}
+            ? t('planner.durationPlaceholderZone')
+            : t('planner.durationPlaceholder')}
         />
 
         {error && <p style={{ color: 'var(--n-danger)', fontSize: 13 }}>{error}</p>}
@@ -279,7 +279,7 @@ export default function Planner() {
                     {p.label}
                     {p.target_type === 'zone' && (
                       <span className="n-chip" style={{ marginLeft: 8, fontSize: 10 }}>
-                        {t('planner.zoneTag', { defaultValue: 'Zone' })}
+                        {t('planner.zoneTag')}
                       </span>
                     )}
                   </span>
@@ -296,7 +296,7 @@ export default function Planner() {
                 className="n-iconbtn"
                 onClick={() => deleteMut.mutate(p.id)}
                 style={{ width: 36, height: 36 }}
-                title={t('planner.remove', { defaultValue: 'Entfernen' })}
+                title={t('planner.remove')}
               >
                 <IX size={15} />
               </button>
