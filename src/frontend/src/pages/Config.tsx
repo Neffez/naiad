@@ -183,6 +183,42 @@ export default function Config() {
         </Row>
       </Section>
 
+      {/* MQTT statistics bridge — publishes tracked liters/durations to HA */}
+      <Section title={t('config.mqtt', { defaultValue: 'MQTT-Statistik' })}>
+        <Row label={t('config.mqttEnabled', { defaultValue: 'Aktiviert' })}>
+          <Check
+            label={t('config.mqttEnabledHint', { defaultValue: 'Liter & Laufzeiten als Sensoren an Home Assistant senden' })}
+            checked={draft.mqtt.enabled}
+            onChange={(v) => patch((d) => { d.mqtt.enabled = v })}
+          />
+        </Row>
+        <Row label={t('config.mqttHost', { defaultValue: 'Broker-Host' })}>
+          <input
+            style={{ ...inputStyle, width: 280 }}
+            value={draft.mqtt.host}
+            placeholder="core-mosquitto"
+            onChange={(e) => patch((d) => { d.mqtt.host = e.target.value })}
+          />
+        </Row>
+        <Row label={t('config.mqttPort', { defaultValue: 'Port' })}>
+          <Num value={draft.mqtt.port} onChange={(v) => patch((d) => { d.mqtt.port = v })} />
+        </Row>
+        <Row label={t('config.mqttUsername', { defaultValue: 'Benutzername' })}>
+          <input
+            style={{ ...inputStyle, width: 200 }}
+            value={draft.mqtt.username}
+            onChange={(e) => patch((d) => { d.mqtt.username = e.target.value })}
+          />
+        </Row>
+        <Row label={t('config.mqttBaseTopic', { defaultValue: 'Basis-Topic' })} last>
+          <input
+            style={{ ...inputStyle, width: 200, fontFamily: 'var(--n-mono, monospace)' }}
+            value={draft.mqtt.base_topic}
+            onChange={(e) => patch((d) => { d.mqtt.base_topic = e.target.value })}
+          />
+        </Row>
+      </Section>
+
       {/* Notifications (global) — per-recipient choices live on each notify target below */}
       <Section title={t('config.notifications', { defaultValue: 'Benachrichtigungen' })}>
         <Row label={t('config.notifyReminderTime', { defaultValue: 'Erinnerungszeit' })}>
