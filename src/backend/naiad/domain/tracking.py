@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,6 +25,9 @@ class LiterTracker:
         self._is_managed = is_managed
         self._on_times: dict[str, datetime] = {}
         self._entity_to_zone: dict[str, str] = {}
+        # Invoked after external valve activity is written to history, so the MQTT
+        # statistics bridge can refresh the published totals.
+        self.on_run_recorded: Callable[[], Awaitable[None]] | None = None
         self.rebuild_zone_map()
         ha.subscribe_state_changes(self._handle_state_change)
 
@@ -89,3 +92,9 @@ class LiterTracker:
                     )
                 )
                 session.commit()
+
+            if self.on_run_recorded is not None:
+                try:
+                    await self.on_run_recorded()
+                except Exception:
+                    logger.exception("on_run_recorded callback failed")

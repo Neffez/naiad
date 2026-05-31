@@ -114,6 +114,9 @@ class SequenceRunner:
         # Invoked for noteworthy run events that warrant a notification
         # (message, level), e.g. a watchdog abort. Wired to push/broadcast in main.
         self.on_notification: Callable[[str, str], Awaitable[None]] | None = None
+        # Invoked after a zone's history row is finalized, so external consumers
+        # (e.g. the MQTT statistics bridge) can refresh the published totals.
+        self.on_run_recorded: Callable[[], Awaitable[None]] | None = None
 
     async def _emit_notification(self, message: str, level: str) -> None:
         if self.on_notification is None:
@@ -122,6 +125,14 @@ class SequenceRunner:
             await self.on_notification(message, level)
         except Exception:
             logger.exception("on_notification callback failed")
+
+    async def _emit_run_recorded(self) -> None:
+        if self.on_run_recorded is None:
+            return
+        try:
+            await self.on_run_recorded()
+        except Exception:
+            logger.exception("on_run_recorded callback failed")
 
     def is_managed(self, zone_id: str) -> bool:
         if self._running is None:
@@ -495,6 +506,9 @@ class SequenceRunner:
                         )
                     )
                 session.commit()
+
+            # History is persisted — let consumers (MQTT stats) refresh totals.
+            await self._emit_run_recorded()
 
             if result == _STOP:
                 self._clear_active_run()

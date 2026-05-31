@@ -18,6 +18,7 @@ from naiad.domain.sequences import SequenceRunner
 from naiad.domain.tracking import LiterTracker
 from naiad.ha_client import HAClient
 from naiad.scheduler import reschedule_sequences
+from naiad.stats_publisher import StatsPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +39,16 @@ def apply_reloaded_config(
     ha: HAClient,
     session_factory: Callable[[], Session],
     tracker: LiterTracker | None = None,
+    stats_publisher: StatsPublisher | None = None,
 ) -> None:
     """Apply ``fresh_config`` to the running system in place."""
     mutate_config_in_place(current_config, fresh_config)
     reschedule_sequences(scheduler, current_config, runner, ha, session_factory)
     if tracker is not None:
         tracker.rebuild_zone_map()
+    if stats_publisher is not None:
+        # Zones may have changed — re-advertise discovery and refresh totals.
+        stats_publisher.on_config_changed()
     logger.info(
         "Configuration reloaded",
         extra={"zones": len(current_config.zones), "sequences": len(current_config.sequences)},

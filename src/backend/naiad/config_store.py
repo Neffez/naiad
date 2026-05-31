@@ -33,6 +33,7 @@ def _strip_secrets(config: AppConfig) -> dict[str, Any]:
     data = config.model_dump(mode="json")
     data["ha"]["token"] = ""
     data.setdefault("auth", {})["password"] = ""
+    data.setdefault("mqtt", {})["password"] = ""
     return data
 
 
@@ -47,6 +48,9 @@ def _inject_secrets(data: dict[str, Any]) -> dict[str, Any]:
     password = os.environ.get("NAIAD_PASSWORD_HASH", "")
     if password:
         data.setdefault("auth", {})["password"] = password
+    mqtt_password = os.environ.get("MQTT_PASSWORD", "")
+    if mqtt_password:
+        data.setdefault("mqtt", {})["password"] = mqtt_password
     return data
 
 

@@ -367,6 +367,19 @@ export interface HAConfigPublic {
   notify_targets: NotifyTarget[]
 }
 
+export interface MQTTConfig {
+  enabled: boolean
+  host: string
+  port: number
+  username: string
+  client_id: string
+  discovery_prefix: string
+  base_topic: string
+  // Present in the GET response only — the password itself is never exposed and
+  // is environment-managed (MQTT_PASSWORD). Echoed back on save; the server drops it.
+  password_set?: boolean
+}
+
 export interface AuthConfigResponse {
   mode: 'password' | 'forward_header' | 'none'
   forward_header: { header: string; trusted_proxies: string[] }
@@ -381,6 +394,7 @@ export interface NotificationsConfig {
 
 export interface ConfigDoc {
   ha: HAConfigPublic
+  mqtt: MQTTConfig
   auth: AuthConfigResponse
   sensors: SensorsConfig
   zones: Record<string, ZoneConfig>
