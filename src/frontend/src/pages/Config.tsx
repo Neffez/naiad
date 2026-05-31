@@ -17,6 +17,7 @@ import {
   putConfig,
   testNotify,
 } from '../api/client'
+import { NumberField } from '../components/NumberField'
 import { toast } from '../components/Toast'
 import {
   MAX_TIMES,
@@ -183,71 +184,6 @@ export default function Config() {
         </Row>
       </Section>
 
-      {/* MQTT statistics bridge — publishes tracked liters/durations to HA */}
-      <Section title={t('config.mqtt', { defaultValue: 'MQTT-Statistik' })}>
-        <Row label={t('config.mqttEnabled', { defaultValue: 'Aktiviert' })}>
-          <Check
-            label={t('config.mqttEnabledHint', { defaultValue: 'Liter & Laufzeiten als Sensoren an Home Assistant senden' })}
-            checked={draft.mqtt.enabled}
-            onChange={(v) => patch((d) => { d.mqtt.enabled = v })}
-          />
-        </Row>
-        <Row label={t('config.mqttHost', { defaultValue: 'Broker-Host' })}>
-          <input
-            style={{ ...inputStyle, width: 280 }}
-            value={draft.mqtt.host}
-            placeholder="core-mosquitto"
-            onChange={(e) => patch((d) => { d.mqtt.host = e.target.value })}
-          />
-        </Row>
-        <Row label={t('config.mqttPort', { defaultValue: 'Port' })}>
-          <Num value={draft.mqtt.port} onChange={(v) => patch((d) => { d.mqtt.port = v })} />
-        </Row>
-        <Row label={t('config.mqttUsername', { defaultValue: 'Benutzername' })}>
-          <input
-            style={{ ...inputStyle, width: 200 }}
-            value={draft.mqtt.username}
-            onChange={(e) => patch((d) => { d.mqtt.username = e.target.value })}
-          />
-        </Row>
-        <Row label={t('config.mqttBaseTopic', { defaultValue: 'Basis-Topic' })} last>
-          <input
-            style={{ ...inputStyle, width: 200, fontFamily: 'var(--n-mono, monospace)' }}
-            value={draft.mqtt.base_topic}
-            onChange={(e) => patch((d) => { d.mqtt.base_topic = e.target.value })}
-          />
-        </Row>
-      </Section>
-
-      {/* Notifications (global) — per-recipient choices live on each notify target below */}
-      <Section title={t('config.notifications', { defaultValue: 'Benachrichtigungen' })}>
-        <Row label={t('config.notifyReminderTime', { defaultValue: 'Erinnerungszeit' })}>
-          <ReminderTime
-            value={draft.notifications.evening_reminder_cron}
-            onChange={(cron) => patch((d) => { d.notifications.evening_reminder_cron = cron })}
-          />
-        </Row>
-        <Row label={t('config.notifyTargets', { defaultValue: 'Notify-Ziele' })} last align="start">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
-            <NotifyTargetList
-              values={draft.ha.notify_targets}
-              services={notifyServices.data?.services}
-              dirty={dirty}
-              onChange={(vals) => patch((d) => { d.ha.notify_targets = vals })}
-            />
-            <button
-              className="n-btn"
-              style={{ height: 32, padding: '0 12px', fontSize: 12.5, alignSelf: 'flex-start' }}
-              disabled={dirty || draft.ha.notify_targets.length === 0}
-              title={dirty ? t('config.saveFirst', { defaultValue: 'Erst speichern' }) : undefined}
-              onClick={handleTestNotify}
-            >
-              {t('config.notifyTest', { defaultValue: 'Test-Benachrichtigung senden' })}
-            </button>
-          </div>
-        </Row>
-      </Section>
-
       {/* Sensors */}
       <Section title={t('config.sensors', { defaultValue: 'Sensoren' })}>
         {SENSOR_FIELDS.map((f, i) => (
@@ -293,8 +229,8 @@ export default function Config() {
                 />
               </Labeled>
               <Labeled label={t('config.flowLph', { defaultValue: 'Durchfluss (L/h)' })}>
-                <input type="number" style={{ ...inputStyle, width: 90, textAlign: 'right' }} value={z.flow_lph}
-                  onChange={(e) => patch((d) => { d.zones[id].flow_lph = Number(e.target.value) })} />
+                <NumberField value={z.flow_lph} width={90}
+                  onChange={(v) => patch((d) => { d.zones[id].flow_lph = v })} />
               </Labeled>
               <DeleteButton onClick={() => patch((d) => { delete d.zones[id] })} />
             </CardRow>
@@ -333,6 +269,71 @@ export default function Config() {
             onDelete={() => patch((d) => { delete d.sequences[id] })}
           />
         ))}
+      </Section>
+
+      {/* MQTT statistics bridge — publishes tracked liters/durations to HA */}
+      <Section title={t('config.mqtt', { defaultValue: 'MQTT-Statistik' })}>
+        <Row label={t('config.mqttEnabled', { defaultValue: 'Aktiviert' })}>
+          <Check
+              label={t('config.mqttEnabledHint', { defaultValue: 'Liter & Laufzeiten als Sensoren an Home Assistant senden' })}
+              checked={draft.mqtt.enabled}
+              onChange={(v) => patch((d) => { d.mqtt.enabled = v })}
+          />
+        </Row>
+        <Row label={t('config.mqttHost', { defaultValue: 'Broker-Host' })}>
+          <input
+              style={{ ...inputStyle, width: 280 }}
+              value={draft.mqtt.host}
+              placeholder="core-mosquitto"
+              onChange={(e) => patch((d) => { d.mqtt.host = e.target.value })}
+          />
+        </Row>
+        <Row label={t('config.mqttPort', { defaultValue: 'Port' })}>
+          <Num value={draft.mqtt.port} onChange={(v) => patch((d) => { d.mqtt.port = v })} />
+        </Row>
+        <Row label={t('config.mqttUsername', { defaultValue: 'Benutzername' })}>
+          <input
+              style={{ ...inputStyle, width: 200 }}
+              value={draft.mqtt.username}
+              onChange={(e) => patch((d) => { d.mqtt.username = e.target.value })}
+          />
+        </Row>
+        <Row label={t('config.mqttBaseTopic', { defaultValue: 'Basis-Topic' })} last>
+          <input
+              style={{ ...inputStyle, width: 200, fontFamily: 'var(--n-mono, monospace)' }}
+              value={draft.mqtt.base_topic}
+              onChange={(e) => patch((d) => { d.mqtt.base_topic = e.target.value })}
+          />
+        </Row>
+      </Section>
+
+      {/* Notifications (global) — per-recipient choices live on each notify target below */}
+      <Section title={t('config.notifications', { defaultValue: 'Benachrichtigungen' })}>
+        <Row label={t('config.notifyReminderTime', { defaultValue: 'Erinnerungszeit' })}>
+          <ReminderTime
+              value={draft.notifications.evening_reminder_cron}
+              onChange={(cron) => patch((d) => { d.notifications.evening_reminder_cron = cron })}
+          />
+        </Row>
+        <Row label={t('config.notifyTargets', { defaultValue: 'Notify-Ziele' })} last align="start">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+            <NotifyTargetList
+                values={draft.ha.notify_targets}
+                services={notifyServices.data?.services}
+                dirty={dirty}
+                onChange={(vals) => patch((d) => { d.ha.notify_targets = vals })}
+            />
+            <button
+                className="n-btn"
+                style={{ height: 32, padding: '0 12px', fontSize: 12.5, alignSelf: 'flex-start' }}
+                disabled={dirty || draft.ha.notify_targets.length === 0}
+                title={dirty ? t('config.saveFirst', { defaultValue: 'Erst speichern' }) : undefined}
+                onClick={handleTestNotify}
+            >
+              {t('config.notifyTest', { defaultValue: 'Test-Benachrichtigung senden' })}
+            </button>
+          </div>
+        </Row>
       </Section>
 
       {/* Factors are edited on the Settings page (FactorOverride layer), which
@@ -722,16 +723,7 @@ function IdTag({ id }: { id: string }) {
 }
 
 function Num({ value, step = 1, onChange }: { value: number; step?: number; onChange: (v: number) => void }) {
-  const [local, setLocal] = useState(String(value))
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setLocal(String(value)) }, [value])
-  return (
-    <input type="number" step={step} value={local}
-      style={{ ...inputStyle, width: 90, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
-      onChange={(e) => setLocal(e.target.value)}
-      onBlur={(e) => { const n = parseFloat(e.target.value); if (!isNaN(n)) onChange(n) }}
-    />
-  )
+  return <NumberField value={value} step={step} width={90} onChange={onChange} />
 }
 
 function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (c: boolean) => void }) {

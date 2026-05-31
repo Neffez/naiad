@@ -443,6 +443,17 @@ svg { display: block; }
   cursor: grab;
 }
 
+/* ── NumberField: hide native spinners (replaced by themed steppers) ─────── */
+.n-num-input::-webkit-outer-spin-button,
+.n-num-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.n-num-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 /* ── Decorative: Wave Motifs ─────────────────────────────────────────────── */
 .n-wavebed {
   position: relative;
