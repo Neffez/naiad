@@ -336,8 +336,8 @@
     "tomorrow": "Tomorrow",
     "skip": "Skip",
     "skipped": "{{name}} skipped",
-    "tempTip": "Basis: {{basis}} °C · {{pct}} % per °C · Range: {{min}}–{{max}} %",
-    "rainTip": "Threshold: {{threshold}} % · Reduce above {{reduce}} mm · Zero above {{zero}} mm · Forecast weight: {{decay}}"
+    "tempTip": "Reading: {{input}} · Basis: {{basis}} °C · {{pct}} % per °C · Range: {{min}}–{{max}} %",
+    "rainTip": "Prob.: {{prob}} · Amount: {{mm}} · Threshold: {{threshold}} % · Reduce above {{reduce}} mm · Zero above {{zero}} mm · Weight: {{decay}}"
   },
   "time": {
     "now": "now",
