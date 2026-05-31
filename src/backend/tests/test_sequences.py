@@ -9,7 +9,14 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from naiad.config import AppConfig
 from naiad.domain.models import RunHistory, SequenceOverride
 from naiad.domain.resume import load_active_run, load_snapshot, save_active_run
-from naiad.domain.sequences import MutexConflict, NotRunning, SequenceRunner, SequenceState
+from naiad.domain.sequences import (
+    MutexConflict,
+    NotRunning,
+    SequenceRunner,
+    SequenceState,
+    ZoneNotFound,
+    zone_run_id,
+)
 
 
 class FakeDriver:
@@ -410,6 +417,69 @@ async def test_status_includes_current_zone(runner: SequenceRunner) -> None:
     assert status.current_zone is not None
     assert status.current_zone.zone_id == "zone_a"
     await runner.stop()
+
+
+# ── Standalone single-zone runs ───────────────────────────────────────────────
+
+
+async def test_start_zone_runs_only_that_zone(runner: SequenceRunner, driver: FakeDriver) -> None:
+    """A standalone zone run opens exactly the requested zone and completes."""
+    await runner.start_zone("zone_b", duration_min=0.001)
+    task = runner._task
+    assert task is not None
+    await asyncio.wait_for(task, timeout=2.0)
+
+    assert runner.status().state == SequenceState.IDLE
+    assert driver.on_calls == ["switch.zone_b"]
+    assert "switch.zone_b" in driver.off_calls
+    assert "switch.zone_a" not in driver.on_calls  # the rest of any sequence is untouched
+
+
+async def test_start_zone_unknown_raises(runner: SequenceRunner) -> None:
+    with pytest.raises(ZoneNotFound):
+        await runner.start_zone("ghost", duration_min=1.0)
+
+
+async def test_start_zone_mutex_with_sequence(runner: SequenceRunner) -> None:
+    """A zone run shares the single-run mutex with sequence runs."""
+    await runner.start("seq_1")
+    with pytest.raises(MutexConflict):
+        await runner.start_zone("zone_b", duration_min=1.0)
+    await runner.stop()
+
+
+async def test_zone_run_status_and_is_managed(runner: SequenceRunner) -> None:
+    await runner.start_zone("zone_b", duration_min=1.0)
+    await asyncio.sleep(0)
+    status = runner.status()
+    assert status.sequence_id == zone_run_id("zone_b")
+    assert status.current_zone is not None
+    assert status.current_zone.zone_id == "zone_b"
+    assert runner.is_managed("zone_b") is True
+    assert runner.is_managed("zone_a") is False
+    await runner.stop()
+    # Synthetic state is cleared once the run ends.
+    assert runner._zone_run_id is None
+    assert runner.status().state == SequenceState.IDLE
+
+
+async def test_zone_run_records_history(runner: SequenceRunner, engine) -> None:
+    await runner.start_zone("zone_b", duration_min=0.001, triggered_by="manual")
+    await asyncio.wait_for(runner._task, timeout=2.0)  # type: ignore[arg-type]
+    with Session(engine) as session:
+        rows = list(session.exec(select(RunHistory)).all())
+    assert len(rows) == 1
+    assert rows[0].zone_id == "zone_b"
+    assert rows[0].sequence_id == zone_run_id("zone_b")
+    assert rows[0].ended_at is not None
+
+
+async def test_zone_run_stop(runner: SequenceRunner, driver: FakeDriver) -> None:
+    await runner.start_zone("zone_b", duration_min=5.0)
+    await asyncio.sleep(0)
+    await runner.stop()
+    assert runner.status().state == SequenceState.IDLE
+    assert "switch.zone_b" in driver.off_calls
 
 
 async def test_db_override_basis_min(fast_config: AppConfig, driver: FakeDriver, engine) -> None:
