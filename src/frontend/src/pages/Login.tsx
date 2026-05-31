@@ -41,7 +41,7 @@ export default function Login({ onLogin }: Props) {
             Naiad
           </h1>
           <p style={{ fontSize: 12, color: 'var(--n-fg-muted)', marginTop: 4 }}>
-            Gartenbewässerung
+            {t('login.subtitle')}
           </p>
         </div>
 

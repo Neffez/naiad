@@ -256,13 +256,18 @@
     "noPlans": "Keine geplanten Läufe",
     "targetSequence": "Sequenz",
     "targetZone": "Einzelne Zone",
+    "selectSequence": "— Sequenz wählen —",
     "selectZone": "— Zone wählen —",
     "zoneDurationRequired": "Dauer (min) ist für eine Zone erforderlich",
     "durationPlaceholderZone": "Dauer (min) — erforderlich",
+    "durationPlaceholder": "Dauer (min) — leer = Konfig-Standard",
+    "hoursPlaceholder": "Stunden",
+    "remove": "Entfernen",
     "zoneTag": "Zone"
   },
   "login": {
     "title": "Naiad",
+    "subtitle": "Gartenbewässerung",
     "password": "Passwort",
     "login": "Einloggen",
     "error": "Falsches Passwort"

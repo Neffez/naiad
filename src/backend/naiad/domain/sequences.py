@@ -20,6 +20,7 @@ from naiad.domain.resume import (
     save_pause_snapshot,
 )
 from naiad.drivers.protocol import IValveDriver
+from naiad.i18n import t as translate
 
 logger = logging.getLogger(__name__)
 
@@ -641,7 +642,12 @@ class SequenceRunner:
                 logger.warning("Watchdog triggered for zone %s", zone_id)
                 seq_label = seq.label or sequence_id
                 await self._emit_notification(
-                    f"🚨 Watchdog: {seq_label} — Zone {zone_cfg.label} lief zu lange, gestoppt.",
+                    translate(
+                        "abort.watchdog",
+                        self._config.language,
+                        label=seq_label,
+                        zone=zone_cfg.label,
+                    ),
                     "warning",
                 )
                 self._clear_active_run()

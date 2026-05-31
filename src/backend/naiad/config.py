@@ -377,6 +377,7 @@ class AppConfig(BaseModel):
     factors: FactorsConfig = FactorsConfig()
     notifications: NotificationsConfig = NotificationsConfig()
     timezone: str = "Europe/Berlin"  # IANA tz for cron schedules and day bucketing
+    language: Literal["de", "en"] = "en"  # language of server-side notifications
 
     @model_validator(mode="after")
     def validate_timezone(self) -> "AppConfig":

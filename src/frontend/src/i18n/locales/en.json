@@ -256,13 +256,18 @@
     "noPlans": "No scheduled runs",
     "targetSequence": "Sequence",
     "targetZone": "Single zone",
+    "selectSequence": "— Select sequence —",
     "selectZone": "— Select zone —",
     "zoneDurationRequired": "Duration (min) is required for a zone",
     "durationPlaceholderZone": "Duration (min) — required",
+    "durationPlaceholder": "Duration (min) — empty = config default",
+    "hoursPlaceholder": "Hours",
+    "remove": "Remove",
     "zoneTag": "Zone"
   },
   "login": {
     "title": "Naiad",
+    "subtitle": "Garden irrigation",
     "password": "Password",
     "login": "Log in",
     "error": "Wrong password"
