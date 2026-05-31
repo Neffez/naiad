@@ -1,14 +1,18 @@
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlmodel import Session, col, func, select
+from sqlmodel import Session, col, delete, func, select
 
-from naiad.api.schemas import HistoryEntryResponse, PaginatedHistoryResponse
+from naiad.api.schemas import (
+    DeleteHistoryResponse,
+    HistoryEntryResponse,
+    PaginatedHistoryResponse,
+)
 from naiad.config import AppConfig
 from naiad.database import get_session
 from naiad.dependencies import get_config, require_auth
 from naiad.domain.models import RunHistory
-from naiad.timeutil import local_date_to_utc
+from naiad.timeutil import local_date_to_utc, now_utc_naive
 
 router = APIRouter(tags=["history"])
 
@@ -70,6 +74,29 @@ async def get_history(
         page=page,
         per_page=per_page,
     )
+
+
+@router.delete("/history", response_model=DeleteHistoryResponse)
+async def delete_history(
+    _: None = Depends(require_auth),
+    session: Session = Depends(get_session),
+    older_than_days: int | None = Query(default=None, ge=1),
+) -> DeleteHistoryResponse:
+    """Delete run history.
+
+    Only ``RunHistory`` rows are removed — settings, plans, schedules and
+    sequence overrides are never touched. When ``older_than_days`` is given,
+    only entries whose ``started_at`` is older than that many days (relative to
+    now, UTC) are deleted; otherwise the entire history is cleared.
+    """
+    statement = delete(RunHistory)
+    if older_than_days is not None:
+        cutoff = now_utc_naive() - timedelta(days=older_than_days)
+        statement = statement.where(col(RunHistory.started_at) < cutoff)
+
+    result = session.exec(statement)  # type: ignore[call-overload]
+    session.commit()
+    return DeleteHistoryResponse(deleted=result.rowcount)
 
 
 def _seq_label(sequence_id: str, config: AppConfig) -> str:
