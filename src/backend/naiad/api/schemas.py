@@ -201,6 +201,10 @@ class PaginatedHistoryResponse(BaseModel):
     per_page: int
 
 
+class DeleteHistoryResponse(BaseModel):
+    deleted: int  # number of run-history rows removed
+
+
 # ── Plans ─────────────────────────────────────────────────────────────────────
 
 
