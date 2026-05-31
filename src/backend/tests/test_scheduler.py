@@ -37,15 +37,17 @@ class FakeDriver:
 class FakeHA:
     """Sensor cache that keeps the season on and the weather neutral."""
 
-    def __init__(self, season: str = "on") -> None:
+    def __init__(
+        self, season: str = "on", *, prec_prob_today: str = "0", prec_today: str = "0"
+    ) -> None:
         self._states = {
             "binary_sensor.jahreszeit": season,
             "binary_sensor.windalarm": "off",
             "binary_sensor.regen": "off",
             "sensor.temperature": "20.0",
-            "sensor.prec_prob_today": "0",
+            "sensor.prec_prob_today": prec_prob_today,
             "sensor.prec_prob_tomorrow": "0",
-            "sensor.prec_today": "0",
+            "sensor.prec_today": prec_today,
             "sensor.prec_tomorrow": "0",
         }
 
@@ -94,6 +96,20 @@ async def test_run_sequence_job_skips_when_master_off(fast_config: AppConfig, en
         s.commit()
     runner = SequenceRunner(fast_config, FakeDriver(), sf)
     assert await _run_sequence_job("seq_1", runner, FakeHA(), fast_config, sf) == "skipped"
+
+
+async def test_run_sequence_job_skips_when_factor_zero(fast_config: AppConfig, engine) -> None:
+    """Heavy forecast rain drives the factor to 0 % → the run is skipped, not
+    floored to the range minimum."""
+    sf = lambda: Session(engine)  # noqa: E731
+    driver = FakeDriver()
+    runner = SequenceRunner(fast_config, driver, sf)
+    # prob >= threshold_prob (70) and mm >= zero_above_mm (20) → rain factor 0.
+    ha = FakeHA(prec_prob_today="100", prec_today="50")
+    result = await _run_sequence_job("seq_1", runner, ha, fast_config, sf, triggered_by="cron")
+    assert result == "skipped"
+    assert driver.on_calls == []  # no valve was opened
+    assert runner.status().sequence_id is None
 
 
 async def test_run_sequence_job_skips_when_season_off(fast_config: AppConfig, engine) -> None:

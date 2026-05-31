@@ -129,9 +129,9 @@ environment only (see [`.env.example`](.env.example)).
 `auth.mode` selects how the API and WebSocket are protected:
 
 - **`password`** — a single shared password (bcrypt hash in `NAIAD_PASSWORD_HASH`)
-  issues bearer tokens stored client-side. There is no built-in login rate
-  limiting, so when exposing the direct port put Naiad behind a reverse proxy
-  that provides it.
+  issues bearer tokens stored client-side. Repeated failed logins from one IP are
+  throttled with a growing temporary lockout (in-memory, per source IP) to blunt
+  online brute force.
 - **`forward_header`** — trust an authenticated user asserted by a reverse proxy
   via a header (e.g. Authelia/Authentik). **Set `trusted_proxies` to your proxy
   IP(s)**: with it empty the header is trusted from any client, which is unsafe
@@ -153,9 +153,11 @@ Each sequence registers one cron trigger per scheduled time. When a run fires
    per-sequence pause only block *new* runs — they don't stop one already in
    progress.
 2. **Computes the watering factor** from temperature and forecast rain and
-   scales `basis_min_per_zone` by it, clamped to the sequence's `range`. The
-   factor is *not* applied to single-zone plans, which water for exactly the
-   requested duration.
+   scales `basis_min_per_zone` by it, clamped to the sequence's `range`. A factor
+   of 0 % (e.g. forecast rain at/above `zero_above_mm`) skips an automatic run
+   entirely rather than watering the range minimum. The factor is *not* applied
+   to single-zone plans, which water for exactly the requested duration. A
+   *manual* start always runs (it isn't subject to the factor-0 skip).
 3. **Runs the zones in order**, one valve at a time under a single global mutex
    (only one run anywhere at a time). A run history row is written at zone start
    and finalized (duration, liters, abort reason) when the zone ends.
