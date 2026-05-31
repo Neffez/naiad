@@ -85,7 +85,7 @@ export function ConfirmActionDialog({
 
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
           <button className="n-btn ghost lg" style={{ flex: 1 }} onClick={onCancel}>
-            {cancelLabel ?? t('confirm.cancel', { defaultValue: 'Cancel' })}
+            {cancelLabel ?? t('confirm.cancel')}
           </button>
           <button
             className={`n-btn lg${tone === 'danger' ? ' danger' : ' primary'}`}
