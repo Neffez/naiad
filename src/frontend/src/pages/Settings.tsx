@@ -10,6 +10,7 @@ import {
   updateSettings,
 } from '../api/client'
 import { InfoTip } from '../components/InfoTip'
+import { NumberField } from '../components/NumberField'
 
 export default function Settings() {
   const { t, i18n } = useTranslation()
@@ -223,44 +224,7 @@ function NumInput({ value, unit, width = 72, step = 1, onBlur }: {
   value: number; unit: string; width?: number; step?: number
   onBlur: (v: number) => void
 }) {
-  const [localVal, setLocalVal] = useState(String(value))
-
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 0,
-      background: 'var(--n-card-elev)',
-      border: '1px solid var(--n-line-strong)',
-      borderRadius: 'var(--n-r-sm)',
-      overflow: 'hidden', height: 36,
-    }}>
-      <input
-        type="number"
-        value={localVal}
-        step={step}
-        onChange={(e) => setLocalVal(e.target.value)}
-        onBlur={(e) => {
-          const num = parseFloat(e.target.value)
-          if (!isNaN(num)) onBlur(num)
-        }}
-        style={{
-          width, height: '100%', padding: '0 10px',
-          background: 'transparent', border: 'none',
-          color: 'var(--n-fg)', fontSize: 14,
-          fontFamily: 'var(--n-sans)',
-          fontVariantNumeric: 'tabular-nums',
-          textAlign: 'right', outline: 'none',
-        }}
-      />
-      {unit && (
-        <span style={{
-          padding: '0 8px', color: 'var(--n-fg-muted)', fontSize: 12,
-          borderLeft: '1px solid var(--n-line)',
-          height: '100%', display: 'flex', alignItems: 'center',
-          background: 'rgba(255,255,255,0.015)',
-        }}>
-          {unit}
-        </span>
-      )}
-    </div>
+    <NumberField value={value} unit={unit} width={width} step={step} onChange={onBlur} />
   )
 }
