@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { createPlan, deletePlan, getPlans, getSequences, getValves, type CreatePlanRequest } from '../api/client'
 import { IChevDown, IX } from '../components/icons'
+import { NumberField } from '../components/NumberField'
 import { seqColor } from '../theme/sequenceColors'
 
 type Target = 'sequence' | 'zone'
@@ -55,22 +56,6 @@ export default function Planner() {
     const req: CreatePlanRequest = { sequence_id: seqId, mode, value }
     if (durMin) req.duration_min = parseInt(durMin)
     createMut.mutate(req)
-  }
-
-  const inputStyle: React.CSSProperties = {
-    flex: 1, height: '100%', padding: '0 18px',
-    background: 'transparent', border: 'none',
-    color: 'var(--n-fg)', fontSize: 15,
-    fontFamily: 'var(--n-sans)', outline: 'none',
-    fontVariantNumeric: 'tabular-nums',
-  }
-
-  const fieldStyle: React.CSSProperties = {
-    display: 'flex', alignItems: 'center', gap: 0,
-    background: 'var(--n-card)',
-    border: '1px solid var(--n-line-strong)',
-    borderRadius: 'var(--n-r-md)',
-    height: 52, overflow: 'hidden',
   }
 
   return (
@@ -199,22 +184,16 @@ export default function Planner() {
 
         {/* Conditional inputs */}
         {mode === 'in_hours' ? (
-          <div style={fieldStyle}>
-            <input
-              type="number"
-              value={hoursValue}
-              onChange={(e) => setHoursValue(e.target.value)}
-              min="1" max="72"
-              placeholder={t('planner.hoursPlaceholder', { defaultValue: 'Stunden' })}
-              style={inputStyle}
-            />
-            <span style={{
-              padding: '0 14px', color: 'var(--n-fg-muted)', fontSize: 13,
-              borderLeft: '1px solid var(--n-line)',
-              height: '100%', display: 'flex', alignItems: 'center',
-              background: 'rgba(255,255,255,0.015)',
-            }}>h</span>
-          </div>
+          <NumberField
+            value={hoursValue}
+            allowEmpty
+            onChange={setHoursValue}
+            min={1} max={72}
+            unit="h"
+            size="lg"
+            fullWidth
+            placeholder={t('planner.hoursPlaceholder', { defaultValue: 'Stunden' })}
+          />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <input
@@ -249,24 +228,18 @@ export default function Planner() {
         )}
 
         {/* Duration override */}
-        <div style={fieldStyle}>
-          <input
-            type="number"
-            value={durMin}
-            onChange={(e) => setDurMin(e.target.value)}
-            min="1" max="120"
-            placeholder={target === 'zone'
-              ? t('planner.durationPlaceholderZone', { defaultValue: 'Dauer (min) — erforderlich' })
-              : t('planner.durationPlaceholder', { defaultValue: 'Dauer (min) — leer = Konfig-Standard' })}
-            style={{ ...inputStyle, color: durMin ? 'var(--n-fg)' : 'var(--n-fg-muted)' }}
-          />
-          <span style={{
-            padding: '0 14px', color: 'var(--n-fg-muted)', fontSize: 13,
-            borderLeft: '1px solid var(--n-line)',
-            height: '100%', display: 'flex', alignItems: 'center',
-            background: 'rgba(255,255,255,0.015)',
-          }}>min</span>
-        </div>
+        <NumberField
+          value={durMin}
+          allowEmpty
+          onChange={setDurMin}
+          min={1} max={120}
+          unit="min"
+          size="lg"
+          fullWidth
+          placeholder={target === 'zone'
+            ? t('planner.durationPlaceholderZone', { defaultValue: 'Dauer (min) — erforderlich' })
+            : t('planner.durationPlaceholder', { defaultValue: 'Dauer (min) — leer = Konfig-Standard' })}
+        />
 
         {error && <p style={{ color: 'var(--n-danger)', fontSize: 13 }}>{error}</p>}
 
