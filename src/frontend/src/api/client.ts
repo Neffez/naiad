@@ -83,6 +83,11 @@ export const startSequence = (id: string, duration_min?: number) =>
 export const stopSequence = (id: string) => api.post(`/sequences/${id}/stop`)
 export const pauseSequence = (id: string) => api.post(`/sequences/${id}/pause`)
 
+// Single zones (run one zone in isolation, outside any sequence)
+export const startZone = (id: string, duration_min: number) =>
+  api.post(`/zones/${id}/start`, { duration_min })
+export const stopZone = (id: string) => api.post(`/zones/${id}/stop`)
+
 // System
 export interface HealthInfo {
   status: string
@@ -228,6 +233,8 @@ export interface ValveState {
   state: 'on' | 'off' | 'unknown'
   on_since: string | null
   runtime_min: number | null
+  /** True when this zone is running as a standalone single-zone run (stoppable directly). */
+  single_run: boolean
 }
 
 export interface HistoryEntry {
@@ -266,8 +273,13 @@ export interface DeleteHistoryResult {
 
 export interface Plan {
   id: string
-  sequence_id: string
-  sequence_label: string
+  target_type: 'sequence' | 'zone'
+  sequence_id: string | null
+  sequence_label: string | null
+  zone_id: string | null
+  zone_label: string | null
+  /** Unified display label (sequence or zone). */
+  label: string
   scheduled_at: string
   duration_min: number | null
   estimated_liters: number | null
@@ -275,7 +287,9 @@ export interface Plan {
 }
 
 export interface CreatePlanRequest {
-  sequence_id: string
+  // Exactly one of sequence_id / zone_id. A zone plan requires duration_min.
+  sequence_id?: string
+  zone_id?: string
   mode: 'in_hours' | 'at_datetime'
   value: number | string
   duration_min?: number

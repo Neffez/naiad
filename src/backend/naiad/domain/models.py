@@ -22,7 +22,11 @@ class Plan(SQLModel, table=True):
     __tablename__ = "plans"
 
     id: str = Field(primary_key=True)  # UUID
-    sequence_id: str
+    # Exactly one target is set: a sequence plan has sequence_id; a single-zone
+    # plan has zone_id (and an empty sequence_id, since the column is NOT NULL in
+    # databases created before zone_id existed).
+    sequence_id: str = ""
+    zone_id: str | None = None
     scheduled_at: datetime
     duration_min: int | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

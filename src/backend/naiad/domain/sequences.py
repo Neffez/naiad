@@ -1,12 +1,13 @@
 import asyncio
 import logging
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from naiad.config import AppConfig, SequenceConfig
+from naiad.config import AppConfig, ScheduleConfig, SequenceConfig, ZoneConfig
 from naiad.domain.models import ActiveRun, RunHistory
 from naiad.domain.resume import (
     clear_active_run,
@@ -28,6 +29,46 @@ class MutexConflict(Exception):
 
 class SequenceNotFound(Exception):
     """Sequence ID does not exist in config."""
+
+
+class ZoneNotFound(Exception):
+    """Zone ID does not exist in config."""
+
+
+# A standalone single-zone run reuses the whole sequence machinery (history,
+# watchdog, valve safety, crash-safe valve close) by executing under a synthetic
+# sequence id derived from the zone id. The prefix is deliberately unlikely to
+# collide with a real (YAML-defined) sequence id.
+ZONE_RUN_PREFIX = "__zone__"
+
+
+def zone_run_id(zone_id: str) -> str:
+    """The synthetic sequence id a standalone single-zone run executes under."""
+    return f"{ZONE_RUN_PREFIX}{zone_id}"
+
+
+def zone_id_of_run(run_id: str) -> str | None:
+    """Return the zone id of a single-zone run id, or None for a real sequence."""
+    if run_id.startswith(ZONE_RUN_PREFIX):
+        return run_id[len(ZONE_RUN_PREFIX) :]
+    return None
+
+
+def build_zone_sequence(zone_id: str, zone_cfg: ZoneConfig, duration_min: float) -> SequenceConfig:
+    """A throwaway single-zone sequence used to run one zone in isolation.
+
+    The duration is applied verbatim (passed as the run's override), so the
+    factor/range logic is bypassed. The watchdog stays safely above the run
+    duration since it bounds this one zone.
+    """
+    watchdog = max(int(math.ceil(duration_min)) + 10, 1)
+    return SequenceConfig(
+        label=zone_cfg.label,
+        zones=[zone_id],
+        basis_min_per_zone=duration_min,
+        watchdog_min=watchdog,
+        schedule=ScheduleConfig(),
+    )
 
 
 class NotRunning(Exception):
@@ -108,6 +149,11 @@ class SequenceRunner:
         self._task: asyncio.Task[None] | None = None
         self._stop_reason: str = "manual_stop"
         self._triggered_by: str = "manual"
+        # Active standalone single-zone run: the synthetic config is held only in
+        # memory for the duration of the run so the rest of the machinery can
+        # resolve it by its synthetic id (see _seq).
+        self._zone_run_id: str | None = None
+        self._zone_run_seq: SequenceConfig | None = None
         # Invoked once a run actually opens its first valve (sequence_id, triggered_by),
         # so "running" is broadcast only after the run is confirmed, not when it's scheduled.
         self.on_started: Callable[[str, str], Awaitable[None]] | None = None
@@ -134,10 +180,20 @@ class SequenceRunner:
         except Exception:
             logger.exception("on_run_recorded callback failed")
 
+    def _seq(self, sequence_id: str) -> SequenceConfig | None:
+        """Resolve a sequence config by id, including the active single-zone run's
+        synthetic config."""
+        seq = self._config.sequences.get(sequence_id)
+        if seq is not None:
+            return seq
+        if sequence_id == self._zone_run_id:
+            return self._zone_run_seq
+        return None
+
     def is_managed(self, zone_id: str) -> bool:
         if self._running is None:
             return False
-        seq = self._config.sequences.get(self._running)
+        seq = self._seq(self._running)
         return seq is not None and zone_id in seq.zones
 
     def status(self) -> SequenceStatus:
@@ -175,6 +231,68 @@ class SequenceRunner:
             self._execute(sequence_id, factor_pct, override_min, triggered_by),
             name=f"seq-{sequence_id}",
         )
+
+    async def start_zone(
+        self,
+        zone_id: str,
+        duration_min: float,
+        triggered_by: str = "manual",
+    ) -> None:
+        """Run a single zone in isolation for ``duration_min`` minutes.
+
+        Shares the runner mutex with sequence runs (only one run at a time) and
+        reuses the full execution path via a synthetic single-zone sequence.
+        """
+        if zone_id not in self._config.zones:
+            raise ZoneNotFound(zone_id)
+        if self._running is not None:
+            raise MutexConflict(f"'{self._running}' is already running")
+
+        run_id = zone_run_id(zone_id)
+        self._zone_run_seq = build_zone_sequence(
+            zone_id, self._config.zones[zone_id], duration_min
+        )
+        self._zone_run_id = run_id
+        self._running = run_id  # set before first await — asyncio mutex
+        self._stop_event.clear()
+        self._pause_event.clear()
+        self._stop_reason = "manual_stop"
+        self._triggered_by = triggered_by
+
+        self._task = asyncio.create_task(
+            self._execute_zone(run_id, duration_min, triggered_by),
+            name=f"zone-{zone_id}",
+        )
+
+    async def _execute_zone(
+        self, run_id: str, duration_min: float, triggered_by: str
+    ) -> None:
+        seq = self._zone_run_seq
+        assert seq is not None
+        try:
+            # A standalone zone run deliberately bypasses the resume/snapshot
+            # machinery (which is keyed to real sequences): it always runs its one
+            # zone fresh for the given duration.
+            await self._run_zones(
+                run_id,
+                seq,
+                factor_pct=100.0,
+                start_index=0,
+                start_remaining=None,
+                override_min=duration_min,
+                triggered_by=triggered_by,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Unhandled error in zone run '%s'", run_id)
+            self._clear_active_run()
+        finally:
+            self._running = None
+            self._current_zone = None
+            self._task = None
+            self._zone_run_id = None
+            self._zone_run_seq = None
 
     async def stop(self, reason: str = "manual_stop") -> None:
         if self._running is None:
