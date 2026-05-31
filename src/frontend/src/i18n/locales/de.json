@@ -170,6 +170,17 @@
       "precipitation_today": "Niederschlag heute",
       "precipitation_tomorrow": "Niederschlag morgen"
     },
+    "sensorHelp": {
+      "rain": "Notwendig. Binärsensor, der Regen erkennt. Bei „an“ wird ein laufender Lauf sofort abgebrochen.",
+      "wind": "Optional. Binärsensor für Windalarm. Bei „an“ werden Sequenzen mit „Wind blockt“ übersprungen.",
+      "season": "Optional. Binärsensor für die Bewässerungssaison. Bei „aus“ werden alle Läufe übersprungen (Winterpause).",
+      "temperature": "Notwendig. Aktuelle Außentemperatur in °C. Basis für den Temperatur-Faktor.",
+      "temperature_max": "Optional. Prognostizierte Tageshöchsttemperatur in °C. Wird bevorzugt, wenn vorhanden.",
+      "precipitation_prob_today": "Optional. Regenwahrscheinlichkeit heute (0–100 %). Fließt in den Regen-Faktor ein.",
+      "precipitation_prob_tomorrow": "Optional. Regenwahrscheinlichkeit morgen (0–100 %). Fließt in den Regen-Faktor ein.",
+      "precipitation_today": "Optional. Erwarteter Niederschlag heute in mm. Bestimmt zusammen mit der Schwelle die Reduktion.",
+      "precipitation_tomorrow": "Optional. Erwarteter Niederschlag morgen in mm. Wird mit dem Prognose-Gewichtungsfaktor verrechnet."
+    },
     "zones": "Zonen",
     "addZone": "Zone hinzufügen",
     "noZones": "Keine Zonen",
@@ -324,7 +335,9 @@
     "today": "Heute",
     "tomorrow": "Morgen",
     "skip": "Überspringen",
-    "skipped": "{{name}} übersprungen"
+    "skipped": "{{name}} übersprungen",
+    "tempTip": "Messwert: {{input}} · Basis: {{basis}} °C · {{pct}} % pro °C · Bereich: {{min}}–{{max}} %",
+    "rainTip": "Wahrsch.: {{prob}} · Menge: {{mm}} · Schwelle: {{threshold}} % · Reduz. ab {{reduce}} mm · Null ab {{zero}} mm · Gewichtung: {{decay}}"
   },
   "time": {
     "now": "jetzt",

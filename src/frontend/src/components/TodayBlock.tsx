@@ -1,9 +1,10 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { type NextRun, type SystemStatus, skipRun } from '../api/client'
+import { type NextRun, type SystemStatus, getSettings, skipRun } from '../api/client'
 import { ConfirmActionDialog } from './ConfirmActionDialog'
+import { InfoTip } from './InfoTip'
 import { toast } from './Toast'
 import { IClock, IX } from './icons'
 
@@ -63,10 +64,34 @@ function useSkip() {
 export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
   const { t, i18n } = useTranslation()
   const skip = useSkip()
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
   // A run pending skip confirmation — guards against an accidental tap.
   const [pendingSkip, setPendingSkip] = useState<NextRun | null>(null)
   const f = sys.today_factor
   const runs = sys.upcoming_runs ?? []
+
+  const tempTip = settings
+    ? t('today.tempTip', {
+        input: f.temp_input_c != null ? `${f.temp_input_c.toFixed(1)} °C` : '–',
+        basis: settings.factors.temp.basis_c,
+        pct: settings.factors.temp.pct_per_c,
+        min: settings.factors.temp.min_pct,
+        max: settings.factors.temp.max_pct,
+        defaultValue: `Messwert: {{input}} · Basis: {{basis}} °C · {{pct}} % pro °C · Bereich: {{min}}–{{max}} %`,
+      })
+    : undefined
+
+  const rainTip = settings
+    ? t('today.rainTip', {
+        prob: f.rain_prob_pct != null ? `${Math.round(f.rain_prob_pct)} %` : '–',
+        mm: f.rain_mm != null ? `${f.rain_mm.toFixed(1)} mm` : '–',
+        threshold: settings.factors.rain.threshold_prob,
+        reduce: settings.factors.rain.reduce_above_mm,
+        zero: settings.factors.rain.zero_above_mm,
+        decay: settings.factors.rain.forecast_decay,
+        defaultValue: `Wahrsch.: {{prob}} · Menge: {{mm}} · Schwelle: {{threshold}} % · Reduz. ab {{reduce}} mm · Null ab {{zero}} mm · Gewichtung: {{decay}}`,
+      })
+    : undefined
 
   // Shared confirmation dialog for skipping a future run (both layouts).
   const skipDialog = pendingSkip && (
@@ -88,9 +113,9 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
   )
 
   // temp_pct and rain_pct are signed deltas from neutral (0 = no adjustment).
-  const breakdown = [
-    { label: t('weather.temp'), delta: fmtDelta(f.temp_pct), positive: f.temp_pct >= 0 },
-    { label: t('weather.rain'), delta: fmtDelta(f.rain_pct), positive: f.rain_pct >= 0 },
+  const breakdown: { label: string; delta: string; positive: boolean; tip?: string }[] = [
+    { label: t('weather.temp'), delta: fmtDelta(f.temp_pct), positive: f.temp_pct >= 0, tip: tempTip },
+    { label: t('weather.rain'), delta: fmtDelta(f.rain_pct), positive: f.rain_pct >= 0, tip: rainTip },
   ]
 
   if (f.wind_blocking_sequences.length > 0) {
@@ -180,7 +205,10 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {breakdown.map((b, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 }}>
-                <span style={{ color: 'var(--n-fg-soft)', minWidth: 80 }}>{b.label}</span>
+                <span style={{ color: 'var(--n-fg-soft)', minWidth: 80, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  {b.label}
+                  {b.tip && <InfoTip text={b.tip} />}
+                </span>
                 <span
                   className="mono"
                   style={{
@@ -276,7 +304,7 @@ function DenseTodayBlock({
   onSkip,
 }: {
   sys: SystemStatus
-  breakdown: { label: string; delta: string; positive: boolean }[]
+  breakdown: { label: string; delta: string; positive: boolean; tip?: string }[]
   onSkip: (run: NextRun) => void
 }) {
   const { t, i18n } = useTranslation()
@@ -333,7 +361,10 @@ function DenseTodayBlock({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           {breakdown.map((b, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
-              <span style={{ color: 'var(--n-fg-soft)', minWidth: 70 }}>{b.label}</span>
+              <span style={{ color: 'var(--n-fg-soft)', minWidth: 70, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                {b.label}
+                {b.tip && <InfoTip text={b.tip} />}
+              </span>
               <span className="mono" style={{ color: !b.positive ? 'var(--n-paused)' : 'var(--n-leaf-300)' }}>
                 {b.delta}
               </span>

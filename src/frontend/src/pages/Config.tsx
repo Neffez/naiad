@@ -18,6 +18,7 @@ import {
   testNotify,
 } from '../api/client'
 import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
+import { InfoTip } from '../components/InfoTip'
 import { NumberField } from '../components/NumberField'
 import { toast } from '../components/Toast'
 import {
@@ -189,7 +190,16 @@ export default function Config() {
       {/* Sensors */}
       <Section title={t('config.sensors', { defaultValue: 'Sensoren' })}>
         {SENSOR_FIELDS.map((f, i) => (
-          <Row key={f.key} label={t(`config.sensor.${f.key}`, { defaultValue: f.fallback })} last={i === SENSOR_FIELDS.length - 1}>
+          <Row
+            key={f.key}
+            label={
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                {t(`config.sensor.${f.key}`, { defaultValue: f.fallback })}
+                <InfoTip text={t(`config.sensorHelp.${f.infoKey}`)} />
+              </span>
+            }
+            last={i === SENSOR_FIELDS.length - 1}
+          >
             <EntityCombobox
               value={draft.sensors[f.key]}
               onChange={(v) => patch((d) => { d.sensors[f.key] = v })}
@@ -463,16 +473,16 @@ export default function Config() {
 
 // ── Field metadata ─────────────────────────────────────────────────────────────
 
-const SENSOR_FIELDS: { key: keyof ConfigDoc['sensors']; domain: string; fallback: string }[] = [
-  { key: 'rain', domain: 'binary_sensor', fallback: 'Regen' },
-  { key: 'wind', domain: 'binary_sensor', fallback: 'Wind' },
-  { key: 'season', domain: 'binary_sensor', fallback: 'Saison' },
-  { key: 'temperature', domain: 'sensor', fallback: 'Temperatur' },
-  { key: 'temperature_max', domain: 'sensor', fallback: 'Max-Temperatur (Prognose)' },
-  { key: 'precipitation_prob_today', domain: 'sensor', fallback: 'Regenwahrscheinlichkeit heute' },
-  { key: 'precipitation_prob_tomorrow', domain: 'sensor', fallback: 'Regenwahrscheinlichkeit morgen' },
-  { key: 'precipitation_today', domain: 'sensor', fallback: 'Niederschlag heute' },
-  { key: 'precipitation_tomorrow', domain: 'sensor', fallback: 'Niederschlag morgen' },
+const SENSOR_FIELDS: { key: keyof ConfigDoc['sensors']; domain: string; fallback: string; infoKey: string }[] = [
+  { key: 'rain', domain: 'binary_sensor', fallback: 'Regen', infoKey: 'rain' },
+  { key: 'wind', domain: 'binary_sensor', fallback: 'Wind', infoKey: 'wind' },
+  { key: 'season', domain: 'binary_sensor', fallback: 'Saison', infoKey: 'season' },
+  { key: 'temperature', domain: 'sensor', fallback: 'Temperatur', infoKey: 'temperature' },
+  { key: 'temperature_max', domain: 'sensor', fallback: 'Max-Temperatur (Prognose)', infoKey: 'temperature_max' },
+  { key: 'precipitation_prob_today', domain: 'sensor', fallback: 'Regenwahrscheinlichkeit heute', infoKey: 'precipitation_prob_today' },
+  { key: 'precipitation_prob_tomorrow', domain: 'sensor', fallback: 'Regenwahrscheinlichkeit morgen', infoKey: 'precipitation_prob_tomorrow' },
+  { key: 'precipitation_today', domain: 'sensor', fallback: 'Niederschlag heute', infoKey: 'precipitation_today' },
+  { key: 'precipitation_tomorrow', domain: 'sensor', fallback: 'Niederschlag morgen', infoKey: 'precipitation_tomorrow' },
 ]
 
 // ── Sequence editor ─────────────────────────────────────────────────────────────
@@ -737,7 +747,7 @@ function Row({ label, children, last = false, align = 'center' }: {
 function CardRow({ children, last }: { children: ReactNode; last: boolean }) {
   return (
     <div style={{
-      display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap',
+      display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap',
       padding: '14px 20px', borderBottom: last ? 'none' : '1px solid var(--n-line)',
     }}>
       {children}
@@ -759,7 +769,8 @@ function IdTag({ id }: { id: string }) {
     <span className="mono" style={{
       fontSize: 12, color: 'var(--n-teal-200)',
       background: 'var(--n-teal-glow)', border: '1px solid rgba(94,200,216,0.25)',
-      padding: '4px 8px', borderRadius: 'var(--n-r-sm)', alignSelf: 'flex-end',
+      padding: '4px 8px', borderRadius: 'var(--n-r-sm)',
+      marginTop: 18,
     }}>{id}</span>
   )
 }
@@ -949,7 +960,7 @@ function DeleteButton({ onClick }: { onClick: () => void }) {
   const { t } = useTranslation()
   return (
     <button className="n-btn" title={t('config.delete', { defaultValue: 'Löschen' })}
-      style={{ height: 36, width: 36, padding: 0, fontSize: 15, color: 'var(--n-danger)' }}
+      style={{ height: 36, width: 36, padding: 0, fontSize: 15, color: 'var(--n-danger)', marginTop: 18 }}
       onClick={onClick}>✕</button>
   )
 }
