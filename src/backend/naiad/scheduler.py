@@ -16,6 +16,7 @@ from naiad.domain.models import Plan, SequenceOverride, SkippedRun, UserPreferen
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.domain.sequences import MutexConflict, SequenceRunner, zone_id_of_run
 from naiad.ha_client import HAClient
+from naiad.i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,7 @@ async def _run_sequence_job(
     if seq_cfg.wind_blocks and snapshot.wind_on:
         logger.info("Skipped (%s): wind blocked", sequence_id)
         await push_notification(
-            ha, config, f"⚠️ {seq_cfg.label}: Wind — Lauf übersprungen", category="skip"
+            ha, config, t("skip.wind", config.language, label=seq_cfg.label), category="skip"
         )
         return "skipped"
 
@@ -160,7 +161,7 @@ async def _run_sequence_job(
     if round(factors.factor_pct) == 0:
         logger.info("Skipped (%s): watering factor is 0%%", sequence_id)
         await push_notification(
-            ha, config, f"💧 {seq_cfg.label}: Faktor 0 % — Lauf übersprungen", category="skip"
+            ha, config, t("skip.zero_factor", config.language, label=seq_cfg.label), category="skip"
         )
         return "skipped"
 
@@ -185,15 +186,21 @@ async def _run_sequence_job(
         running_id = runner.status().sequence_id
         running_cfg = config.sequences.get(running_id) if running_id else None
         running_label = running_cfg.label if running_cfg else (running_id or "?")
-        conflict_note = (
-            f"⚠️ Zeitplan-Konflikt: {seq_cfg.label} übersprungen — {running_label} läuft noch"
+        conflict_note = t(
+            "skip.conflict_sequence", config.language, label=seq_cfg.label, running=running_label
         )
         await push_notification(ha, config, conflict_note, category="skip")
         await broadcast_notification(conflict_note, level="warning")
         return "conflict"
 
     label_pct = int(round(factors.factor_pct))
-    note = f"🌿 {seq_cfg.label} gestartet ({triggered_by}, Faktor {label_pct} %)"
+    note = t(
+        "start.sequence",
+        config.language,
+        label=seq_cfg.label,
+        trigger=t(f"trigger.{triggered_by}", config.language),
+        pct=label_pct,
+    )
     await push_notification(ha, config, note, category="start")
     # The "running" status is broadcast by the runner's on_started callback once a
     # valve actually opens, so clients never see a run that failed to start.
@@ -235,14 +242,20 @@ async def _run_zone_job(
         zid = zone_id_of_run(running_id) if running_id else None
         running_cfg = config.zones.get(zid) if zid else config.sequences.get(running_id or "")
         running_label = running_cfg.label if running_cfg else (running_id or "?")
-        conflict_note = (
-            f"⚠️ Zeitplan-Konflikt: Zone {zone_cfg.label} übersprungen — {running_label} läuft noch"
+        conflict_note = t(
+            "skip.conflict_zone", config.language, label=zone_cfg.label, running=running_label
         )
         await push_notification(ha, config, conflict_note, category="skip")
         await broadcast_notification(conflict_note, level="warning")
         return "conflict"
 
-    note = f"🌿 Zone {zone_cfg.label} gestartet ({triggered_by}, {int(round(duration_min))} min)"
+    note = t(
+        "start.zone",
+        config.language,
+        label=zone_cfg.label,
+        trigger=t(f"trigger.{triggered_by}", config.language),
+        minutes=int(round(duration_min)),
+    )
     await push_notification(ha, config, note, category="start")
     await broadcast_notification(note)
     logger.info("Started zone '%s' via %s (%.0f min)", zone_id, triggered_by, duration_min)
@@ -325,7 +338,7 @@ async def _on_rain(
             seq_cfg = config.sequences.get(cleared)
             label = seq_cfg.label if seq_cfg else cleared
             logger.info("Rain detected — discarding paused run '%s'", cleared)
-            rain_note = f"🌧 Pausierte Bewässerung verworfen: Regen ({label})"
+            rain_note = t("abort.paused_rain", config.language, label=label)
             await push_notification(ha, config, rain_note, category="abort")
             await broadcast_sequence_changed(cleared, "idle", "rain")
             await broadcast_notification(rain_note, level="warning")
@@ -343,7 +356,7 @@ async def _on_rain(
     try:
         seq_id = status.sequence_id
         await runner.stop(reason="rain")
-        rain_note = f"🌧 Bewässerung gestoppt: Regen ({label})"
+        rain_note = t("abort.rain", config.language, label=label)
         await push_notification(ha, config, rain_note, category="abort")
         await broadcast_sequence_changed(seq_id, "idle", "rain")
         await broadcast_notification(rain_note, level="warning")
@@ -389,12 +402,15 @@ async def _evening_reminder(
             else:
                 pseq = config.sequences.get(plan.sequence_id)
                 label = pseq.label if pseq else plan.sequence_id
-            runs.append((local, f"{label} (geplant)"))
+            runs.append((local, t("reminder.planned", config.language, label=label)))
 
     if runs:
         runs.sort(key=lambda r: r[0])
-        lines = "\n".join(f"• {when.strftime('%H:%M')} {label}" for when, label in runs)
-        message = "💦🌱 Morgen:\n" + lines
+        lines = "\n".join(
+            t("reminder.line", config.language, time=when.strftime("%H:%M"), label=label)
+            for when, label in runs
+        )
+        message = t("reminder.header", config.language) + "\n" + lines
         await push_notification(ha, config, message, category="reminder")
 
 

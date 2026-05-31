@@ -42,6 +42,7 @@ from naiad.dependencies import (
 from naiad.domain.sequences import SequenceRunner
 from naiad.domain.tracking import LiterTracker
 from naiad.ha_client import HAClient, HAError
+from naiad.i18n import t
 from naiad.runtime_reload import apply_reloaded_config
 from naiad.stats_publisher import StatsPublisher
 
@@ -289,7 +290,7 @@ async def test_notify(
         raise HTTPException(
             400, "No notify targets configured. Add at least one (notify.*) in the configuration."
         )
-    message = "🌿 Naiad: test notification — if you see this, notifications work."
+    message = t("test.notification", config.language)
     failures: list[str] = []
     for target in targets:
         try:
