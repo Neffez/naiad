@@ -160,6 +160,9 @@ class SequenceRunner:
         # Invoked for noteworthy run events that warrant a notification
         # (message, level), e.g. a watchdog abort. Wired to push/broadcast in main.
         self.on_notification: Callable[[str, str], Awaitable[None]] | None = None
+        # Invoked after a zone's history row is finalized, so external consumers
+        # (e.g. the MQTT statistics bridge) can refresh the published totals.
+        self.on_run_recorded: Callable[[], Awaitable[None]] | None = None
 
     async def _emit_notification(self, message: str, level: str) -> None:
         if self.on_notification is None:
@@ -168,6 +171,14 @@ class SequenceRunner:
             await self.on_notification(message, level)
         except Exception:
             logger.exception("on_notification callback failed")
+
+    async def _emit_run_recorded(self) -> None:
+        if self.on_run_recorded is None:
+            return
+        try:
+            await self.on_run_recorded()
+        except Exception:
+            logger.exception("on_run_recorded callback failed")
 
     def _seq(self, sequence_id: str) -> SequenceConfig | None:
         """Resolve a sequence config by id, including the active single-zone run's
@@ -238,9 +249,7 @@ class SequenceRunner:
             raise MutexConflict(f"'{self._running}' is already running")
 
         run_id = zone_run_id(zone_id)
-        self._zone_run_seq = build_zone_sequence(
-            zone_id, self._config.zones[zone_id], duration_min
-        )
+        self._zone_run_seq = build_zone_sequence(zone_id, self._config.zones[zone_id], duration_min)
         self._zone_run_id = run_id
         self._running = run_id  # set before first await — asyncio mutex
         self._stop_event.clear()
@@ -253,9 +262,7 @@ class SequenceRunner:
             name=f"zone-{zone_id}",
         )
 
-    async def _execute_zone(
-        self, run_id: str, duration_min: float, triggered_by: str
-    ) -> None:
+    async def _execute_zone(self, run_id: str, duration_min: float, triggered_by: str) -> None:
         seq = self._zone_run_seq
         assert seq is not None
         try:
@@ -613,6 +620,9 @@ class SequenceRunner:
                         )
                     )
                 session.commit()
+
+            # History is persisted — let consumers (MQTT stats) refresh totals.
+            await self._emit_run_recorded()
 
             if result == _STOP:
                 self._clear_active_run()

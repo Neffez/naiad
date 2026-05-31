@@ -59,6 +59,31 @@ def target_service_data(target: "NotifyTarget", message: str) -> dict[str, Any]:
     return service_data
 
 
+class MQTTConfig(BaseModel):
+    """Optional MQTT bridge that publishes irrigation statistics to Home Assistant.
+
+    When ``enabled`` and a broker ``host`` is set, Naiad publishes its tracked
+    liters and run durations as MQTT-discovery sensors. Home Assistant then exposes
+    them as native entities (with long-term statistics) and — via its InfluxDB
+    integration — forwards their state changes to InfluxDB/Grafana.
+
+    The ``password`` is environment-managed like other secrets: it is stripped
+    before the config is persisted and re-injected from ``MQTT_PASSWORD`` on load.
+    """
+
+    enabled: bool = False
+    host: str = ""
+    port: int = 1883
+    username: str = ""
+    password: str = ""
+    client_id: str = "naiad"
+    # HA MQTT-discovery prefix (matches the broker/HA configuration; almost always
+    # the default "homeassistant").
+    discovery_prefix: str = "homeassistant"
+    # Root topic for Naiad's own state/availability topics.
+    base_topic: str = "naiad"
+
+
 class HAConfig(BaseModel):
     url: str
     token: str
@@ -344,6 +369,7 @@ class AppConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     ha: HAConfig
+    mqtt: MQTTConfig = MQTTConfig()
     auth: AuthConfig = AuthConfig()
     sensors: SensorsConfig
     zones: dict[str, ZoneConfig]

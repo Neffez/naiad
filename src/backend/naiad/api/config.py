@@ -24,6 +24,7 @@ from naiad.api.schemas import (
     EntitiesResponse,
     EntityInfo,
     HAConfigPublic,
+    MQTTConfigResponse,
     ServicesResponse,
 )
 from naiad.config import AppConfig, target_service_data
@@ -34,6 +35,7 @@ from naiad.dependencies import (
     get_runner,
     get_scheduler,
     get_session_factory,
+    get_stats_publisher,
     get_tracker,
     require_auth,
 )
@@ -41,6 +43,7 @@ from naiad.domain.sequences import SequenceRunner
 from naiad.domain.tracking import LiterTracker
 from naiad.ha_client import HAClient, HAError
 from naiad.runtime_reload import apply_reloaded_config
+from naiad.stats_publisher import StatsPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,16 @@ def build_config_response(config: AppConfig, *, restart_required: bool = False) 
     """Project an AppConfig to the public response, redacting secrets."""
     return ConfigResponse(
         ha=HAConfigPublic(url=config.ha.url, notify_targets=config.ha.notify_targets),
+        mqtt=MQTTConfigResponse(
+            enabled=config.mqtt.enabled,
+            host=config.mqtt.host,
+            port=config.mqtt.port,
+            username=config.mqtt.username,
+            client_id=config.mqtt.client_id,
+            discovery_prefix=config.mqtt.discovery_prefix,
+            base_topic=config.mqtt.base_topic,
+            password_set=bool(config.mqtt.password),
+        ),
         auth=AuthConfigResponse(
             mode=config.auth.mode,
             forward_header=config.auth.forward_header,
@@ -86,6 +99,11 @@ def build_validated_config(data: dict[str, Any], current: AppConfig) -> AppConfi
     auth = {**data.get("auth", {}), "password": current.auth.password}
     auth.pop("password_set", None)
     data["auth"] = auth
+    # The MQTT password is environment-managed too: carry it through and never
+    # accept it from a client (drop the response-only password_set flag).
+    mqtt = {**data.get("mqtt", {}), "password": current.mqtt.password}
+    mqtt.pop("password_set", None)
+    data["mqtt"] = mqtt
     config = AppConfig.model_validate(data)
 
     # Lockout guard: password auth requires a password, but the password is
@@ -110,6 +128,7 @@ def _persist_and_reload(
     ha: HAClient,
     session_factory: Callable[[], Session],
     tracker: LiterTracker,
+    stats_publisher: StatsPublisher,
 ) -> bool:
     """Persist a validated config and apply it live. Returns restart_required."""
     # The token is environment-managed and carried through unchanged, so only a
@@ -125,6 +144,7 @@ def _persist_and_reload(
         ha=ha,
         session_factory=session_factory,
         tracker=tracker,
+        stats_publisher=stats_publisher,
     )
     return restart_required
 
@@ -149,6 +169,7 @@ async def replace_configuration(
     scheduler: AsyncIOScheduler = Depends(get_scheduler),
     ha: HAClient = Depends(get_ha_client),
     tracker: LiterTracker = Depends(get_tracker),
+    stats_publisher: StatsPublisher = Depends(get_stats_publisher),
     session_factory: Callable[[], Session] = Depends(get_session_factory),
 ) -> ConfigResponse:
     if runner.status().sequence_id is not None:
@@ -166,6 +187,7 @@ async def replace_configuration(
         ha=ha,
         session_factory=session_factory,
         tracker=tracker,
+        stats_publisher=stats_publisher,
     )
     return build_config_response(config, restart_required=restart_required)
 
@@ -192,6 +214,7 @@ async def import_configuration(
     scheduler: AsyncIOScheduler = Depends(get_scheduler),
     ha: HAClient = Depends(get_ha_client),
     tracker: LiterTracker = Depends(get_tracker),
+    stats_publisher: StatsPublisher = Depends(get_stats_publisher),
     session_factory: Callable[[], Session] = Depends(get_session_factory),
 ) -> ConfigResponse:
     if runner.status().sequence_id is not None:
@@ -216,6 +239,7 @@ async def import_configuration(
         ha=ha,
         session_factory=session_factory,
         tracker=tracker,
+        stats_publisher=stats_publisher,
     )
     return build_config_response(config, restart_required=restart_required)
 
