@@ -372,9 +372,7 @@ async def _evening_reminder(
         runs.sort(key=lambda r: r[0])
         lines = "\n".join(f"• {when.strftime('%H:%M')} {label}" for when, label in runs)
         message = "💦🌱 Morgen:\n" + lines
-    else:
-        message = "💦🌱 Morgen keine Bewässerung geplant."
-    await push_notification(ha, config, message, category="reminder")
+        await push_notification(ha, config, message, category="reminder")
 
 
 def next_run_for_sequence(scheduler: AsyncIOScheduler, seq_id: str) -> datetime | None:
