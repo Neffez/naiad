@@ -109,6 +109,7 @@ environment only (see [`.env.example`](.env.example)).
 | `NAIAD_PASSWORD_HASH` | when `auth.mode: password` | App password, bcrypt hash. Generate with `python -c "import bcrypt; print(bcrypt.hashpw(b'pw', bcrypt.gensalt()).decode())"`. |
 | `NAIAD_CONFIG` | no | Path to an optional first-boot seed `config.yaml` (default `/data/config.yaml`). |
 | `NAIAD_DATA_DIR` | no | Directory for the SQLite database (default `/data`). |
+| `MQTT_PASSWORD` | when `mqtt.enabled` and the broker requires auth | Password for the MQTT broker used by the statistics bridge. |
 | `TZ` | recommended | Scheduler timezone, e.g. `Europe/Berlin`. |
 
 ### Configuration sections
@@ -116,11 +117,46 @@ environment only (see [`.env.example`](.env.example)).
 | Section | Purpose |
 |---|---|
 | `ha` | HA WebSocket URL, token, and `notify_targets` for push notifications. |
+| `mqtt` | Optional MQTT statistics bridge — see [Statistics in Home Assistant](#statistics-in-home-assistant). `enabled`, broker `host`/`port`/`username`, `discovery_prefix`, `base_topic`. |
 | `auth` | `mode` (`password` \| `forward_header` \| `none`), the shared `password`, optional `auto_login` for trusted embedding contexts, `ingress` trust for the HA add-on sidebar (additive — coexists with `mode`), and `frame_ancestors` for the CSP header. |
 | `sensors` | Entity IDs for rain, wind, season, temperature, and the four precipitation forecast sensors. |
 | `zones` | Per-zone `label`, `switch` entity, and `flow_lph` (used for liter tracking). |
 | `sequences` | Ordered `zones`, `basis_min_per_zone`, allowed `range`, `watchdog_min`, `schedule.cron`, `enabled`, and `wind_blocks` (sets the factor to 0 on a wind alarm). |
 | `factors` | `temp` (linear scaling around `basis_c`) and `rain` (forecast-based reduction with `threshold_prob`, `reduce_above_mm`, `zero_above_mm`, `forecast_decay`). |
+
+## Statistics in Home Assistant
+
+Naiad keeps its own run history in SQLite (visible on the History screen). It can
+*also* mirror the tracked liters and run durations back into Home Assistant as
+native sensor entities, so the data flows on into HA's long-term statistics and —
+via HA's InfluxDB integration — into InfluxDB and Grafana.
+
+This uses [MQTT discovery](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery):
+when `mqtt.enabled` is set and a broker is reachable, Naiad publishes (retained)
+discovery configs and state under one **Naiad** device. The entities:
+
+| Entity | Type | Meaning |
+|---|---|---|
+| `sensor.naiad_water_total` | `total_increasing`, `water`, `L` | Cumulative liters across all zones |
+| `sensor.naiad_water_<zone>` | `total_increasing`, `water`, `L` | Cumulative liters per zone |
+| `sensor.naiad_runtime_total` | `total_increasing`, `duration`, `min` | Cumulative run minutes |
+| `sensor.naiad_runtime_<zone>` | `total_increasing`, `duration`, `min` | Cumulative run minutes per zone |
+| `sensor.naiad_last_run_liters` | `measurement`, `water`, `L` | Liters of the most recent run |
+| `sensor.naiad_last_run_duration` | `measurement`, `duration`, `min` | Minutes of the most recent run |
+| `sensor.naiad_last_run` | `timestamp` | When the most recent run ended |
+
+The values are recomputed from the SQLite history on every publish (after each
+run, including external/manual valve activity, and on every (re)connect), so they
+never drift from what Naiad recorded. Messages are retained, so the figures
+survive both Naiad and Home Assistant restarts.
+
+For the Grafana path: HA's InfluxDB integration exports **state changes** (not
+the statistics tables), so it picks these sensors up automatically — point Grafana
+at InfluxDB and build the dashboard from there (e.g. a per-day water consumption
+panel via `difference()` on the cumulative `naiad_water_total`).
+
+The bridge is entirely optional and best-effort: a missing or unreachable broker
+is logged and ignored — it never affects irrigation.
 
 ## Hardware compatibility
 
