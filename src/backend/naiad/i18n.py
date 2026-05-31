@@ -34,9 +34,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "reminder.header": "💦🌱 Tomorrow:",
         "reminder.line": "• {time} {label}",
         "reminder.planned": "{label} (planned)",
-        "test.notification": (
-            "🌿 Naiad: test notification — if you see this, notifications work."
-        ),
+        "test.notification": "🌿 Naiad: test notification — if you see this, notifications work.",
     },
     "de": {
         # How a run was triggered — embedded into the start messages below.
