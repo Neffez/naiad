@@ -97,7 +97,7 @@ export default function Planner() {
                   ? 'linear-gradient(180deg, var(--n-teal-500), var(--n-teal-600))'
                   : 'transparent',
                 border: 'none',
-                color: target === opt.id ? '#04181c' : 'var(--n-fg-muted)',
+                color: target === opt.id ? 'var(--n-on-accent)' : 'var(--n-fg-muted)',
                 fontSize: 14,
                 fontWeight: target === opt.id ? 600 : 400,
                 fontFamily: 'var(--n-sans)',
@@ -182,7 +182,7 @@ export default function Planner() {
                   ? 'linear-gradient(180deg, var(--n-teal-500), var(--n-teal-600))'
                   : 'transparent',
                 border: 'none',
-                color: mode === opt.id ? '#04181c' : 'var(--n-fg-muted)',
+                color: mode === opt.id ? 'var(--n-on-accent)' : 'var(--n-fg-muted)',
                 fontSize: 14,
                 fontWeight: mode === opt.id ? 600 : 400,
                 fontFamily: 'var(--n-sans)',
