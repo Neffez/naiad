@@ -741,6 +741,33 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AppSettings' }
 
+  /settings/sequences:
+    delete:
+      operationId: clearAllSequenceOverrides
+      summary: Remove all sequence overrides (restore YAML defaults for every sequence)
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppSettings' }
+
+  /settings/sequences/{sequence_id}:
+    delete:
+      operationId: clearSequenceOverride
+      summary: Remove the override for a single sequence (restore its YAML defaults)
+      parameters:
+        - name: sequence_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppSettings' }
+        '404':
+          description: Unknown sequence
+
   # ── User preferences ────────────────────────────────────────────────────────
 
   /preferences:
