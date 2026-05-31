@@ -63,6 +63,10 @@ class StartSequenceRequest(BaseModel):
     duration_min: int | None = Field(default=None, gt=0)
 
 
+class StartZoneRequest(BaseModel):
+    duration_min: int = Field(gt=0)
+
+
 class ZoneSummaryResponse(BaseModel):
     id: str
     label: str
@@ -174,6 +178,9 @@ class ValveStateResponse(BaseModel):
     state: str
     on_since: UtcDatetime | None
     runtime_min: float | None
+    # True when this zone is currently running as a standalone single-zone run
+    # (started directly, not as part of a sequence) — so the UI can offer a stop.
+    single_run: bool = False
 
 
 # ── History ───────────────────────────────────────────────────────────────────
@@ -209,7 +216,10 @@ class DeleteHistoryResponse(BaseModel):
 
 
 class CreatePlanRequest(BaseModel):
-    sequence_id: str
+    # Exactly one target must be provided: a sequence plan (sequence_id) or a
+    # single-zone plan (zone_id, which requires duration_min).
+    sequence_id: str | None = None
+    zone_id: str | None = None
     mode: str  # in_hours | at_datetime
     value: float | str
     duration_min: int | None = Field(default=None, gt=0)
@@ -217,8 +227,12 @@ class CreatePlanRequest(BaseModel):
 
 class PlanResponse(BaseModel):
     id: str
-    sequence_id: str
-    sequence_label: str
+    target_type: Literal["sequence", "zone"]
+    sequence_id: str | None
+    sequence_label: str | None
+    zone_id: str | None
+    zone_label: str | None
+    label: str  # unified display label (sequence or zone)
     scheduled_at: UtcDatetime
     duration_min: int | None
     estimated_liters: float | None
