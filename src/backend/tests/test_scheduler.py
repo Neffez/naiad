@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -124,6 +125,54 @@ async def test_plan_kept_on_conflict_then_consumed(fast_config: AppConfig, engin
     with Session(engine) as s:
         assert list(s.exec(select(Plan)).all()) == []  # plan consumed
     await runner.stop()
+
+
+async def test_zone_plan_runs_only_that_zone(fast_config: AppConfig, engine) -> None:
+    sf = lambda: Session(engine)  # noqa: E731
+    ha = FakeHA()
+    driver = FakeDriver()
+    runner = SequenceRunner(fast_config, driver, sf)
+
+    with Session(engine) as s:
+        s.add(
+            Plan(
+                id=str(uuid.uuid4()),
+                zone_id="zone_b",
+                duration_min=1,
+                scheduled_at=datetime.now(UTC) - timedelta(minutes=1),
+            )
+        )
+        s.commit()
+
+    await _plan_tick(runner, ha, fast_config, sf)
+    await asyncio.sleep(0)  # let the run open its zone
+    assert "switch.zone_b" in driver.on_calls
+    assert "switch.zone_a" not in driver.on_calls
+    with Session(engine) as s:
+        assert list(s.exec(select(Plan)).all()) == []  # plan consumed
+    await runner.stop()
+
+
+async def test_zone_plan_skipped_when_master_off(fast_config: AppConfig, engine) -> None:
+    sf = lambda: Session(engine)  # noqa: E731
+    with Session(engine) as s:
+        s.add(UserPreference(key="master_on", value="0"))
+        s.add(
+            Plan(
+                id=str(uuid.uuid4()),
+                zone_id="zone_b",
+                duration_min=1,
+                scheduled_at=datetime.now(UTC) - timedelta(minutes=1),
+            )
+        )
+        s.commit()
+    driver = FakeDriver()
+    runner = SequenceRunner(fast_config, driver, sf)
+
+    await _plan_tick(runner, FakeHA(), fast_config, sf)
+    assert driver.on_calls == []  # master off → nothing opened
+    with Session(engine) as s:
+        assert list(s.exec(select(Plan)).all()) == []  # plan consumed (deterministic skip)
 
 
 async def test_cron_run_skipped_when_occurrence_marked(fast_config: AppConfig, engine) -> None:

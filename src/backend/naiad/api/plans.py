@@ -16,9 +16,29 @@ router = APIRouter(prefix="/plans", tags=["plans"])
 
 
 def _to_response(plan: Plan, config: AppConfig) -> PlanResponse:
+    if plan.zone_id is not None:
+        zone = config.zones.get(plan.zone_id)
+        zone_label = zone.label if zone else plan.zone_id
+        estimated: float | None = None
+        if plan.duration_min is not None and zone is not None:
+            estimated = round(plan.duration_min / 60.0 * zone.flow_lph, 1)
+        return PlanResponse(
+            id=plan.id,
+            target_type="zone",
+            sequence_id=None,
+            sequence_label=None,
+            zone_id=plan.zone_id,
+            zone_label=zone_label,
+            label=zone_label,
+            scheduled_at=plan.scheduled_at,
+            duration_min=plan.duration_min,
+            estimated_liters=estimated,
+            created_at=plan.created_at,
+        )
+
     seq = config.sequences.get(plan.sequence_id)
     seq_label = seq.label if seq else plan.sequence_id
-    estimated: float | None = None
+    estimated = None
     if plan.duration_min is not None and seq is not None:
         total_liters = sum(
             plan.duration_min / 60.0 * config.zones[z].flow_lph
@@ -28,8 +48,12 @@ def _to_response(plan: Plan, config: AppConfig) -> PlanResponse:
         estimated = round(total_liters, 1)
     return PlanResponse(
         id=plan.id,
+        target_type="sequence",
         sequence_id=plan.sequence_id,
         sequence_label=seq_label,
+        zone_id=None,
+        zone_label=None,
+        label=seq_label,
         scheduled_at=plan.scheduled_at,
         duration_min=plan.duration_min,
         estimated_liters=estimated,
@@ -56,7 +80,16 @@ async def create_plan(
     config: AppConfig = Depends(get_config),
     session: Session = Depends(get_session),
 ) -> PlanResponse:
-    if body.sequence_id not in config.sequences:
+    # Exactly one target: a sequence plan or a single-zone plan.
+    if (body.sequence_id is None) == (body.zone_id is None):
+        raise HTTPException(422, "Provide exactly one of sequence_id or zone_id")
+
+    if body.zone_id is not None:
+        if body.zone_id not in config.zones:
+            raise HTTPException(422, f"Zone '{body.zone_id}' not found")
+        if body.duration_min is None:
+            raise HTTPException(422, "duration_min is required for a zone plan")
+    elif body.sequence_id not in config.sequences:
         raise HTTPException(422, f"Sequence '{body.sequence_id}' not found")
 
     if body.mode == "in_hours":
@@ -82,7 +115,8 @@ async def create_plan(
 
     plan = Plan(
         id=str(uuid.uuid4()),
-        sequence_id=body.sequence_id,
+        sequence_id=body.sequence_id or "",
+        zone_id=body.zone_id,
         scheduled_at=to_naive_utc(scheduled_at, config.timezone),
         duration_min=body.duration_min,
         created_at=datetime.now(UTC),

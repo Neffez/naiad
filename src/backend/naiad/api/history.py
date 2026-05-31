@@ -12,6 +12,7 @@ from naiad.config import AppConfig
 from naiad.database import get_session
 from naiad.dependencies import get_config, require_auth
 from naiad.domain.models import RunHistory
+from naiad.domain.sequences import zone_id_of_run
 from naiad.timeutil import local_date_to_utc, now_utc_naive
 
 router = APIRouter(tags=["history"])
@@ -100,6 +101,10 @@ async def delete_history(
 
 
 def _seq_label(sequence_id: str, config: AppConfig) -> str:
+    # A standalone single-zone run has no sequence — show nothing for it (the zone
+    # label carries the meaning); the synthetic id is internal.
+    if zone_id_of_run(sequence_id) is not None:
+        return ""
     seq = config.sequences.get(sequence_id)
     return seq.label if seq else sequence_id
 

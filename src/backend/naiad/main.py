@@ -274,6 +274,7 @@ from naiad.api import (  # noqa: E402
     sequences,
     settings,
     system,
+    zones,
 )
 from naiad.api import config as config_api  # noqa: E402
 from naiad.api import status as _status  # noqa: E402
@@ -282,6 +283,7 @@ from naiad.api import ws as _ws  # noqa: E402
 app.include_router(_status.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(sequences.router, prefix="/api")
+app.include_router(zones.router, prefix="/api")
 app.include_router(system.router, prefix="/api")
 app.include_router(history.router, prefix="/api")
 app.include_router(plans.router, prefix="/api")
