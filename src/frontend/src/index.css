@@ -36,6 +36,8 @@
   --n-teal-700: #145a66;
   --n-teal-900: #0b3138;
   --n-teal-glow: rgba(94, 200, 216, 0.14);
+  /* dark text drawn on a (light) teal accent surface — readable in both themes */
+  --n-on-accent: #04181c;
 
   /* secondary accent — leaf */
   --n-leaf-200: #c8e2c4;
@@ -255,7 +257,7 @@ svg { display: block; }
 .n-btn.primary {
   background: linear-gradient(180deg, var(--n-teal-500), var(--n-teal-600));
   border-color: var(--n-teal-400);
-  color: #04181c;
+  color: var(--n-on-accent);
   font-weight: 600;
   box-shadow: 0 0 0 1px rgba(94,200,216,0.25) inset, 0 10px 30px -10px rgba(26,150,170,0.55);
 }

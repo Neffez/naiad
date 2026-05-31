@@ -11,6 +11,7 @@ from naiad.config import AppConfig, ScheduleConfig, SequenceConfig, ZoneConfig
 from naiad.domain.models import ActiveRun, RunHistory
 from naiad.domain.resume import (
     clear_active_run,
+    clear_any_snapshot,
     clear_orphan_snapshot,
     clear_snapshot,
     load_active_run,
@@ -311,6 +312,15 @@ class SequenceRunner:
         """Drop a paused sequence's resume snapshot (cancel without resuming)."""
         with self._session_factory() as session:
             clear_snapshot(session, sequence_id)
+
+    def clear_paused_snapshot(self) -> str | None:
+        """Discard any persisted paused-run snapshot, returning its sequence id.
+
+        Used to cancel a paused run on rain so it can't later be resumed; returns
+        None if no run was paused.
+        """
+        with self._session_factory() as session:
+            return clear_any_snapshot(session)
 
     async def _execute(
         self,
