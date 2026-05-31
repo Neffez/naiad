@@ -13,6 +13,7 @@ from naiad.domain.models import AuthToken
 from naiad.domain.sequences import SequenceRunner
 from naiad.domain.tracking import LiterTracker
 from naiad.ha_client import HAClient
+from naiad.stats_publisher import StatsPublisher
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -35,6 +36,10 @@ def get_scheduler(request: Request) -> AsyncIOScheduler:
 
 def get_tracker(request: Request) -> LiterTracker:
     return request.app.state.tracker  # type: ignore[no-any-return]
+
+
+def get_stats_publisher(request: Request) -> StatsPublisher:
+    return request.app.state.stats_publisher  # type: ignore[no-any-return]
 
 
 def get_session_factory(request: Request) -> Callable[[], Session]:
