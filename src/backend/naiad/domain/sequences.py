@@ -249,9 +249,7 @@ class SequenceRunner:
             raise MutexConflict(f"'{self._running}' is already running")
 
         run_id = zone_run_id(zone_id)
-        self._zone_run_seq = build_zone_sequence(
-            zone_id, self._config.zones[zone_id], duration_min
-        )
+        self._zone_run_seq = build_zone_sequence(zone_id, self._config.zones[zone_id], duration_min)
         self._zone_run_id = run_id
         self._running = run_id  # set before first await — asyncio mutex
         self._stop_event.clear()
@@ -264,9 +262,7 @@ class SequenceRunner:
             name=f"zone-{zone_id}",
         )
 
-    async def _execute_zone(
-        self, run_id: str, duration_min: float, triggered_by: str
-    ) -> None:
+    async def _execute_zone(self, run_id: str, duration_min: float, triggered_by: str) -> None:
         seq = self._zone_run_seq
         assert seq is not None
         try:

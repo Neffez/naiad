@@ -222,13 +222,10 @@ async def _run_zone_job(
         logger.warning("Conflict for zone '%s': %s", zone_id, e)
         running_id = runner.status().sequence_id
         zid = zone_id_of_run(running_id) if running_id else None
-        running_cfg = (
-            config.zones.get(zid) if zid else config.sequences.get(running_id or "")
-        )
+        running_cfg = config.zones.get(zid) if zid else config.sequences.get(running_id or "")
         running_label = running_cfg.label if running_cfg else (running_id or "?")
         conflict_note = (
-            f"⚠️ Zeitplan-Konflikt: Zone {zone_cfg.label} übersprungen — "
-            f"{running_label} läuft noch"
+            f"⚠️ Zeitplan-Konflikt: Zone {zone_cfg.label} übersprungen — {running_label} läuft noch"
         )
         await push_notification(ha, config, conflict_note, category="skip")
         await broadcast_notification(conflict_note, level="warning")
