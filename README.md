@@ -1,5 +1,5 @@
-<div align="center">
-  <img src="docs/assets/logo.svg" alt="Naiad" width="420">
+<div style="text-align:center"> 
+<img src="docs/assets/logo.svg" alt="Naiad" width="420">
 
   **Garden irrigation controller for Home Assistant.**
 </div>
@@ -8,17 +8,36 @@
 
 > **Status:** alpha. Backend functional (schedules, sequences, factors, HA integration). Frontend implements the full "Naiad Control Surface" design across all four screens (Dashboard, Planner, History, Settings).
 
-Naiad replaces the irrigation automation logic that typically lives inside Home Assistant (Irrigation Unlimited, automations, pyscript, helpers, dashboard cards) with a single standalone web application. Home Assistant remains the driver for the physical switches and the source of weather and sensor data; everything else — schedules, factor calculation, manual planning, history, UI — happens in Naiad.
+Naiad replaces the irrigation automation logic that typically lives inside Home Assistant (Irrigation Unlimited, automations, pyscript, helpers, dashboard cards) with a single standalone web application. Home Assistant remains the driver for the physical switches and the source of weather and sensor data; everything else, like schedules, factor calculation, manual planning, history and UI happens in Naiad. For the Home Assistant app repo see [app-naiad](https://github.com/Neffez/app-naiad).
+
+## Table of Contents
+
+* [Why](#why)
+* [Scope](#scope)
+* [Tech Stack](#tech-stack)
+* [Architecture](#architecture)
+* [How to Run](#how-to-run)
+    * [Home Assistant App](#home-assistant-app)
+    * [Docker Compose](#docker-compose)
+    * [Local Development (without Docker)](#local-development-without-docker)
+* [Configuration](#configuration)
+    * [Environment Variables](#environment-variables)
+    * [Configuration Sections](#configuration-sections)
+    * [Authentication](#authentication)
+* [Scheduling & Safety](#scheduling--safety)
+* [Statistics in Home Assistant](#statistics-in-home-assistant)
+* [Hardware Compatibility](#hardware-compatibility)
+* [Disclaimer](#disclaimer)
+* [License](#license)
 
 ## Why
 
-The HA-native irrigation stack is powerful but spread across too many layers. A small change — adding a zone, adjusting a schedule, tweaking a watchdog — requires coordinated edits across YAML, automations, pyscript, helpers, and dashboard cards. Naiad consolidates that logic into one codebase with a clean web UI and a single configuration file.
+A HA-native irrigation stack is spread across too many layers. A small change, like adding a zone, adjusting a schedule or tweaking a watchdog requires coordinated edits across YAML, automations, pyscript, helpers, and dashboard cards. Naiad consolidates that logic into one codebase with a clean web UI and a single configuration file.
 
 ## Scope
 
 - **Hardware-agnostic.** A valve is any Home Assistant `switch.*` entity, so whatever HA can switch (KNX, Zigbee, Shelly, Tasmota, …) works — Naiad itself knows nothing about the underlying bus.
 - **Requires Home Assistant** as the hardware driver layer: it switches valves and supplies the rain/wind/season sensors and weather forecasts over the HA WebSocket API.
-- Developed and run against a KNX setup, so that combination is the most exercised; other `switch.*`/`binary_sensor.*` hardware is supported by the same driver layer but less tested.
 
 ## Tech stack
 
@@ -37,40 +56,18 @@ live WebSocket, and the statically built React frontend. All irrigation logic
 lives in the backend; Home Assistant is reduced to a hardware driver and a
 sensor/weather source.
 
-```
-┌──────────────────────────────────────────────┐
-│        Browser (desktop tablet + phone)      │
-│             React SPA · PWA                  │
-└───────────────────┬──────────────────────────┘
-                    │ HTTPS + WebSocket
-┌───────────────────▼──────────────────────────┐
-│  Naiad container                             │
-│   FastAPI  →  REST API + live WebSocket      │
-│   APScheduler  →  sequence crons · watchdog  │
-│                   · plan tick                │
-│   Domain  →  sequences · factors · resume    │
-│              · liter tracking · mutex        │
-│   SQLite (SQLModel)  →  config overrides ·   │
-│                         plans · history ·    │
-│                         resume snapshot      │
-│   HA client (WebSocket)  →  auto-reconnect · │
-│                             state cache      │
-└───────────────────┬──────────────────────────┘
-                    │ WebSocket
-┌───────────────────▼──────────────────────────┐
-│              Home Assistant                  │
-│     switches · weather · notify              │
-└──────────────────────────────────────────────┘
-```
-
 The valve and sensor layers sit behind `IValveDriver` / `ISensorSource`
 protocols (`src/backend/naiad/drivers/`). v1 ships `HAEntityDriver` /
 `HAEntitySensorSource`, which talk to any `switch.*` / `sensor.*` /
-`binary_sensor.*` over the HA WebSocket API. A direct KNX/IP driver via xknx can
-be added later without touching the core.
+`binary_sensor.*` over the HA WebSocket API. 
 
-## Quickstart
+## How to run
 
+### Home Assistant App
+
+Install via the Home Assistant App Repo: https://github.com/Neffez/app-naiad
+
+### Docker Compose
 ```bash
 git clone https://github.com/Neffez/naiad
 cd naiad
@@ -81,6 +78,65 @@ docker compose up -d
 ```
 
 Open `http://<host>:8080` in your browser.
+
+### Local Development (without Docker)
+
+Prerequisites: Python 3.12+, Node 20+.
+
+**One-time setup**
+
+```bash
+# From the project root — optional: seed the first boot from a config.yaml.
+# Skip this entirely to start empty and configure everything in the UI.
+mkdir -p data
+cp config.example.yaml data/config.yaml   # adjust zones, sequences, sensors
+```
+
+If you do seed from YAML, it applies on first boot only. Afterwards the
+database is the source of truth and you edit the config in the UI. To re-seed
+from YAML, delete `data/naiad.db` first.
+
+**Terminal 1 — Backend**
+
+Linux/macOS
+```bash
+cd src/backend
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+set -a; source ../../.env; set +a
+NAIAD_CONFIG=../../data/config.yaml NAIAD_DATA_DIR=../../data \
+  uvicorn naiad.main:app --host localhost --port 8080 --reload
+```
+
+Windows (PowerShell)
+```powershell
+cd src/backend
+python -m venv .venv; .venv\Scripts\activate
+pip install -e ".[dev]"
+Get-Content ..\..\\.env | Where-Object { $_ -match '^[^#].+=.' } |
+  ForEach-Object { $k,$v = $_ -split '=',2; [System.Environment]::SetEnvironmentVariable($k,$v) }
+$env:NAIAD_CONFIG="..\..\data\config.yaml"; $env:NAIAD_DATA_DIR="..\..\data"
+uvicorn naiad.main:app --host localhost --port 8080 --reload
+```
+**Terminal 2 — Frontend**
+
+```bash
+cd src/frontend
+npm install --legacy-peer-deps  # only on first run
+npm run dev
+```
+
+Open `http://localhost:5173` in Browser.
+
+The vite-dev-server will proxy `/api/*` to `http://localhost:8080`, WebSocket included — no CORS-Setup required.
+
+**Tests & Linting (Backend)**
+
+```bash
+cd src/backend && pytest
+ruff check naiad tests
+mypy naiad
+```
 
 ## Configuration
 
@@ -100,29 +156,30 @@ authoritative and the YAML is no longer read.
 
 ### Environment variables
 
-Secrets are never stored in the database or YAML — they come from the
+Secrets are never stored in the database or YAML, they come from the
 environment only (see [`.env.example`](.env.example)).
 
-| Variable | Required | Purpose |
-|---|---|---|
-| `HA_TOKEN` | yes (unless running as the HA app) | Home Assistant long-lived access token (HA → profile → Security). |
-| `NAIAD_PASSWORD_HASH` | when `auth.mode: password` | App password, bcrypt hash. Generate with `python -c "import bcrypt; print(bcrypt.hashpw(b'pw', bcrypt.gensalt()).decode())"`. |
-| `NAIAD_CONFIG` | no | Path to an optional first-boot seed `config.yaml` (default `/data/config.yaml`). |
-| `NAIAD_DATA_DIR` | no | Directory for the SQLite database (default `/data`). |
-| `MQTT_PASSWORD` | when `mqtt.enabled` and the broker requires auth | Password for the MQTT broker used by the statistics bridge. |
-| `TZ` | recommended | Scheduler timezone, e.g. `Europe/Berlin`. |
+| Variable | Required                                                                  | Purpose |
+|---|---------------------------------------------------------------------------|---|
+| `HA_TOKEN` | yes (unless running as the [HA app](https://github.com/Neffez/app-naiad)) | Home Assistant long-lived access token (HA → profile → Security). |
+| `NAIAD_PASSWORD_HASH` | when `auth.mode: password`                                                | App password, bcrypt hash. Generate with `python -c "import bcrypt; print(bcrypt.hashpw(b'pw', bcrypt.gensalt()).decode())"`. |
+| `NAIAD_CONFIG` | no                                                                        | Path to an optional first-boot seed `config.yaml` (default `/data/config.yaml`). |
+| `NAIAD_DATA_DIR` | no                                                                        | Directory for the SQLite database (default `/data`). |
+| `MQTT_PASSWORD` | when `mqtt.enabled` and the broker requires auth                          | Password for the MQTT broker used by the statistics bridge. |
+| `TZ` | recommended                                                               | Scheduler timezone, e.g. `Europe/Berlin`. |
 
 ### Configuration sections
 
-| Section | Purpose |
-|---|---|
-| `ha` | HA WebSocket URL, token, and `notify_targets` for push notifications. |
-| `mqtt` | Optional MQTT statistics bridge — see [Statistics in Home Assistant](#statistics-in-home-assistant). `enabled`, broker `host`/`port`/`username`, `discovery_prefix`, `base_topic`. |
-| `auth` | `mode` (`password` \| `forward_header` \| `none`), the shared `password`, optional `auto_login` for trusted embedding contexts, `ingress` trust for the HA add-on sidebar (additive — coexists with `mode`), and `frame_ancestors` for the CSP header. |
-| `sensors` | Entity IDs for rain, wind, season, temperature, the four precipitation forecast sensors, and an optional `temperature_max` (forecast daily peak). |
-| `zones` | Per-zone `label`, `switch` entity, and `flow_lph` (used for liter tracking). |
-| `sequences` | Ordered `zones`, `basis_min_per_zone`, allowed `range`, `watchdog_min`, `enabled`, `wind_blocks` (skips the run on a wind alarm), and a `schedule` — `days` (ISO 1=Mon…7=Sun, empty = every day) + `times` (`HH:MM`), with an advanced `cron` escape hatch that overrides them when set. |
-| `factors` | `temp` (linear scaling around `basis_c`, clamped to `min_pct`..`max_pct`) and `rain` (forecast-based reduction with `threshold_prob`, `reduce_above_mm`, `zero_above_mm`, `forecast_decay`). The temperature input prefers the forecast daily max, then falls back to yesterday's recorded max, and only uses the current temperature as a last resort. |
+| Section         | Purpose                                                                                                                                                                                                                                                                                                                                                 |
+|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ha`            | HA WebSocket URL.                                                                                                                                                                                                                                                                                                                                       |
+| `sensors`       | Entity IDs for rain, wind, season, temperature, the four precipitation forecast sensors, and an optional `temperature_max` (forecast daily peak).                                                                                                                                                                                                       |
+| `zones`         | Per-zone `label`, `switch` entity, and `flow_lph` (used for liter tracking).                                                                                                                                                                                                                                                                            |
+| `sequences`     | Ordered `zones`, `basis_min_per_zone`, allowed `range`, `watchdog_min`, `enabled`, `wind_blocks` (skips the run on a wind alarm), and a `schedule` — `days` (ISO 1=Mon…7=Sun, empty = every day) + `times` (`HH:MM`), with an advanced `cron` escape hatch that overrides them when set.                                                                |
+| `factors`       | `temp` (linear scaling around `basis_c`, clamped to `min_pct`..`max_pct`) and `rain` (forecast-based reduction with `threshold_prob`, `reduce_above_mm`, `zero_above_mm`, `forecast_decay`). The temperature input prefers the forecast daily max, then falls back to yesterday's recorded max, and only uses the current temperature as a last resort. |
+| `mqtt`          | Optional MQTT statistics bridge — see [Statistics in Home Assistant](#statistics-in-home-assistant). `enabled`, broker `host`/`port`/`username`, `discovery_prefix`, `base_topic`.                                                                                                                                                                      |
+| `notifications` | Optional HA push notifications.                                                                                                                                                                                                                                                                                                                         |
+| `auth`          | `mode` (`password` \| `forward_header` \| `none`), the shared `password`, optional `auto_login` for trusted embedding contexts, `ingress` trust for the HA App sidebar (additive — coexists with `mode`), and `frame_ancestors` for the CSP header.                                                                                                     |
 
 ### Authentication
 
@@ -138,13 +195,13 @@ environment only (see [`.env.example`](.env.example)).
   on a directly reachable port (Naiad logs a startup warning in that case).
 - **`none`** — no auth; only safe behind HA ingress or a trusted proxy.
 
-HA add-on **ingress** trust is additive on top of any mode: requests proxied by
+HA app **ingress** trust is additive on top of any mode: requests proxied by
 the Supervisor are treated as already authenticated, so the sidebar needs no
 Naiad login while the direct port still enforces `mode`.
 
 ## Scheduling & safety
 
-Each sequence registers one cron trigger per scheduled time. When a run fires
+Each sequence registers 1-5 cron triggers per scheduled time. When a run fires
 (cron, manual, or a one-off plan), Naiad:
 
 1. **Gates the run.** It is skipped when the sequence is disabled, paused, the
@@ -211,85 +268,31 @@ never drift from what Naiad recorded. Messages are retained, so the figures
 survive both Naiad and Home Assistant restarts.
 
 For the Grafana path: HA's InfluxDB integration exports **state changes** (not
-the statistics tables), so it picks these sensors up automatically — point Grafana
+the statistics tables), so it picks these sensors up automatically. Point Grafana
 at InfluxDB and build the dashboard from there (e.g. a per-day water consumption
 panel via `difference()` on the cumulative `naiad_water_total`).
 
 The bridge is entirely optional and best-effort: a missing or unreachable broker
-is logged and ignored — it never affects irrigation.
+is logged and ignored, it never affects irrigation.
 
 ## Hardware compatibility
 
 Naiad works with any hardware that Home Assistant exposes as the right entity
-types — it talks only to HA, never to a specific bus. The table notes which
-combinations are actually exercised in practice (the author runs KNX).
+types.
 
 | Component | Status | Notes |
 |---|---|---|
-| Valves — any HA `switch.*` | ✅ works | Whatever HA can switch (KNX, Zigbee, Shelly, Tasmota, …). Most exercised on KNX actuators, whose staircase timer also acts as an external hardware watchdog. |
-| Sensors — any `binary_sensor.*` / `sensor.*` | ✅ works | Rain / wind / season + temperature, mapped through `sensors`. Most exercised with KNX sensors. |
+| Valves — any HA `switch.*` | ✅ works | Whatever HA can switch (KNX, Zigbee, Shelly, Tasmota, …). |
+| Sensors — any `binary_sensor.*` / `sensor.*` | ✅ works | Rain / wind / season + temperature, mapped through `sensors`. |
 | OpenWeatherMap precipitation sensors | ✅ tested | Probability + amount, today and tomorrow. |
 | Push via `notify.mobile_app_*` | ✅ tested | HA Companion app. |
-| Direct KNX/IP (xknx) driver | ⬜ planned (v2) | Designed for via the driver layer; not implemented. v1 talks to hardware only through Home Assistant. |
+| Direct KNX/IP (xknx) driver | ⬜ planned | Designed for via the driver layer; not implemented. v1 talks to hardware only through Home Assistant. |
 
-## Local Development (without Docker)
+## Disclaimer
 
-Prerequisites: Python 3.12+, Node 20+.
-
-**One-time setup**
-
-```bash
-# From the project root — optional: seed the first boot from a config.yaml.
-# Skip this entirely to start empty and configure everything in the UI.
-mkdir -p data
-cp config.example.yaml data/config.yaml   # adjust zones, sequences, sensors
-```
-
-If you do seed from YAML, it applies on first boot only — afterwards the
-database is the source of truth and you edit the config in the UI. To re-seed
-from YAML, delete `data/naiad.db` first.
-
-**Terminal 1 — Backend**
-
-Linux/macOS
-```bash
-cd src/backend
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-set -a; source ../../.env; set +a
-NAIAD_CONFIG=../../data/config.yaml NAIAD_DATA_DIR=../../data \
-  uvicorn naiad.main:app --host localhost --port 8080 --reload
-```
-
-Windows (PowerShell)
-```powershell
-cd src/backend
-python -m venv .venv; .venv\Scripts\activate
-pip install -e ".[dev]"
-Get-Content ..\..\\.env | Where-Object { $_ -match '^[^#].+=.' } |
-  ForEach-Object { $k,$v = $_ -split '=',2; [System.Environment]::SetEnvironmentVariable($k,$v) }
-$env:NAIAD_CONFIG="..\..\data\config.yaml"; $env:NAIAD_DATA_DIR="..\..\data"
-uvicorn naiad.main:app --host localhost --port 8080 --reload
-```
-**Terminal 2 — Frontend**
-
-```bash
-cd src/frontend
-npm install --legacy-peer-deps  # only on first run
-npm run dev
-```
-
-Open `http://localhost:5173` in Browser.
-
-The vite-dev-server will proxy `/api/*` to `http://localhost:8080`, WebSocket included — no CORS-Setup required.
-
-**Tests & Linting (Backend)**
-
-```bash
-cd src/backend && pytest
-ruff check naiad tests
-mypy naiad
-```
+Large parts of this project were developed with the assistance of AI tools, which significantly accelerated implementation.
+While I am a professional software engineer, not all AI-generated code has been manually reviewed. This project is maintained as a hobby project and has not undergone the same level of review, testing, or quality assurance that I would typically apply in a professional environment.
+This software is provided "as is", without any warranties or guarantees of any kind. Use it at your own risk.
 
 ## License
 
