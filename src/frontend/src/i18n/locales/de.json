@@ -1,7 +1,8 @@
 {
   "toast": {
     "started": "{{name}} gestartet",
-    "resumed": "{{name}} fortgesetzt"
+    "resumed": "{{name}} fortgesetzt",
+    "reorderFailed": "Reihenfolge konnte nicht gespeichert werden"
   },
   "nav": {
     "dashboard": "Dashboard",
