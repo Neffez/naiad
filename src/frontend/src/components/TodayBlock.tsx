@@ -72,21 +72,24 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
 
   const tempTip = settings
     ? t('today.tempTip', {
+        input: f.temp_input_c != null ? `${f.temp_input_c.toFixed(1)} °C` : '–',
         basis: settings.factors.temp.basis_c,
         pct: settings.factors.temp.pct_per_c,
         min: settings.factors.temp.min_pct,
         max: settings.factors.temp.max_pct,
-        defaultValue: `Basis: {{basis}} °C · {{pct}} % pro °C · Bereich: {{min}}–{{max}} %`,
+        defaultValue: `Messwert: {{input}} · Basis: {{basis}} °C · {{pct}} % pro °C · Bereich: {{min}}–{{max}} %`,
       })
     : undefined
 
   const rainTip = settings
     ? t('today.rainTip', {
+        prob: f.rain_prob_pct != null ? `${Math.round(f.rain_prob_pct)} %` : '–',
+        mm: f.rain_mm != null ? `${f.rain_mm.toFixed(1)} mm` : '–',
         threshold: settings.factors.rain.threshold_prob,
         reduce: settings.factors.rain.reduce_above_mm,
         zero: settings.factors.rain.zero_above_mm,
         decay: settings.factors.rain.forecast_decay,
-        defaultValue: `Schwelle: {{threshold}} % · Reduz. ab {{reduce}} mm · Null ab {{zero}} mm · Prognose-Gewichtung: {{decay}}`,
+        defaultValue: `Wahrsch.: {{prob}} · Menge: {{mm}} · Schwelle: {{threshold}} % · Reduz. ab {{reduce}} mm · Null ab {{zero}} mm · Gewichtung: {{decay}}`,
       })
     : undefined
 
