@@ -14,7 +14,7 @@ from naiad.config import NOTIFICATION_CATEGORIES, AppConfig, target_service_data
 from naiad.domain.factors import compute_factors
 from naiad.domain.models import Plan, SequenceOverride, SkippedRun, UserPreference
 from naiad.domain.sensors import read_sensor_snapshot
-from naiad.domain.sequences import MutexConflict, SequenceRunner
+from naiad.domain.sequences import MutexConflict, SequenceRunner, zone_id_of_run
 from naiad.ha_client import HAClient
 
 logger = logging.getLogger(__name__)
@@ -191,6 +191,56 @@ async def _run_sequence_job(
     return "started"
 
 
+async def _run_zone_job(
+    zone_id: str,
+    duration_min: float,
+    runner: SequenceRunner,
+    ha: HAClient,
+    config: AppConfig,
+    session_factory: SessionFactory,
+    triggered_by: str = "plan",
+) -> str:
+    """Attempt to start a standalone single-zone run. Returns "started",
+    "skipped" or "conflict" (same contract as ``_run_sequence_job``).
+
+    A planned zone run waters exactly the requested duration: the weather factor
+    is intentionally not applied (it targets one bed for a fixed time). Rain is
+    still respected — the live rain listener aborts a running zone.
+    """
+    zone_cfg = config.zones.get(zone_id)
+    if zone_cfg is None or not zone_cfg.switch:
+        logger.info("Skipped zone '%s': unknown zone or no switch entity", zone_id)
+        return "skipped"
+
+    if not _master_on(session_factory):
+        logger.info("Skipped zone '%s': master off", zone_id)
+        return "skipped"
+
+    try:
+        await runner.start_zone(zone_id, duration_min, triggered_by=triggered_by)
+    except MutexConflict as e:
+        logger.warning("Conflict for zone '%s': %s", zone_id, e)
+        running_id = runner.status().sequence_id
+        zid = zone_id_of_run(running_id) if running_id else None
+        running_cfg = (
+            config.zones.get(zid) if zid else config.sequences.get(running_id or "")
+        )
+        running_label = running_cfg.label if running_cfg else (running_id or "?")
+        conflict_note = (
+            f"⚠️ Zeitplan-Konflikt: Zone {zone_cfg.label} übersprungen — "
+            f"{running_label} läuft noch"
+        )
+        await push_notification(ha, config, conflict_note, category="skip")
+        await broadcast_notification(conflict_note, level="warning")
+        return "conflict"
+
+    note = f"🌿 Zone {zone_cfg.label} gestartet ({triggered_by}, {int(round(duration_min))} min)"
+    await push_notification(ha, config, note, category="start")
+    await broadcast_notification(note)
+    logger.info("Started zone '%s' via %s (%.0f min)", zone_id, triggered_by, duration_min)
+    return "started"
+
+
 async def _plan_tick(
     runner: SequenceRunner,
     ha: HAClient,
@@ -211,16 +261,28 @@ async def _plan_tick(
             if session.get(Plan, plan.id) is None:
                 continue  # already consumed
 
-        override_min = float(plan.duration_min) if plan.duration_min is not None else None
-        result = await _run_sequence_job(
-            plan.sequence_id,
-            runner,
-            ha,
-            config,
-            session_factory,
-            triggered_by="plan",
-            override_min=override_min,
-        )
+        if plan.zone_id is not None:
+            duration = float(plan.duration_min) if plan.duration_min is not None else 10.0
+            result = await _run_zone_job(
+                plan.zone_id,
+                duration,
+                runner,
+                ha,
+                config,
+                session_factory,
+                triggered_by="plan",
+            )
+        else:
+            override_min = float(plan.duration_min) if plan.duration_min is not None else None
+            result = await _run_sequence_job(
+                plan.sequence_id,
+                runner,
+                ha,
+                config,
+                session_factory,
+                triggered_by="plan",
+                override_min=override_min,
+            )
 
         # Keep the plan on a transient conflict so the next tick retries it;
         # drop it once it has started or was deterministically skipped.
@@ -249,8 +311,13 @@ async def _on_rain(
     if status.sequence_id is None:
         return
 
-    seq_cfg = config.sequences.get(status.sequence_id)
-    label = seq_cfg.label if seq_cfg else status.sequence_id
+    zid = zone_id_of_run(status.sequence_id)
+    if zid is not None:
+        zone_cfg = config.zones.get(zid)
+        label = zone_cfg.label if zone_cfg else zid
+    else:
+        seq_cfg = config.sequences.get(status.sequence_id)
+        label = seq_cfg.label if seq_cfg else status.sequence_id
     logger.info("Rain detected — aborting '%s'", status.sequence_id)
 
     try:
@@ -296,8 +363,12 @@ async def _evening_reminder(
             when = when.replace(tzinfo=UTC)
         local = when.astimezone(tz)
         if local.date() == tomorrow:
-            pseq = config.sequences.get(plan.sequence_id)
-            label = pseq.label if pseq else plan.sequence_id
+            if plan.zone_id is not None:
+                zone_cfg = config.zones.get(plan.zone_id)
+                label = zone_cfg.label if zone_cfg else plan.zone_id
+            else:
+                pseq = config.sequences.get(plan.sequence_id)
+                label = pseq.label if pseq else plan.sequence_id
             runs.append((local, f"{label} (geplant)"))
 
     if runs:

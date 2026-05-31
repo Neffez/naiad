@@ -2,7 +2,9 @@
   "toast": {
     "started": "{{name}} gestartet",
     "resumed": "{{name}} fortgesetzt",
-    "reorderFailed": "Reihenfolge konnte nicht gespeichert werden"
+    "reorderFailed": "Reihenfolge konnte nicht gespeichert werden",
+    "zoneStarted": "{{name}} gestartet",
+    "zoneStopped": "{{name}} gestoppt"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -145,10 +147,9 @@
     "notifyOnStart": "Bei Start",
     "notifyOnSkip": "Bei Überspringen (Wind/Konflikt)",
     "notifyOnAbort": "Bei Abbruch (Regen/Watchdog)",
-    "notifyQuiet": "Leise (ohne Ton, niedrige Priorität)",
+    "notifyQuiet": "Leise (ohne Ton)",
     "notifyReminder": "Abend-Erinnerung (morgige Läufe)",
     "notifyReminderCron": "Erinnerungszeit (Cron)",
-    "notifyQuiet": "Leise (ohne Ton)",
     "notifyPlatform": "Plattform",
     "platformAuto": "Auto",
     "notifyCat": {
@@ -252,7 +253,13 @@
     "inHours": "In Stunden",
     "atTime": "Zu Datum/Uhrzeit",
     "schedule": "Planen",
-    "noPlans": "Keine geplanten Läufe"
+    "noPlans": "Keine geplanten Läufe",
+    "targetSequence": "Sequenz",
+    "targetZone": "Einzelne Zone",
+    "selectZone": "— Zone wählen —",
+    "zoneDurationRequired": "Dauer (min) ist für eine Zone erforderlich",
+    "durationPlaceholderZone": "Dauer (min) — erforderlich",
+    "zoneTag": "Zone"
   },
   "login": {
     "title": "Naiad",
@@ -320,7 +327,9 @@
   },
   "valve": {
     "live": "Live",
-    "off": "Aus"
+    "off": "Aus",
+    "start": "Zone starten",
+    "stop": "Zone stoppen"
   },
   "abortReason": {
     "rain": "Regen",
@@ -328,11 +337,22 @@
     "manual_stop": "Manuell gestoppt",
     "ha_disconnect": "HA getrennt"
   },
-  "weekdaysShort": ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"],
+  "weekdaysShort": [
+    "Mo",
+    "Di",
+    "Mi",
+    "Do",
+    "Fr",
+    "Sa",
+    "So"
+  ],
   "errors": {
     "windBlocked": "Windalarm — Sequenz blockiert",
     "masterOff": "Master-Schalter ist aus",
     "conflict": "Sequenz läuft bereits",
     "notConnected": "HA nicht verbunden"
+  },
+  "confirmZone": {
+    "subtitle": "Einzelne Zone — Sofortstart"
   }
 }
