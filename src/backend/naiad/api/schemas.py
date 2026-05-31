@@ -300,11 +300,15 @@ class AppSettingsResponse(BaseModel):
 class UserPreferencesResponse(BaseModel):
     theme: str
     language: str
+    sequence_order: list[str]
+    zone_order: list[str]
 
 
 class UpdatePreferencesRequest(BaseModel):
     theme: str | None = None
     language: str | None = None
+    sequence_order: list[str] | None = None
+    zone_order: list[str] | None = None
 
 
 # ── Configuration ───────────────────────────────────────────────────────────────
