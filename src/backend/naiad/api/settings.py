@@ -2,7 +2,7 @@ from typing import TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
-from sqlmodel import Session, select
+from sqlmodel import Session, delete, select
 
 from naiad.api.schemas import (
     AppSettingsResponse,
@@ -164,6 +164,50 @@ async def update_settings(
     session.commit()
 
     if body.factors is not None or body.sequences is not None:
+        from naiad.api.ws import broadcast_factor_updated
+
+        await broadcast_factor_updated()
+
+    return _read_settings(config, session)
+
+
+@router.delete("/sequences", response_model=AppSettingsResponse)
+async def clear_all_sequence_overrides(
+    _: None = Depends(require_auth),
+    config: AppConfig = Depends(get_config),
+    session: Session = Depends(get_session),
+) -> AppSettingsResponse:
+    """Remove all sequence overrides, restoring YAML defaults for every sequence.
+
+    The PATCH endpoint can only set override fields, never null them, so this is
+    the supported way to fully reset overrides (e.g. unstick a paused sequence).
+    """
+    session.exec(delete(SequenceOverride))
+    session.commit()
+
+    from naiad.api.ws import broadcast_factor_updated
+
+    await broadcast_factor_updated()
+
+    return _read_settings(config, session)
+
+
+@router.delete("/sequences/{sequence_id}", response_model=AppSettingsResponse)
+async def clear_sequence_override(
+    sequence_id: str,
+    _: None = Depends(require_auth),
+    config: AppConfig = Depends(get_config),
+    session: Session = Depends(get_session),
+) -> AppSettingsResponse:
+    """Remove the override for a single sequence, restoring its YAML defaults."""
+    if sequence_id not in config.sequences:
+        raise HTTPException(404, f"Unknown sequence: {sequence_id}")
+
+    override = session.get(SequenceOverride, sequence_id)
+    if override is not None:
+        session.delete(override)
+        session.commit()
+
         from naiad.api.ws import broadcast_factor_updated
 
         await broadcast_factor_updated()
