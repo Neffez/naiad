@@ -2,7 +2,9 @@
   "toast": {
     "started": "{{name}} started",
     "resumed": "{{name}} resumed",
-    "reorderFailed": "Could not save the new order"
+    "reorderFailed": "Could not save the new order",
+    "zoneStarted": "{{name}} started",
+    "zoneStopped": "{{name}} stopped"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -138,10 +140,9 @@
     "notifyOnStart": "On start",
     "notifyOnSkip": "On skip (wind/conflict)",
     "notifyOnAbort": "On abort (rain/watchdog)",
-    "notifyQuiet": "Quiet (no sound, low priority)",
+    "notifyQuiet": "Quiet (no sound)",
     "notifyReminder": "Evening reminder (tomorrow's runs)",
     "notifyReminderCron": "Reminder time (cron)",
-    "notifyQuiet": "Quiet (no sound)",
     "notifyPlatform": "Platform",
     "platformAuto": "Auto",
     "notifyCat": {
@@ -245,7 +246,13 @@
     "inHours": "In hours",
     "atTime": "At date/time",
     "schedule": "Schedule",
-    "noPlans": "No scheduled runs"
+    "noPlans": "No scheduled runs",
+    "targetSequence": "Sequence",
+    "targetZone": "Single zone",
+    "selectZone": "— Select zone —",
+    "zoneDurationRequired": "Duration (min) is required for a zone",
+    "durationPlaceholderZone": "Duration (min) — required",
+    "zoneTag": "Zone"
   },
   "login": {
     "title": "Naiad",
@@ -313,7 +320,9 @@
   },
   "valve": {
     "live": "Live",
-    "off": "Off"
+    "off": "Off",
+    "start": "Start zone",
+    "stop": "Stop zone"
   },
   "abortReason": {
     "rain": "Rain",
@@ -321,11 +330,22 @@
     "manual_stop": "Manual stop",
     "ha_disconnect": "HA disconnected"
   },
-  "weekdaysShort": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+  "weekdaysShort": [
+    "Mon",
+    "Tue",
+    "Wed",
+    "Thu",
+    "Fri",
+    "Sat",
+    "Sun"
+  ],
   "errors": {
     "windBlocked": "Wind alert — sequence blocked",
     "masterOff": "Master switch is off",
     "conflict": "Sequence already running",
     "notConnected": "HA not connected"
+  },
+  "confirmZone": {
+    "subtitle": "Single zone — start now"
   }
 }
