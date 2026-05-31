@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import {
+  getPreferences,
   getSequences,
   getStatus,
   getValves,
@@ -10,21 +11,26 @@ import {
   setMaster,
   startSequence,
   stopSequence,
+  updatePreferences,
   type SequenceState,
   type SystemStatus,
+  type UserPreferences,
 } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
 import { ILogo } from '../components/icons'
 import { MasterToggle } from '../components/MasterToggle'
 import { SequenceCard } from '../components/SequenceCard'
+import { SortableGrid } from '../components/SortableGrid'
 import { toast } from '../components/Toast'
 import { TodayBlock } from '../components/TodayBlock'
 import { ValveGrid } from '../components/ValveGrid'
 import { WeatherStrip } from '../components/WeatherStrip'
 import { WeekChart } from '../components/WeekChart'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { applyOrder } from '../lib/ordering'
 import { formatSchedule } from '../lib/schedule'
+import { verticalListSortingStrategy } from '@dnd-kit/sortable'
 
 export default function Dashboard() {
   const { t } = useTranslation()
@@ -46,11 +52,35 @@ export default function Dashboard() {
     queryFn: getValves,
     refetchInterval: 15_000,
   })
+  const { data: prefs } = useQuery<UserPreferences>({
+    queryKey: ['preferences'],
+    queryFn: getPreferences,
+  })
 
   const masterMut = useMutation({
     mutationFn: (on: boolean) => setMaster(on),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['status'] }),
   })
+
+  // Persist a new card order. The dashboard derives its display order from the
+  // preferences cache, so an optimistic update reorders the cards instantly.
+  const reorderMut = useMutation({
+    mutationFn: (body: Partial<UserPreferences>) => updatePreferences(body),
+    onMutate: async (body) => {
+      await qc.cancelQueries({ queryKey: ['preferences'] })
+      const previous = qc.getQueryData<UserPreferences>(['preferences'])
+      qc.setQueryData<UserPreferences>(['preferences'], (old) => (old ? { ...old, ...body } : old))
+      return { previous }
+    },
+    onError: (_err, _body, ctx) => {
+      if (ctx?.previous) qc.setQueryData(['preferences'], ctx.previous)
+      toast(t('toast.reorderFailed', { defaultValue: 'Reihenfolge konnte nicht gespeichert werden' }), 'error')
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['preferences'] }),
+  })
+
+  const orderedSequences = applyOrder(sequences, prefs?.sequence_order ?? [])
+  const orderedValves = applyOrder(valves, prefs?.zone_order ?? [])
 
   useWebSocket((msg) => {
     if (['status_snapshot', 'sequence_changed', 'run_tick', 'valve_changed', 'factor_updated'].includes(msg.type)) {
@@ -204,15 +234,17 @@ export default function Dashboard() {
               </span>
             </div>
           </div>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: 14,
-            alignContent: 'start',
-          }}>
-            {sequences.map((seq) => (
+          <SortableGrid
+            items={orderedSequences}
+            onReorder={(ids) => reorderMut.mutate({ sequence_order: ids })}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 14,
+              alignContent: 'start',
+            }}
+            renderItem={(seq) => (
               <SequenceCard
-                key={seq.id}
                 seq={seq}
                 size="rich"
                 onStart={() => setConfirmSeq(seq)}
@@ -221,8 +253,8 @@ export default function Dashboard() {
                 onStop={() => setConfirmStop(seq)}
                 onSchedule={() => navigate(`/planner?seq=${seq.id}`)}
               />
-            ))}
-          </div>
+            )}
+          />
         </section>
 
         {/* col 3: Valves + Chart */}
@@ -241,7 +273,7 @@ export default function Dashboard() {
                   </span>
                 )}
               </div>
-              <ValveGrid valves={valves} cols={2} />
+              <ValveGrid valves={orderedValves} cols={2} onReorder={(ids) => reorderMut.mutate({ zone_order: ids })} />
             </div>
           )}
 
@@ -281,17 +313,22 @@ export default function Dashboard() {
               {idle} {t('dashboard.ready')}
             </span>
           </div>
-          {sequences.map((seq) => (
-            <SequenceCard
-              key={seq.id}
-              seq={seq}
-              onStart={() => setConfirmSeq(seq)}
-              onPause={() => handlePause(seq.id)}
-              onResume={() => handleResume(seq)}
-              onStop={() => setConfirmStop(seq)}
-              onSchedule={() => navigate(`/planner?seq=${seq.id}`)}
-            />
-          ))}
+          <SortableGrid
+            items={orderedSequences}
+            onReorder={(ids) => reorderMut.mutate({ sequence_order: ids })}
+            strategy={verticalListSortingStrategy}
+            style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+            renderItem={(seq) => (
+              <SequenceCard
+                seq={seq}
+                onStart={() => setConfirmSeq(seq)}
+                onPause={() => handlePause(seq.id)}
+                onResume={() => handleResume(seq)}
+                onStop={() => setConfirmStop(seq)}
+                onSchedule={() => navigate(`/planner?seq=${seq.id}`)}
+              />
+            )}
+          />
         </section>
 
         {valves.length > 0 && (
@@ -304,7 +341,7 @@ export default function Dashboard() {
                 </span>
               )}
             </div>
-            <ValveGrid valves={valves} cols={2} />
+            <ValveGrid valves={orderedValves} cols={2} onReorder={(ids) => reorderMut.mutate({ zone_order: ids })} />
           </section>
         )}
 

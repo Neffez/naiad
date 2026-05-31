@@ -94,7 +94,7 @@ async def delete_history(
         cutoff = now_utc_naive() - timedelta(days=older_than_days)
         statement = statement.where(col(RunHistory.started_at) < cutoff)
 
-    result = session.exec(statement)  # type: ignore[call-overload]
+    result = session.exec(statement)
     session.commit()
     return DeleteHistoryResponse(deleted=result.rowcount)
 
