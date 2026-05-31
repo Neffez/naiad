@@ -321,6 +321,29 @@ class HAConfigPublic(BaseModel):
     notify_targets: list[NotifyTarget] = []
 
 
+class MQTTConfigResponse(BaseModel):
+    """MQTT statistics-bridge settings without the secret password."""
+
+    enabled: bool
+    host: str
+    port: int
+    username: str
+    client_id: str
+    discovery_prefix: str
+    base_topic: str
+    password_set: bool  # whether a password is configured (the value is never exposed)
+
+
+class MQTTConfigInput(BaseModel):
+    enabled: bool = False
+    host: str = ""
+    port: int = 1883
+    username: str = ""
+    client_id: str = "naiad"
+    discovery_prefix: str = "homeassistant"
+    base_topic: str = "naiad"
+
+
 class AuthConfigResponse(BaseModel):
     mode: Literal["password", "forward_header", "none"]
     forward_header: ForwardHeaderConfig
@@ -338,6 +361,7 @@ class AuthConfigInput(BaseModel):
 
 class ConfigResponse(BaseModel):
     ha: HAConfigPublic
+    mqtt: MQTTConfigResponse
     auth: AuthConfigResponse
     sensors: SensorsConfig
     zones: dict[str, ZoneConfig]
@@ -352,6 +376,7 @@ class ConfigResponse(BaseModel):
 
 class ConfigUpdateRequest(BaseModel):
     ha: HAConfigPublic
+    mqtt: MQTTConfigInput = MQTTConfigInput()
     auth: AuthConfigInput
     sensors: SensorsConfig
     zones: dict[str, ZoneConfig]
