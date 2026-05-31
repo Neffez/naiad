@@ -53,7 +53,7 @@ function useSkip() {
     mutationFn: (run: NextRun) =>
       skipRun({ sequence_id: run.sequence_id, scheduled_at: run.scheduled_at, plan_id: run.plan_id }),
     onSuccess: (_d, run) => {
-      toast(t('today.skipped', { name: run.sequence_label, defaultValue: `${run.sequence_label} skipped` }), 'success')
+      toast(t('today.skipped', { name: run.sequence_label }), 'success')
       qc.invalidateQueries({ queryKey: ['status'] })
       qc.invalidateQueries({ queryKey: ['sequences'] })
     },
@@ -71,39 +71,20 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
   const runs = sys.upcoming_runs ?? []
 
   const tempTip = settings
-    ? t('today.tempTip', {
-        input: f.temp_input_c != null ? `${f.temp_input_c.toFixed(1)} °C` : '–',
-        basis: settings.factors.temp.basis_c,
-        pct: settings.factors.temp.pct_per_c,
-        min: settings.factors.temp.min_pct,
-        max: settings.factors.temp.max_pct,
-        defaultValue: `Reading: {{input}} · Basis: {{basis}} °C · {{pct}} % per °C · Range: {{min}}–{{max}} %`,
-      })
+    ? t('today.tempTip', { input: f.temp_input_c != null ? `${f.temp_input_c.toFixed(1)} °C` : '–', basis: settings.factors.temp.basis_c, pct: settings.factors.temp.pct_per_c, min: settings.factors.temp.min_pct, max: settings.factors.temp.max_pct })
     : undefined
 
   const rainTip = settings
-    ? t('today.rainTip', {
-        prob: f.rain_prob_pct != null ? `${Math.round(f.rain_prob_pct)} %` : '–',
-        mm: f.rain_mm != null ? `${f.rain_mm.toFixed(1)} mm` : '–',
-        threshold: settings.factors.rain.threshold_prob,
-        reduce: settings.factors.rain.reduce_above_mm,
-        zero: settings.factors.rain.zero_above_mm,
-        decay: settings.factors.rain.forecast_decay,
-        defaultValue: `Prob.: {{prob}} · Amount: {{mm}} · Threshold: {{threshold}} % · Reduce above {{reduce}} mm · Zero above {{zero}} mm · Weight: {{decay}}`,
-      })
+    ? t('today.rainTip', { prob: f.rain_prob_pct != null ? `${Math.round(f.rain_prob_pct)} %` : '–', mm: f.rain_mm != null ? `${f.rain_mm.toFixed(1)} mm` : '–', threshold: settings.factors.rain.threshold_prob, reduce: settings.factors.rain.reduce_above_mm, zero: settings.factors.rain.zero_above_mm, decay: settings.factors.rain.forecast_decay })
     : undefined
 
   // Shared confirmation dialog for skipping a future run (both layouts).
   const skipDialog = pendingSkip && (
     <ConfirmActionDialog
       open={!!pendingSkip}
-      title={t('confirmSkip.title', { defaultValue: 'Skip run?' })}
-      message={t('confirmSkip.message', {
-        name: pendingSkip.sequence_label,
-        time: formatClock(pendingSkip.scheduled_at, i18n.language),
-        defaultValue: `${pendingSkip.sequence_label} at ${formatClock(pendingSkip.scheduled_at, i18n.language)} will be skipped and will only run again at the next schedule.`,
-      })}
-      confirmLabel={t('today.skip', { defaultValue: 'Skip' })}
+      title={t('confirmSkip.title')}
+      message={t('confirmSkip.message', { name: pendingSkip.sequence_label, time: formatClock(pendingSkip.scheduled_at, i18n.language) })}
+      confirmLabel={t('today.skip')}
       onConfirm={() => {
         skip.mutate(pendingSkip)
         setPendingSkip(null)
@@ -284,7 +265,7 @@ function RunRow({
         className="n-btn ghost"
         onClick={onSkip}
         disabled={skipping}
-        title={t('today.skip', { defaultValue: 'Skip' })}
+        title={t('today.skip')}
         style={{
           display: 'inline-flex', alignItems: 'center', gap: 6,
           height: 32, padding: '0 10px', fontSize: 12, flex: '0 0 auto',
@@ -292,7 +273,7 @@ function RunRow({
         }}
       >
         <IX size={13} />
-        <span>{t('today.skip', { defaultValue: 'Skip' })}</span>
+        <span>{t('today.skip')}</span>
       </button>
     </div>
   )
@@ -339,7 +320,7 @@ function DenseTodayBlock({
               <button
                 className="n-iconbtn"
                 onClick={() => onSkip(run)}
-                title={t('today.skip', { defaultValue: 'Skip' })}
+                title={t('today.skip')}
                 style={{ width: 32, height: 32, flex: '0 0 32px', color: 'var(--n-fg-muted)' }}
               >
                 <IX size={14} />
