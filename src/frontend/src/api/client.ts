@@ -209,7 +209,10 @@ export interface SystemStatus {
   ha_connected: boolean
   weather: { temp_c: number | null; rain_24h_mm: number; wind_label: string; season_active: boolean }
   // temp_pct and rain_pct are signed deltas from neutral (0 = no adjustment); combined_pct is the overall factor (100 = neutral).
-  today_factor: { temp_pct: number; rain_pct: number; combined_pct: number; wind_blocking_sequences: string[] }
+  today_factor: {
+    temp_pct: number; rain_pct: number; combined_pct: number; wind_blocking_sequences: string[]
+    temp_input_c: number | null; rain_prob_pct: number | null; rain_mm: number | null
+  }
   next_run: NextRun | null
   after_next: NextRun | null
   upcoming_runs: NextRun[]

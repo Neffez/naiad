@@ -134,6 +134,10 @@ class FactorBreakdownResponse(BaseModel):
     rain_pct: int
     combined_pct: int  # overall factor as a percentage (100 = neutral)
     wind_blocking_sequences: list[str]
+    # Sensor inputs used in the factor calculation, for UI traceability.
+    temp_input_c: float | None = None
+    rain_prob_pct: float | None = None
+    rain_mm: float | None = None
 
 
 class NextRunResponse(BaseModel):
