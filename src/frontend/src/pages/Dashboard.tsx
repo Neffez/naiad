@@ -304,7 +304,7 @@ export default function Dashboard() {
           <div className="n-card" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span className="n-eyebrow">{t('dashboard.usage7d')}</span>
+                <span className="n-eyebrow">{t('dashboard.usageWeek')}</span>
                 <span className="mono" style={{ fontSize: 22, fontWeight: 500 }}>
                   {status?.liters_week.toFixed(0) ?? '—'} L
                 </span>
