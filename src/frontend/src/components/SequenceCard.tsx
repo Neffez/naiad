@@ -1,23 +1,9 @@
-import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
-import type { FactorNotes, SequenceState } from '../api/client'
+import type { SequenceState } from '../api/client'
 import { formatSchedule } from '../lib/schedule'
 import { seqColor } from '../theme/sequenceColors'
 import { ICal, IPause, IPlay, IStop } from './icons'
 import { StatusChip } from './StatusChip'
-
-/** Localized one-line summary of why the factor deviates from 100%. */
-function buildFactorNote(notes: FactorNotes, t: TFunction): string | null {
-  const parts: string[] = []
-  if (notes.season_off) parts.push(t('sequence.noteSeasonOff'))
-  if (notes.wind_blocked) parts.push(t('sequence.noteWindBlocked'))
-  if (notes.rain_factor_pct != null) parts.push(t('sequence.noteRain', { pct: notes.rain_factor_pct }))
-  if (notes.temp_delta_pct != null) {
-    const sign = notes.temp_delta_pct > 0 ? '+' : ''
-    parts.push(t('sequence.noteTemp', { pct: `${sign}${notes.temp_delta_pct}` }))
-  }
-  return parts.length > 0 ? parts.join(' · ') : null
-}
 
 interface SequenceCardProps {
   seq: SequenceState
@@ -110,30 +96,6 @@ function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedu
             {isDisabled && <span style={{ color: 'var(--n-fg-dim)' }}>{t('status.disabled')}</span>}
           </div>
         </div>
-
-        {!isDisabled && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flex: '0 0 auto' }}>
-            <span
-              className="mono"
-              style={{
-                fontSize: 18,
-                fontWeight: 500,
-                letterSpacing: '-0.02em',
-                color:
-                  seq.factor_pct === 0
-                    ? 'var(--n-paused)'
-                    : seq.factor_pct > 100
-                      ? 'var(--n-teal-200)'
-                      : 'var(--n-fg)',
-              }}
-            >
-              {seq.factor_pct}%
-            </span>
-            <span className="n-eyebrow" style={{ fontSize: 9 }}>
-              {buildFactorNote(seq.factor_notes, t) || t('sequence.factor')}
-            </span>
-          </div>
-        )}
       </div>
 
       {isRunning && seq.current_run && (
@@ -237,29 +199,6 @@ function SequenceCardRich({ seq, onStart, onPause, onResume, onStop, onSchedule 
               : ''}
           </span>
         </div>
-        {!isDisabled && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flex: '0 0 auto' }}>
-            <span
-              className="n-bignum"
-              style={{
-                fontSize: 40,
-                lineHeight: 1,
-                letterSpacing: '-0.02em',
-                color:
-                  seq.factor_pct === 0
-                    ? 'var(--n-paused)'
-                    : seq.factor_pct > 100
-                      ? 'var(--n-teal-200)'
-                      : 'var(--n-fg)',
-              }}
-            >
-              {seq.factor_pct}%
-            </span>
-            <span className="n-eyebrow" style={{ fontSize: 9.5 }}>
-              {buildFactorNote(seq.factor_notes, t) || t('sequence.factor')}
-            </span>
-          </div>
-        )}
       </div>
 
       {/* live progress */}
