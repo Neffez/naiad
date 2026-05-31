@@ -75,7 +75,14 @@
     "avgDuration": "Ø Dauer / Lauf",
     "empty": "Noch keine Läufe aufgezeichnet",
     "prev": "Zurück",
-    "next": "Weiter"
+    "next": "Weiter",
+    "deleteAll": "Verlauf löschen",
+    "deleteOld": "Älter als 30 Tage",
+    "deleteConfirm": "Löschen",
+    "deleteAllTitle": "Gesamten Verlauf löschen?",
+    "deleteAllMessage": "Der gesamte Bewässerungsverlauf wird unwiderruflich gelöscht. Einstellungen und Pläne bleiben erhalten.",
+    "deleteOldTitle": "Verlauf älter als 30 Tage löschen?",
+    "deleteOldMessage": "Alle Verlaufseinträge, die älter als 30 Tage sind, werden unwiderruflich gelöscht. Einstellungen und Pläne bleiben erhalten."
   },
   "settings": {
     "title": "Einstellungen",

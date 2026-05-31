@@ -1,9 +1,12 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getHistory, type HistoryEntry } from '../api/client'
+import { deleteHistory, getHistory, type HistoryEntry } from '../api/client'
+import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
 import { IClock, IPlay } from '../components/icons'
 import { seqColor } from '../theme/sequenceColors'
+
+const OLDER_THAN_DAYS = 30
 
 function fmtDur(min: number | null): string {
   if (min == null) return '—'
@@ -30,10 +33,21 @@ const COLS = [
 export default function History() {
   const { t, i18n } = useTranslation()
   const [page, setPage] = useState(1)
+  const [confirm, setConfirm] = useState<null | 'all' | 'old'>(null)
+  const qc = useQueryClient()
 
   const { data } = useQuery({
     queryKey: ['history', page],
     queryFn: () => getHistory({ page, per_page: 50 }),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (olderThanDays?: number) => deleteHistory(olderThanDays),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['history'] })
+      setPage(1)
+      setConfirm(null)
+    },
   })
 
   const items = data?.items ?? []
@@ -45,21 +59,47 @@ export default function History() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {/* Summary bar */}
-      <div style={{ display: 'flex', gap: 32, marginBottom: 22, flexWrap: 'wrap' }}>
-        <SummaryBlock
-          label={t('history.last7days', { defaultValue: 'Letzte 7 Tage' })}
-          value={`${Math.round(totalLiters).toLocaleString(i18n.language)} L`}
-        />
-        <div className="n-vdivider" style={{ height: 44 }} />
-        <SummaryBlock
-          label={t('history.totalRuns', { defaultValue: 'Läufe gesamt' })}
-          value={String(data?.total ?? 0)}
-        />
-        <div className="n-vdivider" style={{ height: 44 }} />
-        <SummaryBlock
-          label={t('history.avgDuration', { defaultValue: 'Ø Dauer / Lauf' })}
-          value={`${avgDur} min`}
-        />
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 24,
+        marginBottom: 22, flexWrap: 'wrap',
+      }}>
+        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', flex: 1 }}>
+          <SummaryBlock
+            label={t('history.last7days', { defaultValue: 'Letzte 7 Tage' })}
+            value={`${Math.round(totalLiters).toLocaleString(i18n.language)} L`}
+          />
+          <div className="n-vdivider" style={{ height: 44 }} />
+          <SummaryBlock
+            label={t('history.totalRuns', { defaultValue: 'Läufe gesamt' })}
+            value={String(data?.total ?? 0)}
+          />
+          <div className="n-vdivider" style={{ height: 44 }} />
+          <SummaryBlock
+            label={t('history.avgDuration', { defaultValue: 'Ø Dauer / Lauf' })}
+            value={`${avgDur} min`}
+          />
+        </div>
+
+        {/* History maintenance actions — affect run history only, never
+            settings or plans. */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            className="n-btn danger"
+            onClick={() => setConfirm('old')}
+            disabled={deleteMut.isPending}
+            style={{ height: 36, padding: '0 14px', fontSize: 13 }}
+          >
+            {t('history.deleteOld', { defaultValue: 'Älter als 30 Tage' })}
+          </button>
+          <button
+            className="n-btn danger"
+            onClick={() => setConfirm('all')}
+            disabled={deleteMut.isPending}
+            style={{ height: 36, padding: '0 14px', fontSize: 13 }}
+          >
+            {t('history.deleteAll', { defaultValue: 'Verlauf löschen' })}
+          </button>
+        </div>
       </div>
 
       {/* Table header */}
@@ -119,6 +159,31 @@ export default function History() {
           </button>
         </div>
       )}
+
+      <ConfirmActionDialog
+        open={confirm === 'old'}
+        title={t('history.deleteOldTitle', { defaultValue: 'Verlauf älter als 30 Tage löschen?' })}
+        message={t('history.deleteOldMessage', {
+          defaultValue:
+            'Alle Verlaufseinträge, die älter als 30 Tage sind, werden unwiderruflich gelöscht. Einstellungen und Pläne bleiben erhalten.',
+        })}
+        confirmLabel={t('history.deleteConfirm', { defaultValue: 'Löschen' })}
+        tone="danger"
+        onConfirm={() => deleteMut.mutate(OLDER_THAN_DAYS)}
+        onCancel={() => setConfirm(null)}
+      />
+      <ConfirmActionDialog
+        open={confirm === 'all'}
+        title={t('history.deleteAllTitle', { defaultValue: 'Gesamten Verlauf löschen?' })}
+        message={t('history.deleteAllMessage', {
+          defaultValue:
+            'Der gesamte Bewässerungsverlauf wird unwiderruflich gelöscht. Einstellungen und Pläne bleiben erhalten.',
+        })}
+        confirmLabel={t('history.deleteConfirm', { defaultValue: 'Löschen' })}
+        tone="danger"
+        onConfirm={() => deleteMut.mutate(undefined)}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   )
 }

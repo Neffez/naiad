@@ -108,6 +108,15 @@ export const getHistory = (params: HistoryParams) => {
   return api.get<PaginatedHistory>(`/history?${qs}`)
 }
 
+// Deletes run history only — settings and plans are never affected.
+// Pass olderThanDays to remove only entries older than that many days.
+export const deleteHistory = (olderThanDays?: number) => {
+  const qs = new URLSearchParams()
+  if (olderThanDays != null) qs.set('older_than_days', String(olderThanDays))
+  const suffix = qs.toString() ? `?${qs}` : ''
+  return api.delete<DeleteHistoryResult>(`/history${suffix}`)
+}
+
 // Plans
 export const getPlans = () => api.get<Plan[]>('/plans')
 export const createPlan = (body: CreatePlanRequest) => api.post<Plan>('/plans', body)
@@ -249,6 +258,10 @@ export interface HistoryParams {
   sequence_id?: string
   from?: string
   to?: string
+}
+
+export interface DeleteHistoryResult {
+  deleted: number
 }
 
 export interface Plan {
