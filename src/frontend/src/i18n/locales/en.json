@@ -75,7 +75,14 @@
     "avgDuration": "Avg. duration / run",
     "empty": "No runs recorded yet",
     "prev": "Back",
-    "next": "Next"
+    "next": "Next",
+    "deleteAll": "Delete history",
+    "deleteOld": "Older than 30 days",
+    "deleteConfirm": "Delete",
+    "deleteAllTitle": "Delete entire history?",
+    "deleteAllMessage": "The entire watering history will be permanently deleted. Settings and plans are kept.",
+    "deleteOldTitle": "Delete history older than 30 days?",
+    "deleteOldMessage": "All history entries older than 30 days will be permanently deleted. Settings and plans are kept."
   },
   "settings": {
     "title": "Settings",
