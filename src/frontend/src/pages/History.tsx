@@ -65,17 +65,17 @@ export default function History() {
       }}>
         <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', flex: 1 }}>
           <SummaryBlock
-            label={t('history.last7days', { defaultValue: 'Letzte 7 Tage' })}
+            label={t('history.last7days')}
             value={`${Math.round(totalLiters).toLocaleString(i18n.language)} L`}
           />
           <div className="n-vdivider" style={{ height: 44 }} />
           <SummaryBlock
-            label={t('history.totalRuns', { defaultValue: 'Läufe gesamt' })}
+            label={t('history.totalRuns')}
             value={String(data?.total ?? 0)}
           />
           <div className="n-vdivider" style={{ height: 44 }} />
           <SummaryBlock
-            label={t('history.avgDuration', { defaultValue: 'Ø Dauer / Lauf' })}
+            label={t('history.avgDuration')}
             value={`${avgDur} min`}
           />
         </div>
@@ -89,7 +89,7 @@ export default function History() {
             disabled={deleteMut.isPending}
             style={{ height: 36, padding: '0 14px', fontSize: 13 }}
           >
-            {t('history.deleteOld', { defaultValue: 'Älter als 30 Tage' })}
+            {t('history.deleteOld')}
           </button>
           <button
             className="n-btn danger"
@@ -97,7 +97,7 @@ export default function History() {
             disabled={deleteMut.isPending}
             style={{ height: 36, padding: '0 14px', fontSize: 13 }}
           >
-            {t('history.deleteAll', { defaultValue: 'Verlauf löschen' })}
+            {t('history.deleteAll')}
           </button>
         </div>
       </div>
@@ -128,7 +128,7 @@ export default function History() {
           padding: '32px 0', textAlign: 'center',
           color: 'var(--n-fg-muted)', fontSize: 14,
         }}>
-          {t('history.empty', { defaultValue: 'Noch keine Läufe aufgezeichnet' })}
+          {t('history.empty')}
         </div>
       )}
 
@@ -144,7 +144,7 @@ export default function History() {
             disabled={page === 1}
             style={{ height: 36, padding: '0 14px', fontSize: 13 }}
           >
-            ← {t('history.prev', { defaultValue: 'Zurück' })}
+            ← {t('history.prev')}
           </button>
           <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>
             {page} / {Math.ceil(data.total / data.per_page)}
@@ -155,31 +155,25 @@ export default function History() {
             disabled={page >= Math.ceil(data.total / data.per_page)}
             style={{ height: 36, padding: '0 14px', fontSize: 13 }}
           >
-            {t('history.next', { defaultValue: 'Weiter' })} →
+            {t('history.next')} →
           </button>
         </div>
       )}
 
       <ConfirmActionDialog
         open={confirm === 'old'}
-        title={t('history.deleteOldTitle', { defaultValue: 'Verlauf älter als 30 Tage löschen?' })}
-        message={t('history.deleteOldMessage', {
-          defaultValue:
-            'Alle Verlaufseinträge, die älter als 30 Tage sind, werden unwiderruflich gelöscht. Einstellungen und Pläne bleiben erhalten.',
-        })}
-        confirmLabel={t('history.deleteConfirm', { defaultValue: 'Löschen' })}
+        title={t('history.deleteOldTitle')}
+        message={t('history.deleteOldMessage')}
+        confirmLabel={t('history.deleteConfirm')}
         tone="danger"
         onConfirm={() => deleteMut.mutate(OLDER_THAN_DAYS)}
         onCancel={() => setConfirm(null)}
       />
       <ConfirmActionDialog
         open={confirm === 'all'}
-        title={t('history.deleteAllTitle', { defaultValue: 'Gesamten Verlauf löschen?' })}
-        message={t('history.deleteAllMessage', {
-          defaultValue:
-            'Der gesamte Bewässerungsverlauf wird unwiderruflich gelöscht. Einstellungen und Pläne bleiben erhalten.',
-        })}
-        confirmLabel={t('history.deleteConfirm', { defaultValue: 'Löschen' })}
+        title={t('history.deleteAllTitle')}
+        message={t('history.deleteAllMessage')}
+        confirmLabel={t('history.deleteConfirm')}
         tone="danger"
         onConfirm={() => deleteMut.mutate(undefined)}
         onCancel={() => setConfirm(null)}
