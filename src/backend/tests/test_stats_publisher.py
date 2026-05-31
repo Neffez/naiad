@@ -23,9 +23,7 @@ class FakeMQTT:
     def __init__(self) -> None:
         self.messages: list[tuple[str, str, bool]] = []
 
-    def publish(
-        self, topic: str, payload: Any = None, qos: int = 0, retain: bool = False
-    ) -> None:
+    def publish(self, topic: str, payload: Any = None, qos: int = 0, retain: bool = False) -> None:
         self.messages.append((topic, payload, retain))
 
     def by_topic(self, topic: str) -> str | None:

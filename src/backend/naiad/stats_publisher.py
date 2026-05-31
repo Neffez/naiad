@@ -159,9 +159,7 @@ class StatsPublisher:
         """The full set of sensors to publish for the current zone configuration."""
         specs: list[_EntitySpec] = [
             _EntitySpec("water_total", "Bewässerung gesamt", "water", "total_increasing", "L"),
-            _EntitySpec(
-                "runtime_total", "Laufzeit gesamt", "duration", "total_increasing", "min"
-            ),
+            _EntitySpec("runtime_total", "Laufzeit gesamt", "duration", "total_increasing", "min"),
             _EntitySpec("last_run_liters", "Letzter Lauf Liter", "water", "measurement", "L"),
             _EntitySpec(
                 "last_run_duration", "Letzter Lauf Dauer", "duration", "measurement", "min"
