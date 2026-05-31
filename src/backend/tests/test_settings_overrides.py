@@ -33,9 +33,7 @@ async def test_clear_all_removes_every_override(minimal_config: AppConfig) -> No
         s.commit()
 
     with Session(eng) as s:
-        result = await clear_all_sequence_overrides(
-            _=None, config=minimal_config, session=s
-        )
+        result = await clear_all_sequence_overrides(_=None, config=minimal_config, session=s)
 
     with Session(eng) as s:
         assert s.exec(select(SequenceOverride)).all() == []
@@ -54,9 +52,7 @@ async def test_clear_single_leaves_others(minimal_config: AppConfig) -> None:
         s.commit()
 
     with Session(eng) as s:
-        await clear_sequence_override(
-            sequence_id="seq_1", _=None, config=minimal_config, session=s
-        )
+        await clear_sequence_override(sequence_id="seq_1", _=None, config=minimal_config, session=s)
 
     with Session(eng) as s:
         remaining = s.exec(select(SequenceOverride)).all()
