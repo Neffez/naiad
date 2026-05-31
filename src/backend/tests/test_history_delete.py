@@ -14,9 +14,7 @@ def _engine():
 
 def _run(session: Session, started_at: datetime) -> None:
     session.add(
-        RunHistory(
-            zone_id="z", sequence_id="seq", started_at=started_at, triggered_by="cron"
-        )
+        RunHistory(zone_id="z", sequence_id="seq", started_at=started_at, triggered_by="cron")
     )
 
 
