@@ -53,7 +53,7 @@ function useSkip() {
     mutationFn: (run: NextRun) =>
       skipRun({ sequence_id: run.sequence_id, scheduled_at: run.scheduled_at, plan_id: run.plan_id }),
     onSuccess: (_d, run) => {
-      toast(t('today.skipped', { name: run.sequence_label, defaultValue: `${run.sequence_label} übersprungen` }), 'success')
+      toast(t('today.skipped', { name: run.sequence_label, defaultValue: `${run.sequence_label} skipped` }), 'success')
       qc.invalidateQueries({ queryKey: ['status'] })
       qc.invalidateQueries({ queryKey: ['sequences'] })
     },
@@ -77,7 +77,7 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
         pct: settings.factors.temp.pct_per_c,
         min: settings.factors.temp.min_pct,
         max: settings.factors.temp.max_pct,
-        defaultValue: `Messwert: {{input}} · Basis: {{basis}} °C · {{pct}} % pro °C · Bereich: {{min}}–{{max}} %`,
+        defaultValue: `Reading: {{input}} · Basis: {{basis}} °C · {{pct}} % per °C · Range: {{min}}–{{max}} %`,
       })
     : undefined
 
@@ -89,7 +89,7 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
         reduce: settings.factors.rain.reduce_above_mm,
         zero: settings.factors.rain.zero_above_mm,
         decay: settings.factors.rain.forecast_decay,
-        defaultValue: `Wahrsch.: {{prob}} · Menge: {{mm}} · Schwelle: {{threshold}} % · Reduz. ab {{reduce}} mm · Null ab {{zero}} mm · Gewichtung: {{decay}}`,
+        defaultValue: `Prob.: {{prob}} · Amount: {{mm}} · Threshold: {{threshold}} % · Reduce above {{reduce}} mm · Zero above {{zero}} mm · Weight: {{decay}}`,
       })
     : undefined
 
@@ -97,13 +97,13 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
   const skipDialog = pendingSkip && (
     <ConfirmActionDialog
       open={!!pendingSkip}
-      title={t('confirmSkip.title', { defaultValue: 'Lauf überspringen?' })}
+      title={t('confirmSkip.title', { defaultValue: 'Skip run?' })}
       message={t('confirmSkip.message', {
         name: pendingSkip.sequence_label,
         time: formatClock(pendingSkip.scheduled_at, i18n.language),
-        defaultValue: `${pendingSkip.sequence_label} um ${formatClock(pendingSkip.scheduled_at, i18n.language)} wird übersprungen und läuft erst beim nächsten Zeitplan wieder.`,
+        defaultValue: `${pendingSkip.sequence_label} at ${formatClock(pendingSkip.scheduled_at, i18n.language)} will be skipped and will only run again at the next schedule.`,
       })}
-      confirmLabel={t('today.skip', { defaultValue: 'Überspringen' })}
+      confirmLabel={t('today.skip', { defaultValue: 'Skip' })}
       onConfirm={() => {
         skip.mutate(pendingSkip)
         setPendingSkip(null)
@@ -284,7 +284,7 @@ function RunRow({
         className="n-btn ghost"
         onClick={onSkip}
         disabled={skipping}
-        title={t('today.skip', { defaultValue: 'Überspringen' })}
+        title={t('today.skip', { defaultValue: 'Skip' })}
         style={{
           display: 'inline-flex', alignItems: 'center', gap: 6,
           height: 32, padding: '0 10px', fontSize: 12, flex: '0 0 auto',
@@ -292,7 +292,7 @@ function RunRow({
         }}
       >
         <IX size={13} />
-        <span>{t('today.skip', { defaultValue: 'Überspringen' })}</span>
+        <span>{t('today.skip', { defaultValue: 'Skip' })}</span>
       </button>
     </div>
   )
@@ -339,7 +339,7 @@ function DenseTodayBlock({
               <button
                 className="n-iconbtn"
                 onClick={() => onSkip(run)}
-                title={t('today.skip', { defaultValue: 'Überspringen' })}
+                title={t('today.skip', { defaultValue: 'Skip' })}
                 style={{ width: 32, height: 32, flex: '0 0 32px', color: 'var(--n-fg-muted)' }}
               >
                 <IX size={14} />
