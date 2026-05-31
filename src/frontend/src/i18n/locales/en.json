@@ -170,6 +170,17 @@
       "precipitation_today": "Precipitation today",
       "precipitation_tomorrow": "Precipitation tomorrow"
     },
+    "sensorHelp": {
+      "rain": "Required. Binary sensor detecting rain. When \"on\", a running watering is aborted immediately.",
+      "wind": "Optional. Binary sensor for wind alert. When \"on\", sequences with \"wind blocks\" are skipped.",
+      "season": "Optional. Binary sensor for the irrigation season. When \"off\", all runs are skipped (winter pause).",
+      "temperature": "Required. Current outdoor temperature in °C. Basis for the temperature factor.",
+      "temperature_max": "Optional. Forecast daily max temperature in °C. Preferred over current temperature when available.",
+      "precipitation_prob_today": "Optional. Rain probability today (0–100 %). Feeds into the rain factor.",
+      "precipitation_prob_tomorrow": "Optional. Rain probability tomorrow (0–100 %). Feeds into the rain factor.",
+      "precipitation_today": "Optional. Expected precipitation today in mm. Together with the threshold determines the reduction.",
+      "precipitation_tomorrow": "Optional. Expected precipitation tomorrow in mm. Weighted by the forecast decay factor."
+    },
     "zones": "Zones",
     "addZone": "Add zone",
     "noZones": "No zones",
@@ -324,7 +335,9 @@
     "today": "Today",
     "tomorrow": "Tomorrow",
     "skip": "Skip",
-    "skipped": "{{name}} skipped"
+    "skipped": "{{name}} skipped",
+    "tempTip": "Basis: {{basis}} °C · {{pct}} % per °C · Range: {{min}}–{{max}} %",
+    "rainTip": "Threshold: {{threshold}} % · Reduce above {{reduce}} mm · Zero above {{zero}} mm · Forecast weight: {{decay}}"
   },
   "time": {
     "now": "now",
