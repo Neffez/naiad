@@ -371,9 +371,9 @@ async def _evening_reminder(
     if runs:
         runs.sort(key=lambda r: r[0])
         lines = "\n".join(f"• {when.strftime('%H:%M')} {label}" for when, label in runs)
-        message = "🌙 Morgen:\n" + lines
+        message = "💦🌱 Morgen:\n" + lines
     else:
-        message = "🌙 Morgen keine Bewässerung geplant."
+        message = "💦🌱 Morgen keine Bewässerung geplant."
     await push_notification(ha, config, message, category="reminder")
 
 
