@@ -267,6 +267,19 @@ async def get_status(
             rain_pct=int(round(factors.rain_factor_pct)) - 100,
             combined_pct=int(round(factors.factor_pct)),
             wind_blocking_sequences=wind_blocking,
+            temp_input_c=(
+                snapshot.max_temperature_c
+                if snapshot.max_temperature_c is not None
+                else snapshot.temperature_c
+            ),
+            rain_prob_pct=max(
+                snapshot.precipitation_prob_today,
+                snapshot.precipitation_prob_tomorrow,
+            ),
+            rain_mm=max(
+                snapshot.precipitation_today_mm,
+                snapshot.precipitation_tomorrow_mm * config.factors.rain.forecast_decay,
+            ),
         ),
         next_run=next_runs[0] if len(next_runs) > 0 else None,
         after_next=next_runs[1] if len(next_runs) > 1 else None,
