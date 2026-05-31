@@ -304,6 +304,10 @@ export interface UpdateSettingsRequest {
 export interface UserPreferences {
   theme: 'dark' | 'light'
   language: 'de' | 'en'
+  /** Sequence IDs in the user's preferred dashboard order. IDs not listed are appended. */
+  sequence_order: string[]
+  /** Zone (valve) IDs in the user's preferred dashboard order. IDs not listed are appended. */
+  zone_order: string[]
 }
 
 // ── Configuration ───────────────────────────────────────────────────────────

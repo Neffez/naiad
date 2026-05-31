@@ -307,6 +307,14 @@ components:
         language:
           type: string
           enum: [de, en]
+        sequence_order:
+          type: array
+          description: Sequence IDs in the user's preferred dashboard order. IDs not present are appended in their natural order.
+          items: { type: string }
+        zone_order:
+          type: array
+          description: Zone (valve) IDs in the user's preferred dashboard order. IDs not present are appended in their natural order.
+          items: { type: string }
 
     # ── Auth ──────────────────────────────────────────────────────────────────
 
