@@ -17,6 +17,7 @@ import {
   putConfig,
   testNotify,
 } from '../api/client'
+import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
 import { NumberField } from '../components/NumberField'
 import { toast } from '../components/Toast'
 import {
@@ -62,6 +63,7 @@ export default function Config() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [restart, setRestart] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<{ type: 'zone' | 'sequence'; id: string } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -232,7 +234,7 @@ export default function Config() {
                 <NumberField value={z.flow_lph} width={90}
                   onChange={(v) => patch((d) => { d.zones[id].flow_lph = v })} />
               </Labeled>
-              <DeleteButton onClick={() => patch((d) => { delete d.zones[id] })} />
+              <DeleteButton onClick={() => setPendingDelete({ type: 'zone', id })} />
             </CardRow>
           )
         })}
@@ -266,7 +268,7 @@ export default function Config() {
             zones={draft.zones}
             last={i === arr.length - 1}
             onChange={(mut) => patch((d) => mut(d.sequences[id]))}
-            onDelete={() => patch((d) => { delete d.sequences[id] })}
+            onDelete={() => setPendingDelete({ type: 'sequence', id })}
           />
         ))}
       </Section>
@@ -415,6 +417,46 @@ export default function Config() {
         </Banner>
       )}
       {error && <Banner tone="danger">{error}</Banner>}
+
+      <ConfirmActionDialog
+        open={pendingDelete != null}
+        tone="danger"
+        title={
+          pendingDelete?.type === 'sequence'
+            ? t('config.deleteSequenceTitle', { defaultValue: 'Sequenz löschen?' })
+            : t('config.deleteZoneTitle', { defaultValue: 'Zone löschen?' })
+        }
+        message={
+          pendingDelete?.type === 'sequence'
+            ? t('config.deleteSequenceMsg', {
+                name: draft.sequences[pendingDelete.id]?.label || pendingDelete?.id,
+                defaultValue: `Sequenz „${draft.sequences[pendingDelete.id]?.label || pendingDelete?.id}" wirklich löschen?`,
+              })
+            : t('config.deleteZoneMsg', {
+                name: pendingDelete ? draft.zones[pendingDelete.id]?.label || pendingDelete.id : '',
+                defaultValue: `Zone „${pendingDelete ? draft.zones[pendingDelete.id]?.label || pendingDelete.id : ''}" wirklich löschen? Sie wird auch aus allen Sequenzen entfernt.`,
+              })
+        }
+        confirmLabel={t('config.delete', { defaultValue: 'Löschen' })}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (!pendingDelete) return
+          const { type, id } = pendingDelete
+          patch((d) => {
+            if (type === 'sequence') {
+              delete d.sequences[id]
+            } else {
+              delete d.zones[id]
+              // Drop the deleted zone from every sequence that referenced it —
+              // otherwise the config can't be saved (dangling zone reference).
+              for (const seq of Object.values(d.sequences)) {
+                seq.zones = seq.zones.filter((z) => z !== id)
+              }
+            }
+          })
+          setPendingDelete(null)
+        }}
+      />
     </div>
   )
 }

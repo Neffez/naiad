@@ -153,6 +153,8 @@ throttling (was M-1) and skipping an automatic run when the factor is 0 %
   remains the weakest point of the auth design and is called out by `CLAUDE.md`'s
   security section.
 
+- **L-6. The i18n default values are in German instead of English.
+
 ---
 
 ## 6. Resolved since last review (verified, not re-reported)
