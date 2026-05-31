@@ -252,6 +252,12 @@ components:
         page:     { type: integer }
         per_page: { type: integer }
 
+    DeleteHistoryResult:
+      type: object
+      required: [deleted]
+      properties:
+        deleted: { type: integer }  # number of run-history rows removed
+
     # ── Settings ──────────────────────────────────────────────────────────────
 
     TempFactorSettings:
@@ -696,6 +702,19 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PaginatedHistory' }
+    delete:
+      operationId: deleteHistory
+      summary: Delete run history (settings and plans are never affected)
+      parameters:
+        - name: older_than_days
+          in: query
+          description: When set, only entries older than this many days are deleted; otherwise all history is cleared.
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeleteHistoryResult' }
 
   # ── Settings ────────────────────────────────────────────────────────────────
 
