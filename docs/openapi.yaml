@@ -48,6 +48,9 @@ components:
         state:       { $ref: '#/components/schemas/ValveStateEnum' }
         on_since:    { type: string, format: date-time, nullable: true }
         runtime_min: { type: number, nullable: true }
+        single_run:
+          type: boolean
+          description: "True when this zone is running as a standalone single-zone run (stoppable directly)."
 
     # ── Sequences ─────────────────────────────────────────────────────────────
 
@@ -109,6 +112,15 @@ components:
           type: integer
           nullable: true
           description: "Override in minutes. null = use config default with factor applied."
+
+    StartZoneRequest:
+      type: object
+      required: [duration_min]
+      properties:
+        duration_min:
+          type: integer
+          minimum: 1
+          description: "Run duration in minutes for this single zone (factor not applied)."
 
     # ── Status ────────────────────────────────────────────────────────────────
 
@@ -190,11 +202,17 @@ components:
 
     Plan:
       type: object
-      required: [id, sequence_id, sequence_label, scheduled_at, created_at]
+      required: [id, target_type, label, scheduled_at, created_at]
       properties:
         id:               { type: string, format: uuid }
-        sequence_id:      { type: string }
-        sequence_label:   { type: string }
+        target_type:
+          type: string
+          enum: [sequence, zone]
+        sequence_id:      { type: string, nullable: true }
+        sequence_label:   { type: string, nullable: true }
+        zone_id:          { type: string, nullable: true }
+        zone_label:       { type: string, nullable: true }
+        label:            { type: string, description: "Unified display label (sequence or zone)." }
         scheduled_at:     { type: string, format: date-time }
         duration_min:     { type: integer, nullable: true }
         estimated_liters: { type: number, nullable: true }
@@ -202,9 +220,13 @@ components:
 
     CreatePlanRequest:
       type: object
-      required: [sequence_id, mode, value]
+      required: [mode, value]
+      description: >-
+        Provide exactly one of sequence_id or zone_id. A zone plan additionally
+        requires duration_min (there is no per-zone default).
       properties:
-        sequence_id:  { type: string }
+        sequence_id:  { type: string, nullable: true }
+        zone_id:      { type: string, nullable: true }
         mode:
           type: string
           enum: [in_hours, at_datetime]
@@ -216,7 +238,7 @@ components:
         duration_min:
           type: integer
           nullable: true
-          description: "null = use config default"
+          description: "Sequence plan: null = use config default. Zone plan: required."
 
     # ── History ───────────────────────────────────────────────────────────────
 
@@ -615,6 +637,57 @@ paths:
         '202': { description: Stop accepted }
         '409':
           description: Sequence is not currently running
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ── Zones (standalone single-zone runs) ──────────────────────────────────────
+
+  /zones/{zone_id}/start:
+    post:
+      operationId: startZone
+      summary: Start a single zone immediately (in isolation, factor not applied)
+      parameters:
+        - name: zone_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StartZoneRequest' }
+      responses:
+        '202': { description: Start accepted }
+        '404':
+          description: Zone not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Mutex conflict — a sequence or zone is already running
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: Zone has no switch entity or master switch is off
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /zones/{zone_id}/stop:
+    post:
+      operationId: stopZone
+      summary: Stop a standalone single-zone run
+      parameters:
+        - name: zone_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '202': { description: Stop accepted }
+        '409':
+          description: Zone is not running as a standalone run
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
