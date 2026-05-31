@@ -222,7 +222,11 @@
     "restartRequired": "HA-Verbindung geändert — ein Neustart ist nötig, damit die neue Verbindung aktiv wird.",
     "addEntry": "Hinzufügen",
     "add": "OK",
-    "delete": "Löschen"
+    "delete": "Löschen",
+    "deleteZoneTitle": "Zone löschen?",
+    "deleteZoneMsg": "Zone „{{name}}\" wirklich löschen? Sie wird auch aus allen Sequenzen entfernt.",
+    "deleteSequenceTitle": "Sequenz löschen?",
+    "deleteSequenceMsg": "Sequenz „{{name}}\" wirklich löschen?"
   },
   "schedule": {
     "days": "Wochentage",
