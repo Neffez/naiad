@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from naiad import __version__
@@ -307,4 +308,14 @@ app.include_router(_ws.router, prefix="/api")
 # Serve built frontend (present in Docker image, absent in dev)
 _static = Path(__file__).parent.parent / "static"
 if _static.is_dir():
-    app.mount("/", StaticFiles(directory=str(_static), html=True), name="static")
+
+    class _SPAStaticFiles(StaticFiles):
+        async def get_response(self, path: str, scope):  # type: ignore[override]
+            try:
+                return await super().get_response(path, scope)
+            except StarletteHTTPException as exc:
+                if exc.status_code == 404:
+                    return await super().get_response("index.html", scope)
+                raise
+
+    app.mount("/", _SPAStaticFiles(directory=str(_static), html=True), name="static")
