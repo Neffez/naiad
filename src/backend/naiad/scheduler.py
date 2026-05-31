@@ -153,6 +153,17 @@ async def _run_sequence_job(
         logger.info("Skipped (%s): season off", sequence_id)
         return "skipped"
 
+    # A computed factor of 0 % (e.g. forecast rain at/above zero_above_mm) means
+    # "don't water" — skip rather than fall back to the range floor. This gate is
+    # on the automatic path only (cron + plans both reach here); a manual start
+    # goes through the API and is intentionally not subject to it.
+    if round(factors.factor_pct) == 0:
+        logger.info("Skipped (%s): watering factor is 0%%", sequence_id)
+        await push_notification(
+            ha, config, f"💧 {seq_cfg.label}: Faktor 0 % — Lauf übersprungen", category="skip"
+        )
+        return "skipped"
+
     if factors.sensors_unavailable:
         logger.warning(
             "Starting '%s' with unavailable sensors %s — rain/temp adjustment may be incomplete",
@@ -306,6 +317,18 @@ async def _on_rain(
 
     status = runner.status()
     if status.sequence_id is None:
+        # No live run — but a *paused* run (resume snapshot) would otherwise
+        # survive the rain and could be resumed later. Discard it so rain during
+        # a pause is honored too.
+        cleared = runner.clear_paused_snapshot()
+        if cleared is not None:
+            seq_cfg = config.sequences.get(cleared)
+            label = seq_cfg.label if seq_cfg else cleared
+            logger.info("Rain detected — discarding paused run '%s'", cleared)
+            rain_note = f"🌧 Pausierte Bewässerung verworfen: Regen ({label})"
+            await push_notification(ha, config, rain_note, category="abort")
+            await broadcast_sequence_changed(cleared, "idle", "rain")
+            await broadcast_notification(rain_note, level="warning")
         return
 
     zid = zone_id_of_run(status.sequence_id)
