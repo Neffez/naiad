@@ -12,7 +12,7 @@ Assistant over WebSocket.
 > remaining open items are re-derived from the code as it stands today, and a
 > few new findings are added. CI was reproduced locally on Python 3.12 and is
 > **fully green**: `ruff check`, `ruff format --check`, `mypy naiad`
-> (35 files, no issues), and `pytest` (209 passed) all pass.
+> (35 files, no issues), and `pytest` (217 passed) all pass.
 
 ---
 
@@ -32,22 +32,22 @@ mismatch, the temperature/rain factor bounds, unbounded run durations, the
 HA-connection callback ordering, and the factor-breakdown delta/absolute
 confusion are all fixed and covered by tests.
 
-What remains clusters in three areas:
+The one substantive item left open is:
 
 - **Auth still fails open by default in `forward_header` mode.** A startup
   warning was added, but at runtime a client-supplied header is still trusted
   when `trusted_proxies` is empty (the default) — on both the REST and the
-  WebSocket path. There is also no throttling on `/auth/login`.
-- **A computed factor of 0 % does not skip a scheduled run.** Heavy forecast
-  rain drives the rain factor to `0.0` (by design, via `zero_above_mm`), but the
-  per-zone duration is floored at `range[0]`, so the run still waters the
-  minimum. Only `season_off` and the live rain *sensor* actually stop a run.
-- **A handful of hardening items** (config-reload atomicity, unbounded
-  per-event task fan-out, token in `localStorage`).
+  WebSocket path. (Left open because hard enforcement is a deployment decision:
+  failing closed would break setups that rely on network isolation instead of
+  `trusted_proxies`.)
 
-Counts: **High 1 · Medium 2 · Low 3.** A second pass in this branch fixed the
-four low-risk doc/UI/behaviour items (watchdog docs, rain vs. paused, hardcoded
-colors, the "7 days" label) — see §6.
+The rest are hardening items (config-reload atomicity, unbounded per-event task
+fan-out, token in `localStorage`).
+
+Counts: **High 1 · Medium 0 · Low 3.** Two passes in this branch fixed the
+remainder — see §6: the four low-risk doc/UI/behaviour items (watchdog docs,
+rain vs. paused, hardcoded colors, the "7 days" label), plus **login throttling
+(M-1)** and **the factor-0 % skip (M-2)**.
 
 ---
 
@@ -57,7 +57,7 @@ colors, the "7 days" label) — see §6.
 
 - Clear separation of concerns; `domain/` is mostly pure and unit-testable.
 - Driver/sensor `Protocol` abstraction enables the "mock the HA client" test
-  rule; the suite (`tests/`, 209 tests) covers factors, the state machine
+  rule; the suite (`tests/`, 217 tests) covers factors, the state machine
   (incl. watchdog/rain/resume), crash recovery, the WS manager, auth rules, and
   config round-trips.
 - Config validation has real cross-field rules (`range`,
@@ -78,16 +78,10 @@ colors, the "7 days" label) — see §6.
 
 1. **Auth defaults fail open.** `mode=none` warns loudly, and
    `forward_header` with no `trusted_proxies` now *also* warns at startup — but
-   it still trusts a spoofable header at request time (**H-1**), and there is no
-   request throttling on `/auth/login` (**M-1**).
+   it still trusts a spoofable header at request time (**H-1**). `/auth/login`
+   now has per-IP throttling (fixed, see §6).
 
-2. **"Factor" and "skip" are not the same decision.** The scheduler skips on
-   `season_off` and on a wind alarm, and the live rain listener aborts a running
-   sequence, but a *computed* factor of 0 % (forecast rain ≥ `zero_above_mm`)
-   does not skip — `_run_zones` floors the duration at `range[0]` and waters the
-   minimum anyway (**M-2**).
-
-3. **Two writers for `RunHistory`, now safely arbitrated.** The runner owns
+2. **Two writers for `RunHistory`, now safely arbitrated.** The runner owns
    managed runs; the `LiterTracker` owns external valve activity. Ownership is
    decided at *valve-on* time and the managed zone is never added to the
    tracker's `_on_times`, so the previous off-event race is closed. This is
@@ -131,44 +125,9 @@ the dangerous state can't be persisted.
 
 ## 4. Medium
 
-### M-1. No rate limiting / lockout on `/auth/login`
-**File:** `api/auth.py:57-69`
-
-Password verification is bcrypt with a constant-time plaintext fallback (good),
-but there is no throttling, backoff, or lockout on repeated failures. The single
-shared password is open to online brute force from anyone who can reach the
-endpoint. For a controller that may sit behind a reverse proxy this warrants at
-least a simple per-IP attempt limit.
-
-**Fix:** Add a small in-memory (or DB-backed) per-IP attempt counter with
-backoff / temporary lockout, or document that Naiad must sit behind a proxy that
-provides it.
-
-### M-2. A computed factor of 0 % does not skip a run (range floor overrides it)
-**Files:** `domain/sequences.py:525-531`, `domain/factors.py:45-62`, `scheduler.py:140-161`
-
-`_compute_rain_factor` returns `0.0` once forecast rain reaches `zero_above_mm`
-(documented in `config.example.yaml` as "factor = 0.0 at or above this"), and
-`compute_factors` multiplies it into `factor_pct = 0`. But `_run_zones` clamps:
-
-```python
-lo, hi = seq.range
-basis = effective_basis * factor_pct / 100.0
-duration_min = max(float(lo), min(float(hi), basis))   # floor at lo even when basis == 0
-```
-
-So a cron run with `factor_pct == 0` still waters every zone for `range[0]`
-minutes (5 min by default). The scheduler only skips on `season_off` and a wind
-alarm; the *forecast* rain factor reaching 0 is not a skip condition (only the
-live rain *binary sensor* aborts, via `_on_rain`). The result is that the
-explicit "zero out watering above N mm" knob never actually reaches zero on a
-scheduled run.
-
-**Fix:** Decide the intended semantics and make them consistent — either skip the
-run when `round(factor_pct) == 0` (e.g. in `_run_sequence_job`, alongside
-`season_off`), or document that `range[0]` is a hard floor that overrides the
-factor and rename the knob's promise accordingly. A skip is the less surprising
-behaviour given the existing `zero_above_mm` configuration.
+None open. Both medium findings were fixed in this branch (see §6): per-IP login
+throttling (was M-1) and skipping an automatic run when the factor is 0 %
+(was M-2).
 
 ---
 
@@ -247,14 +206,23 @@ backed by passing tests:
 - **Misleading "7 days" label relabelled.** The dashboard headline key was
   renamed `usage7d → usageWeek` ("Usage · this week" / "Verbrauch · diese
   Woche") to match the now calendar-week figure (`Dashboard.tsx`, both locales).
+- **Login throttling added (was M-1).** `LoginThrottle` (`api/auth.py`) imposes a
+  growing per-IP temporary lockout after repeated failed logins (in-memory, keyed
+  on the socket IP; a correct password clears the counter), and `/auth/login`
+  returns `429` with `Retry-After` while locked. Unit + endpoint tests in
+  `tests/test_auth.py`.
+- **Factor-0 % now skips an automatic run (was M-2).** `_run_sequence_job` skips
+  when `round(factor_pct) == 0` (alongside `season_off`), so heavy forecast rain
+  (≥ `zero_above_mm`) no longer waters the range floor on cron/plan runs. Manual
+  starts are intentionally exempt. Test in `tests/test_scheduler.py`.
 
 ---
 
 ## 7. Recommended priorities
 
-1. **Close the auth fail-open:** H-1 (`forward_header` default — enforce, don't
-   just warn), then M-1 (login throttling).
-2. **Make the rain knob honest:** M-2 (factor 0 % should skip, or document the
-   floor).
-3. **Hardening:** the remaining Low items — L-3 (per-event task fan-out),
+1. **Close the auth fail-open:** H-1 (`forward_header` default — enforce rather
+   than only warn). This is the one remaining substantive finding; it is left as
+   a deployment decision (failing closed breaks setups relying on network
+   isolation instead of `trusted_proxies`).
+2. **Hardening:** the remaining Low items — L-3 (per-event task fan-out),
    L-4 (config-reload atomicity), L-5 (token in `localStorage`).
