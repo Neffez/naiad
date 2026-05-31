@@ -102,7 +102,7 @@ export default function Config() {
   if (!draft) {
     return (
       <div style={{ padding: 20, color: 'var(--n-fg-muted)' }}>
-        {t('config.loading', { defaultValue: 'Loading…' })}
+        {t('config.loading')}
       </div>
     )
   }
@@ -137,11 +137,9 @@ export default function Config() {
       // always a way to get the config out.
       try {
         await navigator.clipboard.writeText(text)
-        toast(t('config.exportedCopied', {
-          defaultValue: 'Configuration exported (also copied to the clipboard).',
-        }), 'success')
+        toast(t('config.exportedCopied'), 'success')
       } catch {
-        toast(t('config.exported', { defaultValue: 'Configuration exported.' }), 'success')
+        toast(t('config.exported'), 'success')
       }
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -158,7 +156,7 @@ export default function Config() {
   async function handleTestNotify() {
     try {
       const r = await testNotify()
-      toast(t('config.notifyTestOk', { count: r.sent, defaultValue: `Test sent to ${r.sent} target(s)` }), 'success')
+      toast(t('config.notifyTestOk', { count: r.sent }), 'success')
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     }
@@ -177,8 +175,8 @@ export default function Config() {
     <div className="config-page" style={{ maxWidth: 940, display: 'flex', flexDirection: 'column', gap: 22, paddingBottom: 88 }}>
 
       {/* HA connection */}
-      <Section title={t('config.ha', { defaultValue: 'Home Assistant' })}>
-        <Row label={t('config.haUrl', { defaultValue: 'WebSocket URL' })} last>
+      <Section title={t('config.ha')}>
+        <Row label={t('config.haUrl')} last>
           <input
             style={{ ...inputStyle, width: 360 }}
             value={draft.ha.url}
@@ -188,7 +186,7 @@ export default function Config() {
       </Section>
 
       {/* Sensors */}
-      <Section title={t('config.sensors', { defaultValue: 'Sensors' })}>
+      <Section title={t('config.sensors')}>
         {SENSOR_FIELDS.map((f, i) => (
           <Row
             key={f.key}
@@ -212,26 +210,26 @@ export default function Config() {
 
       {/* Zones */}
       <Section
-        title={t('config.zones', { defaultValue: 'Zones' })}
+        title={t('config.zones')}
         action={
           <AddButton
-            label={t('config.addZone', { defaultValue: 'Add zone' })}
+            label={t('config.addZone')}
             existing={zoneIds}
             onAdd={(id, name) => patch((d) => { d.zones[id] = { label: name, switch: '', flow_lph: 0 } })}
           />
         }
       >
-        {zoneIds.length === 0 && <Empty>{t('config.noZones', { defaultValue: 'No zones' })}</Empty>}
+        {zoneIds.length === 0 && <Empty>{t('config.noZones')}</Empty>}
         {zoneIds.map((id, i) => {
           const z = draft.zones[id]
           return (
             <CardRow key={id} last={i === zoneIds.length - 1}>
               <IdTag id={id} />
-              <Labeled label={t('config.label', { defaultValue: 'Label' })}>
+              <Labeled label={t('config.label')}>
                 <input style={{ ...inputStyle, width: 160 }} value={z.label}
                   onChange={(e) => patch((d) => { d.zones[id].label = e.target.value })} />
               </Labeled>
-              <Labeled label={t('config.switch', { defaultValue: 'Switch' })}>
+              <Labeled label={t('config.switch')}>
                 <EntityCombobox
                   value={z.switch}
                   onChange={(v) => patch((d) => { d.zones[id].switch = v })}
@@ -240,7 +238,7 @@ export default function Config() {
                   width={240}
                 />
               </Labeled>
-              <Labeled label={t('config.flowLph', { defaultValue: 'Flow (L/h)' })}>
+              <Labeled label={t('config.flowLph')}>
                 <NumberField value={z.flow_lph} width={90}
                   onChange={(v) => patch((d) => { d.zones[id].flow_lph = v })} />
               </Labeled>
@@ -252,10 +250,10 @@ export default function Config() {
 
       {/* Sequences */}
       <Section
-        title={t('config.sequences', { defaultValue: 'Sequences' })}
+        title={t('config.sequences')}
         action={
           <AddButton
-            label={t('config.addSequence', { defaultValue: 'Add sequence' })}
+            label={t('config.addSequence')}
             existing={Object.keys(draft.sequences)}
             onAdd={(id, name) => patch((d) => {
               d.sequences[id] = {
@@ -267,7 +265,7 @@ export default function Config() {
         }
       >
         {Object.keys(draft.sequences).length === 0 && (
-          <Empty>{t('config.noSequences', { defaultValue: 'No sequences' })}</Empty>
+          <Empty>{t('config.noSequences')}</Empty>
         )}
         {Object.entries(draft.sequences).map(([id, s], i, arr) => (
           <SequenceEditor
@@ -284,15 +282,15 @@ export default function Config() {
       </Section>
 
       {/* MQTT statistics bridge — publishes tracked liters/durations to HA */}
-      <Section title={t('config.mqtt', { defaultValue: 'MQTT statistics' })}>
-        <Row label={t('config.mqttEnabled', { defaultValue: 'Enabled' })}>
+      <Section title={t('config.mqtt')}>
+        <Row label={t('config.mqttEnabled')}>
           <Check
-              label={t('config.mqttEnabledHint', { defaultValue: 'Publish liters & run durations to Home Assistant as sensors' })}
+              label={t('config.mqttEnabledHint')}
               checked={draft.mqtt.enabled}
               onChange={(v) => patch((d) => { d.mqtt.enabled = v })}
           />
         </Row>
-        <Row label={t('config.mqttHost', { defaultValue: 'Broker host' })}>
+        <Row label={t('config.mqttHost')}>
           <input
               style={{ ...inputStyle, width: 280 }}
               value={draft.mqtt.host}
@@ -300,17 +298,17 @@ export default function Config() {
               onChange={(e) => patch((d) => { d.mqtt.host = e.target.value })}
           />
         </Row>
-        <Row label={t('config.mqttPort', { defaultValue: 'Port' })}>
+        <Row label={t('config.mqttPort')}>
           <Num value={draft.mqtt.port} onChange={(v) => patch((d) => { d.mqtt.port = v })} />
         </Row>
-        <Row label={t('config.mqttUsername', { defaultValue: 'Username' })}>
+        <Row label={t('config.mqttUsername')}>
           <input
               style={{ ...inputStyle, width: 200 }}
               value={draft.mqtt.username}
               onChange={(e) => patch((d) => { d.mqtt.username = e.target.value })}
           />
         </Row>
-        <Row label={t('config.mqttBaseTopic', { defaultValue: 'Base topic' })} last>
+        <Row label={t('config.mqttBaseTopic')} last>
           <input
               style={{ ...inputStyle, width: 200, fontFamily: 'var(--n-mono, monospace)' }}
               value={draft.mqtt.base_topic}
@@ -320,14 +318,14 @@ export default function Config() {
       </Section>
 
       {/* Notifications (global) — per-recipient choices live on each notify target below */}
-      <Section title={t('config.notifications', { defaultValue: 'Notifications' })}>
-        <Row label={t('config.notifyReminderTime', { defaultValue: 'Reminder time' })}>
+      <Section title={t('config.notifications')}>
+        <Row label={t('config.notifyReminderTime')}>
           <ReminderTime
               value={draft.notifications.evening_reminder_cron}
               onChange={(cron) => patch((d) => { d.notifications.evening_reminder_cron = cron })}
           />
         </Row>
-        <Row label={t('config.notifyTargets', { defaultValue: 'Notify targets' })} last align="start">
+        <Row label={t('config.notifyTargets')} last align="start">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
             <NotifyTargetList
                 values={draft.ha.notify_targets}
@@ -339,10 +337,10 @@ export default function Config() {
                 className="n-btn"
                 style={{ height: 32, padding: '0 12px', fontSize: 12.5, alignSelf: 'flex-start' }}
                 disabled={dirty || draft.ha.notify_targets.length === 0}
-                title={dirty ? t('config.saveFirst', { defaultValue: 'Save first' }) : undefined}
+                title={dirty ? t('config.saveFirst') : undefined}
                 onClick={handleTestNotify}
             >
-              {t('config.notifyTest', { defaultValue: 'Send test notification' })}
+              {t('config.notifyTest')}
             </button>
           </div>
         </Row>
@@ -353,12 +351,12 @@ export default function Config() {
           here too would be misleading, so the section lives only in Settings. */}
 
       {/* Advanced */}
-      <Section title={t('config.advanced', { defaultValue: 'Advanced' })}>
-        <Row label={t('config.timezone', { defaultValue: 'Timezone' })}>
+      <Section title={t('config.advanced')}>
+        <Row label={t('config.timezone')}>
           <input style={{ ...inputStyle, width: 220 }} value={draft.timezone}
             onChange={(e) => patch((d) => { d.timezone = e.target.value })} />
         </Row>
-        <Row label={t('config.authMode', { defaultValue: 'Auth mode' })}>
+        <Row label={t('config.authMode')}>
           <select style={{ ...inputStyle, width: 200 }} value={draft.auth.mode}
             onChange={(e) => patch((d) => { d.auth.mode = e.target.value as ConfigDoc['auth']['mode'] })}>
             <option value="password">password</option>
@@ -369,13 +367,11 @@ export default function Config() {
         {draft.auth.mode === 'none' && (
           <div style={{ padding: '0 20px 14px' }}>
             <Banner tone="amber">
-              {t('config.authNoneWarning', {
-                defaultValue: 'No login active — anyone on the network can control Naiad. For permanent use switch to "password" (set NAIAD_PASSWORD_HASH) or put it behind an auth proxy.',
-              })}
+              {t('config.authNoneWarning')}
             </Banner>
           </div>
         )}
-        <Row label={t('config.frameAncestors', { defaultValue: 'frame-ancestors' })} last align="start">
+        <Row label={t('config.frameAncestors')} last align="start">
           <StringList
             values={draft.auth.frame_ancestors}
             placeholder="'self'"
@@ -397,33 +393,31 @@ export default function Config() {
           style={{ height: 38, padding: '0 20px', fontSize: 13 }}
           onClick={() => saveMut.mutate(draft)}>
           {saveMut.isPending
-            ? t('config.saving', { defaultValue: 'Saving…' })
-            : t('config.save', { defaultValue: 'Save' })}
+            ? t('config.saving')
+            : t('config.save')}
         </button>
         <button className="n-btn" disabled={!dirty}
           style={{ height: 38, padding: '0 16px', fontSize: 13 }}
           onClick={() => data && setDraft(structuredClone(data))}>
-          {t('config.reset', { defaultValue: 'Discard' })}
+          {t('config.reset')}
         </button>
         <div style={{ flex: 1 }} />
         <button className="n-btn" style={{ height: 38, padding: '0 16px', fontSize: 13 }} onClick={handleExport}>
-          {t('config.export', { defaultValue: 'Export' })}
+          {t('config.export')}
         </button>
         <button className="n-btn" style={{ height: 38, padding: '0 16px', fontSize: 13 }}
           onClick={() => fileRef.current?.click()}>
-          {t('config.import', { defaultValue: 'Import' })}
+          {t('config.import')}
         </button>
         <input ref={fileRef} type="file" accept=".yaml,.yml,.json" style={{ display: 'none' }} onChange={handleImportFile} />
 
-        {dirty && <Pill tone="muted">{t('config.unsaved', { defaultValue: 'Unsaved' })}</Pill>}
-        {saved && <Pill tone="teal">✓ {t('config.saved', { defaultValue: 'Saved' })}</Pill>}
+        {dirty && <Pill tone="muted">{t('config.unsaved')}</Pill>}
+        {saved && <Pill tone="teal">✓ {t('config.saved')}</Pill>}
       </div>
 
       {restart && (
         <Banner tone="amber">
-          {t('config.restartRequired', {
-            defaultValue: 'HA connection changed — a restart is required for the new connection to take effect.',
-          })}
+          {t('config.restartRequired')}
         </Banner>
       )}
       {error && <Banner tone="danger">{error}</Banner>}
@@ -433,21 +427,15 @@ export default function Config() {
         tone="danger"
         title={
           pendingDelete?.type === 'sequence'
-            ? t('config.deleteSequenceTitle', { defaultValue: 'Delete sequence?' })
-            : t('config.deleteZoneTitle', { defaultValue: 'Delete zone?' })
+            ? t('config.deleteSequenceTitle')
+            : t('config.deleteZoneTitle')
         }
         message={
           pendingDelete?.type === 'sequence'
-            ? t('config.deleteSequenceMsg', {
-                name: draft.sequences[pendingDelete.id]?.label || pendingDelete?.id,
-                defaultValue: `Really delete sequence "${draft.sequences[pendingDelete.id]?.label || pendingDelete?.id}"?`,
-              })
-            : t('config.deleteZoneMsg', {
-                name: pendingDelete ? draft.zones[pendingDelete.id]?.label || pendingDelete.id : '',
-                defaultValue: `Really delete zone "${pendingDelete ? draft.zones[pendingDelete.id]?.label || pendingDelete.id : ''}"? It will also be removed from all sequences.`,
-              })
+            ? t('config.deleteSequenceMsg', { name: draft.sequences[pendingDelete.id]?.label || pendingDelete?.id })
+            : t('config.deleteZoneMsg', { name: pendingDelete ? draft.zones[pendingDelete.id]?.label || pendingDelete.id : '' })
         }
-        confirmLabel={t('config.delete', { defaultValue: 'Delete' })}
+        confirmLabel={t('config.delete')}
         onCancel={() => setPendingDelete(null)}
         onConfirm={() => {
           if (!pendingDelete) return
@@ -505,29 +493,27 @@ function SequenceEditor({ id, seq, zoneIds, zones, last, onChange, onDelete }: {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <IdTag id={id} />
-        <Labeled label={t('config.label', { defaultValue: 'Label' })}>
+        <Labeled label={t('config.label')}>
           <input style={{ ...inputStyle, width: 160 }} value={seq.label}
             onChange={(e) => onChange((s) => { s.label = e.target.value })} />
         </Labeled>
-        <Check label={t('config.enabled', { defaultValue: 'Enabled' })} checked={seq.enabled}
+        <Check label={t('config.enabled')} checked={seq.enabled}
           onChange={(c) => onChange((s) => { s.enabled = c })} />
-        <Check label={t('config.windBlocks', { defaultValue: 'Wind blocks' })} checked={seq.wind_blocks}
+        <Check label={t('config.windBlocks')} checked={seq.wind_blocks}
           onChange={(c) => onChange((s) => { s.wind_blocks = c })} />
         <div style={{ flex: 1 }} />
         <DeleteButton onClick={onDelete} />
       </div>
 
-      <Labeled label={t('config.seqZones', { defaultValue: 'Zones (order)' })} align="start">
+      <Labeled label={t('config.seqZones')} align="start">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {zoneIds.length === 0 ? (
             <span style={{ fontSize: 12, color: 'var(--n-paused)' }}>
-              {t('config.seqNoZonesDefined', { defaultValue: 'Create a zone above first.' })}
+              {t('config.seqNoZonesDefined')}
             </span>
           ) : seq.zones.length === 0 ? (
             <span style={{ fontSize: 12, color: 'var(--n-paused)' }}>
-              {t('config.seqNoZonesAssigned', {
-                defaultValue: "No zone assigned — click one below (otherwise the sequence won't start).",
-              })}
+              {t('config.seqNoZonesAssigned')}
             </span>
           ) : null}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -548,21 +534,21 @@ function SequenceEditor({ id, seq, zoneIds, zones, last, onChange, onDelete }: {
       </Labeled>
 
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-        <Labeled label={t('config.basisMin', { defaultValue: 'Base (min/zone)' })}>
+        <Labeled label={t('config.basisMin')}>
           <Num value={seq.basis_min_per_zone} onChange={(v) => onChange((s) => { s.basis_min_per_zone = v })} />
         </Labeled>
-        <Labeled label={t('config.watchdogMin', { defaultValue: 'Watchdog (min)' })}>
+        <Labeled label={t('config.watchdogMin')}>
           <Num value={seq.watchdog_min} onChange={(v) => onChange((s) => { s.watchdog_min = v })} />
         </Labeled>
-        <Labeled label={t('config.rangeMin', { defaultValue: 'Min' })}>
+        <Labeled label={t('config.rangeMin')}>
           <Num value={seq.range[0]} onChange={(v) => onChange((s) => { s.range = [v, s.range[1]] })} />
         </Labeled>
-        <Labeled label={t('config.rangeMax', { defaultValue: 'Max' })}>
+        <Labeled label={t('config.rangeMax')}>
           <Num value={seq.range[1]} onChange={(v) => onChange((s) => { s.range = [s.range[0], v] })} />
         </Labeled>
       </div>
 
-      <Labeled label={t('config.schedule', { defaultValue: 'Schedule' })} align="start">
+      <Labeled label={t('config.schedule')} align="start">
         <SchedulePicker
           value={seq.schedule}
           onChange={(next) => onChange((s) => { s.schedule = next })}
@@ -596,16 +582,16 @@ function SchedulePicker({ value, onChange }: {
   const setTimes = (times: string[]) => onChange({ ...value, times })
 
   const presets: { label: string; active: boolean; days: number[] }[] = [
-    { label: t('schedule.daily', { defaultValue: 'Daily' }), active: isDaily(value.days), days: [] },
-    { label: t('schedule.weekdays', { defaultValue: 'Weekdays' }), active: isWeekdays(value.days), days: [1, 2, 3, 4, 5] },
-    { label: t('schedule.weekend', { defaultValue: 'Weekend' }), active: isWeekend(value.days), days: [6, 7] },
+    { label: t('schedule.daily'), active: isDaily(value.days), days: [] },
+    { label: t('schedule.weekdays'), active: isWeekdays(value.days), days: [1, 2, 3, 4, 5] },
+    { label: t('schedule.weekend'), active: isWeekend(value.days), days: [6, 7] },
   ]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* Weekdays */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, ...dimmed }}>
-        <span style={labelStyle}>{t('schedule.days', { defaultValue: 'Weekdays' })}</span>
+        <span style={labelStyle}>{t('schedule.days')}</span>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {presets.map((p) => (
             <button key={p.label} className={`n-chip${p.active ? ' active' : ''}`}
@@ -627,18 +613,18 @@ function SchedulePicker({ value, onChange }: {
 
       {/* Times */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, ...dimmed }}>
-        <span style={labelStyle}>{t('schedule.times', { defaultValue: 'Times' })}</span>
+        <span style={labelStyle}>{t('schedule.times')}</span>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           {value.times.length === 0 && (
             <span style={{ fontSize: 12, color: 'var(--n-paused)' }}>
-              {t('schedule.noTimes', { defaultValue: "No time set — won't run automatically." })}
+              {t('schedule.noTimes')}
             </span>
           )}
           {value.times.map((tm, i) => (
             <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <input type="time" value={tm} style={{ ...inputStyle, width: 120, fontVariantNumeric: 'tabular-nums' }}
                 onChange={(e) => setTimes(value.times.map((x, j) => (j === i ? e.target.value : x)))} />
-              <button className="n-btn" title={t('config.delete', { defaultValue: 'Delete' })}
+              <button className="n-btn" title={t('config.delete')}
                 style={{ height: 30, width: 30, padding: 0, fontSize: 13, color: 'var(--n-danger)' }}
                 onClick={() => setTimes(value.times.filter((_, j) => j !== i))}>✕</button>
             </span>
@@ -646,7 +632,7 @@ function SchedulePicker({ value, onChange }: {
           {value.times.length < MAX_TIMES && (
             <button className="n-btn" style={{ height: 34, padding: '0 12px', fontSize: 12.5 }}
               onClick={() => setTimes([...value.times, '06:00'])}>
-              + {t('schedule.addTime', { defaultValue: 'Time' })}
+              + {t('schedule.addTime')}
             </button>
           )}
         </div>
@@ -655,22 +641,22 @@ function SchedulePicker({ value, onChange }: {
       {/* Advanced cron escape hatch */}
       {!showAdvanced ? (
         <button className="n-btn" style={{ height: 28, padding: '0 10px', fontSize: 12, alignSelf: 'flex-start' }}
-          onClick={() => setShowAdvanced(true)}>{t('schedule.advanced', { defaultValue: 'Advanced (cron)' })}</button>
+          onClick={() => setShowAdvanced(true)}>{t('schedule.advanced')}</button>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={labelStyle}>{t('schedule.advanced', { defaultValue: 'Advanced (cron)' })}</span>
+          <span style={labelStyle}>{t('schedule.advanced')}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <input style={{ ...inputStyle, width: 160, fontFamily: 'var(--n-mono, monospace)' }}
               placeholder="*/30 * * * *" value={value.cron ?? ''}
               onChange={(e) => onChange({ ...value, cron: e.target.value })} />
             <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12 }}
               onClick={() => { onChange({ ...value, cron: null }); setShowAdvanced(false) }}>
-              {t('schedule.usePicker', { defaultValue: 'Use picker' })}
+              {t('schedule.usePicker')}
             </button>
           </div>
           {advancedActive && (
             <span style={{ fontSize: 11, color: 'var(--n-paused)' }}>
-              {t('schedule.advancedActive', { defaultValue: 'Cron expression overrides the selection above.' })}
+              {t('schedule.advancedActive')}
             </span>
           )}
         </div>
@@ -693,7 +679,7 @@ export function ReminderTime({ value, onChange }: { value: string; onChange: (cr
           value={value} onChange={(e) => onChange(e.target.value)} />
         {dailyCronToTime(value) !== null && (
           <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12 }}
-            onClick={() => setAdvanced(false)}>{t('schedule.usePicker', { defaultValue: 'Use picker' })}</button>
+            onClick={() => setAdvanced(false)}>{t('schedule.usePicker')}</button>
         )}
       </div>
     )
@@ -703,7 +689,7 @@ export function ReminderTime({ value, onChange }: { value: string; onChange: (cr
       <input type="time" style={{ ...inputStyle, width: 120, fontVariantNumeric: 'tabular-nums' }}
         value={time ?? '21:00'} onChange={(e) => onChange(timeToDailyCron(e.target.value))} />
       <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12 }}
-        onClick={() => setAdvanced(true)}>{t('schedule.advanced', { defaultValue: 'Advanced (cron)' })}</button>
+        onClick={() => setAdvanced(true)}>{t('schedule.advanced')}</button>
     </div>
   )
 }
@@ -804,7 +790,7 @@ function StringList({ values, placeholder, onChange }: {
       ))}
       <button className="n-btn" style={{ height: 32, padding: '0 12px', fontSize: 12.5, alignSelf: 'flex-start' }}
         onClick={() => onChange([...values, ''])}>
-        + {t('config.addEntry', { defaultValue: 'Add' })}
+        + {t('config.addEntry')}
       </button>
     </div>
   )
@@ -827,7 +813,7 @@ export function NotifyTargetList({ values, services, dirty, onChange }: {
       const r = await testNotify(service)
       setTestStates((prev) => ({ ...prev, [i]: 'ok' }))
       setTimeout(() => setTestStates((prev) => { const n = { ...prev }; delete n[i]; return n }), 2500)
-      toast(t('config.notifyTestOk', { count: r.sent, defaultValue: `Test sent to ${r.sent} target(s)` }), 'success')
+      toast(t('config.notifyTestOk', { count: r.sent }), 'success')
     } catch (e) {
       setTestStates((prev) => { const n = { ...prev }; delete n[i]; return n })
       toast(e instanceof Error ? e.message : String(e), 'error')
@@ -846,12 +832,12 @@ export function NotifyTargetList({ values, services, dirty, onChange }: {
               value={tg.service}
               onChange={(nv) => update(i, (x) => ({ ...x, service: nv }))}
               options={options}
-              hint={t('config.entityType.notify', { defaultValue: 'Notify service' })}
+              hint={t('config.entityType.notify')}
               width={300}
             />
             <button
               className="n-btn"
-              title={dirty ? t('config.saveFirst', { defaultValue: 'Save first' }) : t('config.notifyTestThis', { defaultValue: 'Send test notification to this target' })}
+              title={dirty ? t('config.saveFirst') : t('config.notifyTestThis')}
               style={{ height: 36, width: 36, padding: 0, fontSize: 15, color: testStates[i] === 'ok' ? 'var(--n-teal-400)' : 'var(--n-fg-muted)' }}
               disabled={dirty || !tg.service || testStates[i] === 'pending'}
               onClick={() => handleTestTarget(i, tg.service)}
@@ -876,14 +862,14 @@ export function NotifyTargetList({ values, services, dirty, onChange }: {
             })}
           </div>
           <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Check label={t('config.notifyQuiet', { defaultValue: 'Quiet (no sound)' })} checked={tg.quiet}
+            <Check label={t('config.notifyQuiet')} checked={tg.quiet}
               onChange={(c) => update(i, (x) => ({ ...x, quiet: c }))} />
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--n-fg-muted)' }}>
-              {t('config.notifyPlatform', { defaultValue: 'Platform' })}
+              {t('config.notifyPlatform')}
               <select value={tg.platform}
                 onChange={(e) => update(i, (x) => ({ ...x, platform: e.target.value as NotifyTarget['platform'] }))}
                 style={{ ...inputStyle, height: 30, width: 110 }}>
-                <option value="auto">{t('config.platformAuto', { defaultValue: 'Auto' })}</option>
+                <option value="auto">{t('config.platformAuto')}</option>
                 <option value="ios">iOS</option>
                 <option value="android">Android</option>
               </select>
@@ -893,7 +879,7 @@ export function NotifyTargetList({ values, services, dirty, onChange }: {
       ))}
       <button className="n-btn" style={{ height: 32, padding: '0 12px', fontSize: 12.5, alignSelf: 'flex-start' }}
         onClick={() => onChange([...values, { service: '', categories: [...NOTIFICATION_CATEGORIES], quiet: false, platform: 'auto' }])}>
-        + {t('config.addEntry', { defaultValue: 'Add' })}
+        + {t('config.addEntry')}
       </button>
     </div>
   )
@@ -943,12 +929,12 @@ function AddButton({ label, existing, onAdd }: {
   return (
     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
       <input autoFocus style={{ ...inputStyle, width: 180, height: 32 }} value={name}
-        placeholder={t('config.namePlaceholder', { defaultValue: 'Name' })}
+        placeholder={t('config.namePlaceholder')}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />
       <button className="n-btn primary" disabled={!valid} style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
         onClick={submit}>
-        {t('config.add', { defaultValue: 'OK' })}
+        {t('config.add')}
       </button>
       <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12.5 }}
         onClick={() => { setName(''); setAdding(false) }}>✕</button>
@@ -959,7 +945,7 @@ function AddButton({ label, existing, onAdd }: {
 function DeleteButton({ onClick }: { onClick: () => void }) {
   const { t } = useTranslation()
   return (
-    <button className="n-btn" title={t('config.delete', { defaultValue: 'Delete' })}
+    <button className="n-btn" title={t('config.delete')}
       style={{ height: 36, width: 36, padding: 0, fontSize: 15, color: 'var(--n-danger)', marginTop: 18 }}
       onClick={onClick}>✕</button>
   )
@@ -1057,7 +1043,7 @@ function EntityCombobox({ value, onChange, entities, options, domain, hint, widt
         style={{ ...inputStyle, width: '100%' }}
         value={open ? query : value}
         placeholder={
-          open && value ? value : t('config.entitySearch', { defaultValue: 'Search or entity id…' })
+          open && value ? value : t('config.entitySearch')
         }
         onFocus={() => { setQuery(''); setActive(0); reposition(); setOpen(true) }}
         onChange={(e) => { setQuery(e.target.value); setActive(0); if (!open) { reposition(); setOpen(true) } }}
@@ -1073,7 +1059,7 @@ function EntityCombobox({ value, onChange, entities, options, domain, hint, widt
       />
       {hintText && (
         <span style={{ fontSize: 10.5, color: 'var(--n-fg-dim)', letterSpacing: '0.02em' }}>
-          {t('config.expects', { defaultValue: 'Expects' })}: {hintText}
+          {t('config.expects')}: {hintText}
         </span>
       )}
       {open && rect && createPortal(
@@ -1087,7 +1073,7 @@ function EntityCombobox({ value, onChange, entities, options, domain, hint, widt
         >
           {matches.length === 0 ? (
             <div style={{ padding: '8px 10px', fontSize: 12.5, color: 'var(--n-fg-muted)' }}>
-              {t('config.noEntities', { defaultValue: 'No matching entities' })}
+              {t('config.noEntities')}
             </div>
           ) : (
             matches.map((o, i) => (

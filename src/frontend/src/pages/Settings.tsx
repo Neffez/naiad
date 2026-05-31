@@ -42,7 +42,7 @@ export default function Settings() {
 
   if (!settings) return (
     <div style={{ padding: 20, color: 'var(--n-fg-muted)' }}>
-      {t('settings.loading', { defaultValue: 'Loading…' })}
+      {t('settings.loading')}
     </div>
   )
 
@@ -57,7 +57,7 @@ export default function Settings() {
           border: '1px solid rgba(94,200,216,0.25)',
           color: 'var(--n-teal-200)', fontSize: 13, fontWeight: 500,
         }}>
-          ✓ {t('settings.saved', { defaultValue: 'Saved' })}
+          ✓ {t('settings.saved')}
         </div>
       )}
 
@@ -94,17 +94,17 @@ export default function Settings() {
       </SettingsSection>
 
       {/* System */}
-      <SettingsSection title={t('settings.system', { defaultValue: 'System' })}>
-        <SettingsRow label={t('settings.configuration', { defaultValue: 'System configuration' })}>
+      <SettingsSection title={t('settings.system')}>
+        <SettingsRow label={t('settings.configuration')}>
           <button
             className="n-btn"
             style={{ height: 32, padding: '0 14px', fontSize: 12.5 }}
             onClick={() => navigate('/config')}
           >
-            {t('settings.editConfig', { defaultValue: 'Edit →' })}
+            {t('settings.editConfig')}
           </button>
         </SettingsRow>
-        <SettingsRow label={t('settings.theme', { defaultValue: 'Appearance' })}>
+        <SettingsRow label={t('settings.theme')}>
           <div style={{ display: 'flex', gap: 6 }}>
             {(['dark', 'light'] as const).map((mode) => (
               <button
@@ -134,7 +134,7 @@ export default function Settings() {
               fontSize: 12, fontWeight: 500,
             }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
-              {t('settings.connected', { defaultValue: 'Connected' })}
+              {t('settings.connected')}
             </span>
           ) : (
             <span style={{
@@ -145,7 +145,7 @@ export default function Settings() {
               fontSize: 12, fontWeight: 500,
             }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-fg-dim)' }} />
-              {t('settings.disconnected', { defaultValue: 'Disconnected' })}
+              {t('settings.disconnected')}
             </span>
           )}
         </SettingsRow>
