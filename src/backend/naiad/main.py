@@ -13,8 +13,8 @@ from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.types import Scope
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import Scope
 
 from naiad import __version__
 from naiad.config import is_addon_context, resolve_ha_connection
