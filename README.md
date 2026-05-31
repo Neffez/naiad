@@ -1,4 +1,4 @@
-<div style="text-align:center"> 
+<div align="center">
 <img src="docs/assets/logo.svg" alt="Naiad" width="420">
 
   **Garden irrigation controller for Home Assistant.**
