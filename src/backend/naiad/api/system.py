@@ -16,10 +16,17 @@ from naiad.api.schemas import (
 )
 from naiad.config import AppConfig
 from naiad.database import get_session
-from naiad.dependencies import get_config, get_ha_client, get_scheduler, require_auth
+from naiad.dependencies import (
+    get_config,
+    get_ha_client,
+    get_runner,
+    get_scheduler,
+    require_auth,
+)
 from naiad.domain.factors import compute_factors
 from naiad.domain.models import Plan, RunHistory, SequenceOverride, SkippedRun, UserPreference
 from naiad.domain.sensors import read_sensor_snapshot
+from naiad.domain.sequences import SequenceRunner, zone_run_id
 from naiad.ha_client import HAClient
 from naiad.scheduler import next_run_for_sequence, upcoming_cron_runs
 from naiad.timeutil import local_day_start_utc, local_week_start_utc
@@ -75,6 +82,43 @@ def _effective_basis(session: Session, config: AppConfig, seq_id: str) -> int:
     return int(seq_cfg.basis_min_per_zone)
 
 
+def _plan_next_run(
+    plan: Plan,
+    session: Session,
+    config: AppConfig,
+    with_plan_id: bool = False,
+) -> NextRunResponse | None:
+    """Build a NextRunResponse for a one-off plan (sequence or single zone), or
+    None if its target no longer exists."""
+    plan_id = plan.id if with_plan_id else None
+    if plan.zone_id is not None:
+        zone = config.zones.get(plan.zone_id)
+        if zone is None:
+            return None
+        return NextRunResponse(
+            sequence_id=plan.zone_id,
+            sequence_label=zone.label,
+            scheduled_at=plan.scheduled_at,
+            duration_min=plan.duration_min if plan.duration_min is not None else 0,
+            plan_id=plan_id,
+        )
+    seq_cfg = config.sequences.get(plan.sequence_id)
+    if seq_cfg is None:
+        return None
+    duration = (
+        plan.duration_min
+        if plan.duration_min is not None
+        else _effective_basis(session, config, plan.sequence_id)
+    )
+    return NextRunResponse(
+        sequence_id=plan.sequence_id,
+        sequence_label=seq_cfg.label,
+        scheduled_at=plan.scheduled_at,
+        duration_min=duration,
+        plan_id=plan_id,
+    )
+
+
 def _next_runs(
     session: Session,
     config: AppConfig,
@@ -92,26 +136,11 @@ def _next_runs(
 
     plans = session.exec(select(Plan).where(Plan.scheduled_at >= now.replace(tzinfo=None))).all()
     for p in plans:
-        seq_cfg = config.sequences.get(p.sequence_id)
-        if seq_cfg is None:
+        run = _plan_next_run(p, session, config)
+        if run is None:
             continue
         when = p.scheduled_at if p.scheduled_at.tzinfo else p.scheduled_at.replace(tzinfo=UTC)
-        duration = (
-            p.duration_min
-            if p.duration_min is not None
-            else _effective_basis(session, config, p.sequence_id)
-        )
-        candidates.append(
-            (
-                when,
-                NextRunResponse(
-                    sequence_id=p.sequence_id,
-                    sequence_label=seq_cfg.label,
-                    scheduled_at=p.scheduled_at,
-                    duration_min=duration,
-                ),
-            )
-        )
+        candidates.append((when, run))
 
     for seq_id, seq_cfg in config.sequences.items():
         if not seq_cfg.enabled:
@@ -162,27 +191,11 @@ def _upcoming_day_runs(
 
     plans = session.exec(select(Plan).where(Plan.scheduled_at >= now.replace(tzinfo=None))).all()
     for p in plans:
-        seq_cfg = config.sequences.get(p.sequence_id)
-        if seq_cfg is None:
+        run = _plan_next_run(p, session, config, with_plan_id=True)
+        if run is None:
             continue
         when = p.scheduled_at if p.scheduled_at.tzinfo else p.scheduled_at.replace(tzinfo=UTC)
-        duration = (
-            p.duration_min
-            if p.duration_min is not None
-            else _effective_basis(session, config, p.sequence_id)
-        )
-        candidates.append(
-            (
-                when,
-                NextRunResponse(
-                    sequence_id=p.sequence_id,
-                    sequence_label=seq_cfg.label,
-                    scheduled_at=p.scheduled_at,
-                    duration_min=duration,
-                    plan_id=p.id,
-                ),
-            )
-        )
+        candidates.append((when, run))
 
     for seq_id, seq_cfg in config.sequences.items():
         if not seq_cfg.enabled:
@@ -283,15 +296,17 @@ async def skip_run(
 ) -> dict[str, str]:
     """Skip a single upcoming run. A one-off plan is deleted; a recurring cron
     occurrence is recorded as skipped so only that fire is suppressed."""
-    if body.sequence_id not in config.sequences:
-        raise HTTPException(404, f"Sequence '{body.sequence_id}' not found")
-
+    # A one-off plan (sequence or single zone) is identified by plan_id and
+    # deleted directly — no need to resolve the sequence (zone plans have none).
     if body.plan_id is not None:
         plan = session.get(Plan, body.plan_id)
         if plan is not None:
             session.delete(plan)
             session.commit()
         return {"skipped": "plan"}
+
+    if body.sequence_id not in config.sequences:
+        raise HTTPException(404, f"Sequence '{body.sequence_id}' not found")
 
     # Recurring cron occurrence — store its fire time as naive UTC (minute precision)
     # to match how the scheduler compares it when the job fires.
@@ -309,7 +324,9 @@ async def list_valves(
     _: None = Depends(require_auth),
     config: AppConfig = Depends(get_config),
     ha: HAClient = Depends(get_ha_client),
+    runner: SequenceRunner = Depends(get_runner),
 ) -> list[ValveStateResponse]:
+    running_id = runner.status().sequence_id
     result = []
     for zone_id, zone in config.zones.items():
         state_dict = ha.get_state(zone.switch)
@@ -339,6 +356,7 @@ async def list_valves(
                 state=state,
                 on_since=on_since,
                 runtime_min=runtime_min,
+                single_run=running_id == zone_run_id(zone_id),
             )
         )
     return result
