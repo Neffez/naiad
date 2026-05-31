@@ -1,4 +1,7 @@
 import secrets
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
@@ -15,6 +18,85 @@ from naiad.domain.models import AuthToken, UserPreference
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 _DEFAULT_TOKEN_LIFETIME_DAYS = 30
+
+
+# ── Login throttling ──────────────────────────────────────────────────────────
+
+
+@dataclass
+class _IPAttempts:
+    failures: int = 0
+    locked_until: float = 0.0
+    last_seen: float = 0.0
+
+
+class LoginThrottle:
+    """In-memory per-IP throttle for the shared-password login.
+
+    The single shared password is brute-forceable, so after a few wrong guesses
+    from one source IP we impose a growing temporary lockout. State is per-IP and
+    in-memory only (a process restart clears it, which is acceptable). A correct
+    password clears that IP's counter. Pure and clock-injectable for testing.
+    """
+
+    def __init__(
+        self,
+        *,
+        free_attempts: int = 5,
+        base_lockout_s: float = 60.0,
+        max_lockout_s: float = 900.0,
+        reset_after_s: float = 900.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._free = free_attempts
+        self._base = base_lockout_s
+        self._max = max_lockout_s
+        self._reset_after = reset_after_s
+        self._clock = clock
+        self._state: dict[str, _IPAttempts] = {}
+
+    def _prune(self, now: float) -> None:
+        # Drop entries that are not locked and have been idle past the reset
+        # window, so the table can't grow unbounded.
+        stale = [
+            ip
+            for ip, s in self._state.items()
+            if s.locked_until <= now and now - s.last_seen > self._reset_after
+        ]
+        for ip in stale:
+            del self._state[ip]
+
+    def retry_after(self, ip: str) -> float:
+        """Seconds until ``ip`` may try again (0 if not currently locked)."""
+        if not ip:
+            return 0.0
+        s = self._state.get(ip)
+        if s is None:
+            return 0.0
+        return max(0.0, s.locked_until - self._clock())
+
+    def record_failure(self, ip: str) -> None:
+        if not ip:
+            return
+        now = self._clock()
+        s = self._state.setdefault(ip, _IPAttempts())
+        if now - s.last_seen > self._reset_after:
+            s.failures = 0  # stale history — start fresh
+        s.last_seen = now
+        s.failures += 1
+        if s.failures > self._free:
+            # 1st lockout = base, then double each further failure, capped.
+            steps = s.failures - self._free - 1
+            s.locked_until = now + min(self._max, self._base * (2**steps))
+        self._prune(now)
+
+    def record_success(self, ip: str) -> None:
+        self._state.pop(ip, None)
+
+
+# Module-level singleton used by the login route; tests can reset it via the
+# fixture in tests/test_auth.py.
+_login_throttle = LoginThrottle()
 
 
 def _token_lifetime(session: Session) -> int:
@@ -57,6 +139,7 @@ def _issue_token(body_label: str | None, session: Session, config: AppConfig) ->
 @router.post("/login", response_model=LoginResponse)
 async def login(
     body: LoginRequest,
+    request: Request,
     config: AppConfig = Depends(get_config),
     session: Session = Depends(get_session),
 ) -> LoginResponse:
@@ -64,8 +147,21 @@ async def login(
         raise HTTPException(422, "Password auth is not enabled")
     if not config.auth.password:
         raise HTTPException(503, "Server password not configured")
+
+    client_ip = request.client.host if request.client else ""
+    retry_after = _login_throttle.retry_after(client_ip)
+    if retry_after > 0:
+        raise HTTPException(
+            429,
+            "Too many failed login attempts — try again later.",
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
+
     if not _check_password(body.password, config.auth.password):
+        _login_throttle.record_failure(client_ip)
         raise HTTPException(401, "Invalid password")
+
+    _login_throttle.record_success(client_ip)
     return _issue_token(body.device_label, session, config)
 
 

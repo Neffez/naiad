@@ -119,10 +119,70 @@ environment only (see [`.env.example`](.env.example)).
 | `ha` | HA WebSocket URL, token, and `notify_targets` for push notifications. |
 | `mqtt` | Optional MQTT statistics bridge — see [Statistics in Home Assistant](#statistics-in-home-assistant). `enabled`, broker `host`/`port`/`username`, `discovery_prefix`, `base_topic`. |
 | `auth` | `mode` (`password` \| `forward_header` \| `none`), the shared `password`, optional `auto_login` for trusted embedding contexts, `ingress` trust for the HA add-on sidebar (additive — coexists with `mode`), and `frame_ancestors` for the CSP header. |
-| `sensors` | Entity IDs for rain, wind, season, temperature, and the four precipitation forecast sensors. |
+| `sensors` | Entity IDs for rain, wind, season, temperature, the four precipitation forecast sensors, and an optional `temperature_max` (forecast daily peak). |
 | `zones` | Per-zone `label`, `switch` entity, and `flow_lph` (used for liter tracking). |
-| `sequences` | Ordered `zones`, `basis_min_per_zone`, allowed `range`, `watchdog_min`, `schedule.cron`, `enabled`, and `wind_blocks` (sets the factor to 0 on a wind alarm). |
-| `factors` | `temp` (linear scaling around `basis_c`) and `rain` (forecast-based reduction with `threshold_prob`, `reduce_above_mm`, `zero_above_mm`, `forecast_decay`). |
+| `sequences` | Ordered `zones`, `basis_min_per_zone`, allowed `range`, `watchdog_min`, `enabled`, `wind_blocks` (skips the run on a wind alarm), and a `schedule` — `days` (ISO 1=Mon…7=Sun, empty = every day) + `times` (`HH:MM`), with an advanced `cron` escape hatch that overrides them when set. |
+| `factors` | `temp` (linear scaling around `basis_c`, clamped to `min_pct`..`max_pct`) and `rain` (forecast-based reduction with `threshold_prob`, `reduce_above_mm`, `zero_above_mm`, `forecast_decay`). The temperature input prefers the forecast daily max, then falls back to yesterday's recorded max, and only uses the current temperature as a last resort. |
+
+### Authentication
+
+`auth.mode` selects how the API and WebSocket are protected:
+
+- **`password`** — a single shared password (bcrypt hash in `NAIAD_PASSWORD_HASH`)
+  issues bearer tokens stored client-side. Repeated failed logins from one IP are
+  throttled with a growing temporary lockout (in-memory, per source IP) to blunt
+  online brute force.
+- **`forward_header`** — trust an authenticated user asserted by a reverse proxy
+  via a header (e.g. Authelia/Authentik). **Set `trusted_proxies` to your proxy
+  IP(s)**: with it empty the header is trusted from any client, which is unsafe
+  on a directly reachable port (Naiad logs a startup warning in that case).
+- **`none`** — no auth; only safe behind HA ingress or a trusted proxy.
+
+HA add-on **ingress** trust is additive on top of any mode: requests proxied by
+the Supervisor are treated as already authenticated, so the sidebar needs no
+Naiad login while the direct port still enforces `mode`.
+
+## Scheduling & safety
+
+Each sequence registers one cron trigger per scheduled time. When a run fires
+(cron, manual, or a one-off plan), Naiad:
+
+1. **Gates the run.** It is skipped when the sequence is disabled, paused, the
+   global master switch is off, the season sensor is off, or (for
+   `wind_blocks` sequences) the wind alarm is on. The global master switch and
+   per-sequence pause only block *new* runs — they don't stop one already in
+   progress.
+2. **Computes the watering factor** from temperature and forecast rain and
+   scales `basis_min_per_zone` by it, clamped to the sequence's `range`. A factor
+   of 0 % (e.g. forecast rain at/above `zero_above_mm`) skips an automatic run
+   entirely rather than watering the range minimum. The factor is *not* applied
+   to single-zone plans, which water for exactly the requested duration. A
+   *manual* start always runs (it isn't subject to the factor-0 skip).
+3. **Runs the zones in order**, one valve at a time under a single global mutex
+   (only one run anywhere at a time). A run history row is written at zone start
+   and finalized (duration, liters, abort reason) when the zone ends.
+
+Two independent safety mechanisms bound a run:
+
+- **Watchdog.** Each zone is bounded by `watchdog_min`; if a zone overruns it is
+  forced off and the run aborts. The watchdog bounds a *single zone*, not the
+  whole run, so size it above the per-zone duration.
+- **Live rain abort.** If the rain *sensor* turns on mid-run, the live run is
+  stopped immediately (distinct from the forecast-rain *factor*, which only
+  reduces the duration).
+
+**Pause / resume.** A paused run persists a resume snapshot (which zone, how much
+time was left) and can be resumed later; starting a different sequence discards a
+lingering snapshot.
+
+**Crash recovery.** In-flight runs persist an `ActiveRun` record. When Home
+Assistant first becomes reachable after a restart, Naiad either resumes the
+interrupted zone (if its planned window hasn't elapsed) or closes all valves and
+discards the stale run. On every (re)connect while idle it also reconciles
+valves — closing any switch left open externally — since Naiad treats itself as
+the authoritative valve controller. An HA disconnect does **not** abort a live
+run: the run continues, the resilient turn-off retries once HA returns, and the
+watchdog still bounds it.
 
 ## Statistics in Home Assistant
 
