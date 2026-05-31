@@ -23,6 +23,7 @@ from naiad.domain.tracking import LiterTracker
 from naiad.drivers.ha_driver import HAEntityDriver
 from naiad.ha_client import HAClient
 from naiad.scheduler import refresh_fallback_temp_max, setup_scheduler
+from naiad.stats_publisher import StatsPublisher
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -149,6 +150,13 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     runner = SequenceRunner(config, driver, _session_factory)
     _tracker = LiterTracker(ha, config, _session_factory, runner.is_managed)
 
+    # Mirror tracked liters/durations into Home Assistant over MQTT (best-effort,
+    # disabled unless configured). Runner and tracker both write run history, so
+    # both refresh the published totals once a run is recorded.
+    stats_publisher = StatsPublisher(config, _session_factory)
+    runner.on_run_recorded = stats_publisher.on_run_recorded
+    _tracker.on_run_recorded = stats_publisher.on_run_recorded
+
     scheduler = setup_scheduler(config, runner, ha, _session_factory)
     scheduler.start()
     logger.info("Scheduler started (%d jobs)", len(scheduler.get_jobs()))
@@ -235,11 +243,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     await ha.start()
     logger.info("HA client started", extra={"url": ha_url, "addon": is_addon_context()})
 
+    await stats_publisher.start()
+
     app.state.config = config
     app.state.ha_client = ha
     app.state.runner = runner
     app.state.scheduler = scheduler
     app.state.tracker = _tracker
+    app.state.stats_publisher = stats_publisher
     app.state.session_factory = _session_factory
     app.state.ws_manager = ws_manager
 
@@ -247,6 +258,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     scheduler.shutdown(wait=False)
+    await stats_publisher.stop()
     await ha.stop()
     logger.info("Naiad stopped")
 
