@@ -96,6 +96,9 @@ sequences:
     zones: [example_zone]
     basis_min_per_zone: 30
     range: [10, 60]
+    # Safety timeout for a SINGLE zone (not the whole run): a zone that stays on
+    # longer than this is forced off and the run aborts. Keep it above the
+    # per-zone duration; a run of N zones can take up to N x watchdog_min.
     watchdog_min: 60
     schedule:
       # Clock times on selected weekdays — the form the UI edits. ISO weekdays

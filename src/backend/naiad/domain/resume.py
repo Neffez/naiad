@@ -48,6 +48,21 @@ def clear_snapshot(session: Session, sequence_id: str) -> None:
         session.commit()
 
 
+def clear_any_snapshot(session: Session) -> str | None:
+    """Drop whatever pause snapshot exists, returning its sequence id (or None).
+
+    Unlike :func:`clear_snapshot`, this does not require knowing the paused
+    sequence id — used to cancel a paused run on rain.
+    """
+    snap = session.get(ResumeSnapshot, 1)
+    if snap is None:
+        return None
+    seq_id = snap.sequence_id
+    session.delete(snap)
+    session.commit()
+    return seq_id
+
+
 def clear_orphan_snapshot(session: Session, current_sequence_id: str) -> None:
     """Drop a pause snapshot left by a *different* sequence.
 

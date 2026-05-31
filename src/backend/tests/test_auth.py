@@ -3,11 +3,13 @@ import copy
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import bcrypt
 import pytest
 from fastapi import HTTPException
 from sqlmodel import Session, SQLModel, create_engine
 
-from naiad.api.auth import _auto_login_enabled, _check_password, _match_by_prefix
+from naiad.api.auth import LoginThrottle, _auto_login_enabled, _check_password, _match_by_prefix
+from naiad.api.schemas import LoginRequest
 from naiad.config import AppConfig
 from naiad.dependencies import require_auth
 from naiad.domain.models import AuthToken, UserPreference
@@ -80,8 +82,6 @@ def test_auto_login_enabled_db_pref_overrides_yaml(minimal_config: AppConfig) ->
 
 
 def test_check_password_bcrypt_and_plain() -> None:
-    import bcrypt
-
     hashed = bcrypt.hashpw(b"secret", bcrypt.gensalt()).decode()
     assert _check_password("secret", hashed) is True
     assert _check_password("wrong", hashed) is False
@@ -118,3 +118,98 @@ def test_require_auth_rejects_direct_request_without_token() -> None:
     with _mem_session() as session, pytest.raises(HTTPException) as exc:
         asyncio.run(require_auth(request, config, session, None))
     assert exc.value.status_code == 401
+
+
+# ── Login throttling (M-1) ────────────────────────────────────────────────────
+
+
+def test_login_throttle_locks_after_free_attempts() -> None:
+    t = {"now": 1000.0}
+    th = LoginThrottle(free_attempts=3, base_lockout_s=60.0, clock=lambda: t["now"])
+    ip = "1.2.3.4"
+    for _ in range(3):
+        assert th.retry_after(ip) == 0.0  # within the free allowance
+        th.record_failure(ip)
+    th.record_failure(ip)  # exceeds the allowance → locked
+    assert th.retry_after(ip) == pytest.approx(60.0)
+    t["now"] += 61
+    assert th.retry_after(ip) == 0.0  # lockout elapsed
+
+
+def test_login_throttle_backoff_grows_and_caps() -> None:
+    t = {"now": 0.0}
+    th = LoginThrottle(
+        free_attempts=0, base_lockout_s=10.0, max_lockout_s=40.0, clock=lambda: t["now"]
+    )
+    th.record_failure("ip")
+    assert th.retry_after("ip") == pytest.approx(10.0)
+    t["now"] += 11
+    th.record_failure("ip")
+    assert th.retry_after("ip") == pytest.approx(20.0)
+    t["now"] += 21
+    th.record_failure("ip")
+    assert th.retry_after("ip") == pytest.approx(40.0)
+    t["now"] += 41
+    th.record_failure("ip")
+    assert th.retry_after("ip") == pytest.approx(40.0)  # capped at max_lockout_s
+
+
+def test_login_throttle_success_clears_and_is_per_ip() -> None:
+    th = LoginThrottle(free_attempts=1)
+    th.record_failure("a")
+    th.record_failure("a")
+    assert th.retry_after("a") > 0
+    assert th.retry_after("b") == 0.0  # other IPs are unaffected
+    th.record_success("a")
+    assert th.retry_after("a") == 0.0  # a correct login clears the counter
+
+
+def _password_login_config() -> AppConfig:
+    hashed = bcrypt.hashpw(b"correct horse", bcrypt.gensalt()).decode()
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["auth"] = {"mode": "password", "password": hashed}
+    return AppConfig.model_validate(data)
+
+
+def test_login_endpoint_locks_out_after_repeated_failures(monkeypatch) -> None:
+    """Wrong passwords from one IP eventually yield 429, even with the right pw."""
+    from naiad.api import auth as auth_mod
+
+    monkeypatch.setattr(
+        auth_mod, "_login_throttle", LoginThrottle(free_attempts=2, base_lockout_s=30.0)
+    )
+    config = _password_login_config()
+    request = _fake_request("9.9.9.9", {})
+
+    with _mem_session() as session:
+        for _ in range(3):  # 3 wrong guesses (free_attempts=2) → locked
+            with pytest.raises(HTTPException) as exc:
+                asyncio.run(auth_mod.login(LoginRequest(password="nope"), request, config, session))
+            assert exc.value.status_code == 401
+
+        # Now locked: even the correct password is refused with 429 + Retry-After.
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(
+                auth_mod.login(LoginRequest(password="correct horse"), request, config, session)
+            )
+        assert exc.value.status_code == 429
+        assert "Retry-After" in (exc.value.headers or {})
+
+
+def test_login_endpoint_success_issues_token_and_clears(monkeypatch) -> None:
+    from naiad.api import auth as auth_mod
+
+    throttle = LoginThrottle(free_attempts=5)
+    monkeypatch.setattr(auth_mod, "_login_throttle", throttle)
+    config = _password_login_config()
+    request = _fake_request("9.9.9.9", {})
+
+    with _mem_session() as session:
+        # One wrong attempt, then the correct password succeeds and clears state.
+        with pytest.raises(HTTPException):
+            asyncio.run(auth_mod.login(LoginRequest(password="nope"), request, config, session))
+        resp = asyncio.run(
+            auth_mod.login(LoginRequest(password="correct horse"), request, config, session)
+        )
+        assert resp.token
+        assert throttle.retry_after("9.9.9.9") == 0.0
