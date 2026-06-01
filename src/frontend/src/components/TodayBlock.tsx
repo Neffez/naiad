@@ -437,6 +437,7 @@ function DenseTodayBlock({
                     className="n-iconbtn"
                     onClick={() => onSkip(run)}
                     title={t('today.skip')}
+                    aria-label={t('today.skip')}
                     style={{ width: 32, height: 32, flex: '0 0 32px', color: 'var(--n-fg-muted)' }}
                   >
                     <IX size={14} />
