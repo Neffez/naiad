@@ -89,7 +89,7 @@
   },
   "settings": {
     "title": "Settings",
-    "basisMin": "Basis min/zone",
+    "basisMin": "Base min/zone",
     "watchdog": "Watchdog (min)",
     "factorTemp": "Temperature factor",
     "factorRain": "Rain factor",
@@ -103,7 +103,7 @@
     "system": "System",
     "connected": "Connected",
     "disconnected": "Disconnected",
-    "basisC": "Basis °C",
+    "basisC": "Base °C",
     "pctPerC": "% per °C",
     "minPct": "Min %",
     "maxPct": "Max %",
@@ -349,7 +349,7 @@
     "live": "Live",
     "skip": "Skip",
     "skipped": "{{name}} skipped",
-    "tempTip": "Reading: {{input}} · Basis: {{basis}} °C · {{pct}} % per °C · Range: {{min}}–{{max}} %",
+    "tempTip": "Reading: {{input}} · Base: {{basis}} °C · {{pct}} % per °C · Range: {{min}}–{{max}} %",
     "rainTip": "Prob.: {{prob}} · Amount: {{mm}} · Threshold: {{threshold}} % · Reduce above {{reduce}} mm · Zero above {{zero}} mm · Weight: {{decay}}"
   },
   "time": {
