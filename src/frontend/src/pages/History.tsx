@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '../api/queryKeys'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { deleteHistory, getConfig, getHistory, type HistoryEntry } from '../api/client'
@@ -37,14 +38,14 @@ export default function History() {
   const qc = useQueryClient()
 
   const { data } = useQuery({
-    queryKey: ['history', page],
+    queryKey: queryKeys.historyPage(page),
     queryFn: () => getHistory({ page, per_page: 50 }),
   })
 
   const deleteMut = useMutation({
     mutationFn: (olderThanDays?: number) => deleteHistory(olderThanDays),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['history'] })
+      qc.invalidateQueries({ queryKey: queryKeys.history })
       setPage(1)
       setConfirm(null)
     },
@@ -195,7 +196,7 @@ function SummaryBlock({ label, value }: { label: string; value: string }) {
 
 function HistoryRow({ row }: { row: HistoryEntry }) {
   const { t, i18n } = useTranslation()
-  const { data: config } = useQuery({ queryKey: ['config'], queryFn: getConfig })
+  const { data: config } = useQuery({ queryKey: queryKeys.config, queryFn: getConfig })
   const isManual = row.triggered_by === 'manual'
   const triggerLabel = isManual ? t('history.manual') : t('history.scheduled')
   const barColor = resolveSeqColor(config, row.sequence_id) ?? 'var(--n-fg-dim)'
