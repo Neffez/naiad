@@ -7,13 +7,15 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from naiad.config import AppConfig
-from naiad.domain.models import Plan, SkippedRun, UserPreference
+from naiad.domain.models import Plan, QueuedNotification, SkippedRun, UserPreference
 from naiad.domain.sequences import SequenceRunner, zone_run_id
 from naiad.scheduler import (
     _consume_skip,
+    _notification_queue,
     _on_rain,
     _plan_tick,
     _run_sequence_job,
+    flush_notification_queue,
     push_notification,
 )
 from tests.conftest import MINIMAL_CONFIG_DATA
@@ -357,3 +359,133 @@ async def test_push_no_targets_is_noop() -> None:
     ha = _RecordingHA()
     await push_notification(ha, _cfg_targets([]), "hi", category="start")
     assert ha.calls == []
+
+
+# ── Notifications: offline queue + reconnect flush ─────────────────────────────
+
+
+class _ToggleHA:
+    """Mock HA whose connection can be flipped; call_service fails while offline."""
+
+    def __init__(self, connected: bool = True) -> None:
+        self.is_connected = connected
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    async def call_service(self, domain: str, service: str, **data: Any) -> None:
+        if not self.is_connected:
+            raise RuntimeError("Not connected to Home Assistant")
+        self.calls.append((domain, service, data))
+
+
+@pytest.fixture(autouse=True)
+def _queue_db() -> Any:
+    """Back the module-level notification queue with a throwaway in-memory DB so the
+    persistent queue can be exercised without touching the real database."""
+    eng = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(eng)
+    _notification_queue.bind(lambda: Session(eng))
+    yield
+    _notification_queue.bind(None)
+
+
+async def test_push_queues_when_disconnected() -> None:
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(ha, cfg, "hi", category="start")
+    assert ha.calls == []  # nothing delivered while offline
+    assert _notification_queue.pending_count() == 1
+
+
+async def test_flush_delivers_queued_on_reconnect() -> None:
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(ha, cfg, "hi", category="start")
+    assert _notification_queue.pending_count() == 1
+
+    ha.is_connected = True
+    await flush_notification_queue(ha, cfg)
+    assert ha.calls == [("notify", "a", {"message": "hi"})]
+    assert _notification_queue.pending_count() == 0
+
+
+async def test_flush_keeps_items_when_still_offline() -> None:
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(ha, cfg, "hi", category="start")
+    # Reconnect callback fired but HA dropped again before the flush completed.
+    await flush_notification_queue(ha, cfg)
+    assert ha.calls == []
+    assert _notification_queue.pending_count() == 1  # retained for the next reconnect
+
+
+async def test_queue_survives_rebind_simulating_restart() -> None:
+    """A row written before a 'restart' is still delivered after rebinding the queue
+    to the same database — this is the whole point of persistence."""
+    eng = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(eng)
+    sf = lambda: Session(eng)  # noqa: E731
+    _notification_queue.bind(sf)
+
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(ha, cfg, "hi", category="start")
+    assert _notification_queue.pending_count() == 1
+
+    # Simulate a process restart: a fresh queue object bound to the same DB file.
+    _notification_queue.bind(None)
+    _notification_queue.bind(sf)
+    ha.is_connected = True
+    await flush_notification_queue(ha, cfg)
+    assert ha.calls == [("notify", "a", {"message": "hi"})]
+    assert _notification_queue.pending_count() == 0
+
+
+async def test_flush_drops_stale_items() -> None:
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    old = datetime.now(UTC).replace(tzinfo=None) - timedelta(
+        hours=cfg.notifications.queue_max_hours + 1
+    )
+    # Insert a stale row directly through the bound session factory.
+    sf = _notification_queue._session_factory
+    assert sf is not None
+    with sf() as session:
+        session.add(
+            QueuedNotification(service="notify.a", message="old", category="start", enqueued_at=old)
+        )
+        session.commit()
+
+    ha = _ToggleHA(connected=True)
+    await flush_notification_queue(ha, cfg)
+    assert ha.calls == []  # too old → dropped, not delivered late
+    assert _notification_queue.pending_count() == 0
+
+
+async def test_queue_disabled_when_max_hours_zero() -> None:
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    cfg.notifications.queue_max_hours = 0
+    await push_notification(ha, cfg, "hi", category="start")
+    assert _notification_queue.pending_count() == 0  # queuing off → dropped immediately
+
+
+async def test_real_service_error_is_not_queued() -> None:
+    # Connected, but the notify service itself raises → permanent error, not queued.
+    class _FailingHA:
+        is_connected = True
+
+        async def call_service(self, domain: str, service: str, **data: Any) -> None:
+            raise RuntimeError("Unknown service notify.a")
+
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(_FailingHA(), cfg, "hi", category="start")
+    assert _notification_queue.pending_count() == 0
+
+
+async def test_queue_caps_total_items() -> None:
+    from naiad.scheduler import _QUEUE_MAX_ITEMS
+
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    target = cfg.ha.notify_targets[0]
+    for i in range(_QUEUE_MAX_ITEMS + 10):
+        _notification_queue.enqueue(target, f"m{i}", "start", cfg)
+    assert _notification_queue.pending_count() == _QUEUE_MAX_ITEMS
