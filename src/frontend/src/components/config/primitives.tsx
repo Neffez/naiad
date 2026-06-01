@@ -158,7 +158,8 @@ export function AddButton({ label, existing, onAdd }: {
         onClick={submit}>
         {t('config.add')}
       </button>
-      <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12.5 }}
+      <button className="n-btn" title={t('config.cancel')} aria-label={t('config.cancel')}
+        style={{ height: 32, padding: '0 10px', fontSize: 12.5 }}
         onClick={() => { setName(''); setAdding(false) }}>✕</button>
     </div>
   )
@@ -167,7 +168,7 @@ export function AddButton({ label, existing, onAdd }: {
 export function DeleteButton({ onClick }: { onClick: () => void }) {
   const { t } = useTranslation()
   return (
-    <button className="n-btn" title={t('config.delete')}
+    <button className="n-btn" title={t('config.delete')} aria-label={t('config.delete')}
       style={{ height: 36, width: 36, padding: 0, fontSize: 15, color: 'var(--n-danger)', marginTop: 18 }}
       onClick={onClick}>✕</button>
   )
