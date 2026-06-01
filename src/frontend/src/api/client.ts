@@ -227,6 +227,8 @@ export interface NextRun {
   scheduled_at: string
   duration_min: number
   plan_id?: string | null
+  /** True when this is the run currently executing (live, not skippable). */
+  in_progress?: boolean
 }
 
 export interface ValveState {
@@ -236,6 +238,8 @@ export interface ValveState {
   state: 'on' | 'off' | 'unknown'
   on_since: string | null
   runtime_min: number | null
+  /** Planned total duration of a single-zone run, for remaining-time display. */
+  total_min?: number | null
   /** True when this zone is running as a standalone single-zone run (stoppable directly). */
   single_run: boolean
 }

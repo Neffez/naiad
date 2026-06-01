@@ -48,6 +48,10 @@ components:
         state:       { $ref: '#/components/schemas/ValveStateEnum' }
         on_since:    { type: string, format: date-time, nullable: true }
         runtime_min: { type: number, nullable: true }
+        total_min:
+          type: number
+          nullable: true
+          description: "Planned total duration of a single-zone run, for remaining-time display. Null unless single_run is true."
         single_run:
           type: boolean
           description: "True when this zone is running as a standalone single-zone run (stoppable directly)."
@@ -167,6 +171,9 @@ components:
           type: string
           nullable: true
           description: Set for one-off planned runs; null for recurring cron runs.
+        in_progress:
+          type: boolean
+          description: "True when this is the run currently executing (live, not skippable)."
 
     SystemStatus:
       type: object
