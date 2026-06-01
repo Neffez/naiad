@@ -37,3 +37,8 @@ Exception: user-visible UI strings are managed through i18n (`src/frontend/src/i
 ## Commits
 
 Follow conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`.
+
+Before every commit, run the linters/formatters and fix anything they report — CI fails the build otherwise:
+
+- Backend (from `src/backend/`): `ruff format .` then `ruff check .` (CI runs `ruff format --check .`, so the working tree must already be formatted).
+- Frontend (from `src/frontend/`): `npm run lint` and `npx tsc -b`.

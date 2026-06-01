@@ -160,9 +160,7 @@ def test_no_factor_override_uses_yaml(minimal_config: AppConfig, factor_engine) 
 # ── Manual adjustment override ────────────────────────────────────────────────
 
 
-def test_manual_mode_overrides_automatic_factor(
-    minimal_config: AppConfig, factor_engine
-) -> None:
+def test_manual_mode_overrides_automatic_factor(minimal_config: AppConfig, factor_engine) -> None:
     """With manual_mode on, the automatic temp/rain calculation is bypassed."""
     with Session(factor_engine) as session:
         session.add(FactorOverride(id=1, manual_mode=True, manual_pct=120))
@@ -183,9 +181,7 @@ def test_manual_mode_overrides_automatic_factor(
     assert result.rain_factor_pct == pytest.approx(100.0)
 
 
-def test_manual_mode_clamped_to_temp_bounds(
-    minimal_config: AppConfig, factor_engine
-) -> None:
+def test_manual_mode_clamped_to_temp_bounds(minimal_config: AppConfig, factor_engine) -> None:
     """A manual percentage beyond the temp factor's min/max is clamped."""
     with Session(factor_engine) as session:
         session.add(FactorOverride(id=1, manual_mode=True, manual_pct=999))
