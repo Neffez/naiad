@@ -104,8 +104,10 @@ function AdjustmentSection({ sys, breakdown, compact = false }: {
     else mut.mutate({ manual_mode: true, manual_pct: f.combined_pct })
   }
 
+  // Commit on every change (incl. stepper/arrows) but keep the editor open; it
+  // only closes when focus actually leaves the field (Enter blurs the input,
+  // see NumberField; clicking away triggers the wrapper's blur below).
   const commitPct = (v: number) => {
-    setEditing(false)
     mut.mutate({ manual_pct: v })
   }
 
@@ -156,17 +158,26 @@ function AdjustmentSection({ sys, breakdown, compact = false }: {
       </div>
 
       {manual && editing ? (
-        <NumberField
-          value={f.combined_pct}
-          unit="%"
-          min={minPct}
-          max={maxPct}
-          step={1}
-          width={64}
-          autoFocus
-          aria-label={t('today.adjustment')}
-          onChange={commitPct}
-        />
+        <span
+          style={{ display: 'inline-flex' }}
+          onBlur={(e) => {
+            // Close only when focus leaves the whole field (not when moving
+            // between the input and its stepper buttons).
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setEditing(false)
+          }}
+        >
+          <NumberField
+            value={f.combined_pct}
+            unit="%"
+            min={minPct}
+            max={maxPct}
+            step={1}
+            width={64}
+            autoFocus
+            aria-label={t('today.adjustment')}
+            onChange={commitPct}
+          />
+        </span>
       ) : (
         <button
           type="button"
