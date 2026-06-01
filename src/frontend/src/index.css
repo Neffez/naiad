@@ -556,6 +556,7 @@ svg { display: block; }
    pushing the scrollbar to the card edge. */
 .n-scroll-y {
   overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--n-line-strong) transparent;
   margin-right: -8px;
