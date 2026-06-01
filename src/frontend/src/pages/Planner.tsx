@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '../api/queryKeys'
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
@@ -12,10 +13,10 @@ type Target = 'sequence' | 'zone'
 export default function Planner() {
   const { t, i18n } = useTranslation()
   const qc = useQueryClient()
-  const { data: plans = [] } = useQuery({ queryKey: ['plans'], queryFn: getPlans })
-  const { data: sequences = [] } = useQuery({ queryKey: ['sequences'], queryFn: getSequences })
-  const { data: valves = [] } = useQuery({ queryKey: ['valves'], queryFn: getValves })
-  const { data: config } = useQuery({ queryKey: ['config'], queryFn: getConfig })
+  const { data: plans = [] } = useQuery({ queryKey: queryKeys.plans, queryFn: getPlans })
+  const { data: sequences = [] } = useQuery({ queryKey: queryKeys.sequences, queryFn: getSequences })
+  const { data: valves = [] } = useQuery({ queryKey: queryKeys.valves, queryFn: getValves })
+  const { data: config } = useQuery({ queryKey: queryKeys.config, queryFn: getConfig })
 
   // Preselect the target when arriving from a card's "schedule" button (?seq=… / ?zone=…).
   const [searchParams] = useSearchParams()
@@ -31,13 +32,13 @@ export default function Planner() {
 
   const createMut = useMutation({
     mutationFn: (body: CreatePlanRequest) => createPlan(body),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['plans'] }); setError('') },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.plans }); setError('') },
     onError: (e: Error) => setError(e.message),
   })
 
   const deleteMut = useMutation({
     mutationFn: deletePlan,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['plans'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plans }),
   })
 
   function submit(e: FormEvent) {
