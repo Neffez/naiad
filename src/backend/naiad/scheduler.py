@@ -22,8 +22,8 @@ from naiad.domain.models import (
     QueuedNotification,
     SequenceOverride,
     SkippedRun,
-    UserPreference,
 )
+from naiad.domain.preferences import read_master_on
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.domain.sequences import MutexConflict, SequenceRunner, zone_id_of_run
 from naiad.ha_client import HAClient
@@ -36,8 +36,7 @@ SessionFactory = Callable[[], Session]
 
 def _master_on(session_factory: SessionFactory) -> bool:
     with session_factory() as session:
-        pref = session.get(UserPreference, "master_on")
-        return pref is None or pref.value == "1"
+        return read_master_on(session)
 
 
 def _run_label(config: AppConfig, run_id: str | None) -> str:
