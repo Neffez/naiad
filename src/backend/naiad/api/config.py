@@ -81,6 +81,7 @@ def build_config_response(config: AppConfig, *, restart_required: bool = False) 
         factors=config.factors,
         notifications=config.notifications,
         timezone=config.timezone,
+        sequence_colors_enabled=config.sequence_colors_enabled,
         restart_required=restart_required,
     )
 

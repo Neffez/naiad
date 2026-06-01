@@ -295,6 +295,13 @@ class ScheduleConfig(BaseModel):
         return [cron_for_time(t, self.days) for t in self.times]
 
 
+# Accent-color keys for the colored bar on a sequence card. The hex values
+# behind each key live in the frontend palette (src/frontend/src/theme/
+# sequenceColors.ts); the backend only stores/validates the key. None means no
+# explicit choice (a neutral default bar is shown when colors are enabled).
+SequenceColor = Literal["green", "sand", "purple", "slate", "blue", "rose"]
+
+
 class SequenceConfig(BaseModel):
     label: str
     zones: list[str]
@@ -304,6 +311,7 @@ class SequenceConfig(BaseModel):
     schedule: ScheduleConfig
     enabled: bool = True
     wind_blocks: bool = False
+    color: SequenceColor | None = None
 
     @model_validator(mode="after")
     def validate_range(self) -> "SequenceConfig":
@@ -378,6 +386,9 @@ class AppConfig(BaseModel):
     notifications: NotificationsConfig = NotificationsConfig()
     timezone: str = "Europe/Berlin"  # IANA tz for cron schedules and day bucketing
     language: Literal["de", "en"] = "en"  # language of server-side notifications
+    # Global switch for the colored accent bars on sequence cards. When false, no
+    # bars are shown anywhere regardless of per-sequence color choices.
+    sequence_colors_enabled: bool = True
 
     @model_validator(mode="after")
     def validate_timezone(self) -> "AppConfig":
