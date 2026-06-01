@@ -26,7 +26,7 @@ from naiad.dependencies import (
 from naiad.domain.factors import compute_factors
 from naiad.domain.models import Plan, RunHistory, SequenceOverride, SkippedRun, UserPreference
 from naiad.domain.sensors import read_sensor_snapshot
-from naiad.domain.sequences import SequenceRunner, zone_run_id
+from naiad.domain.sequences import SequenceRunner, zone_id_of_run, zone_run_id
 from naiad.ha_client import HAClient
 from naiad.scheduler import next_run_for_sequence, upcoming_cron_runs
 from naiad.timeutil import local_day_start_utc, local_week_start_utc
@@ -164,16 +164,60 @@ def _next_runs(
     return [run for _, run in candidates[:limit]]
 
 
+def _running_run(
+    runner: SequenceRunner,
+    session: Session,
+    config: AppConfig,
+) -> NextRunResponse | None:
+    """The run currently executing, as a today-anchored NextRunResponse.
+
+    A run that has already started no longer appears among the scheduler's future
+    fire times, so without this it would vanish from the day list the moment it
+    begins — and an evening run starting at 20:00 would make the list jump to
+    tomorrow. Surfacing it keeps "today's runs" showing what is happening now.
+    """
+    status = runner.status()
+    if status.sequence_id is None or status.current_zone is None:
+        return None
+
+    started_at = status.current_zone.started_at
+    zone_id = zone_id_of_run(status.sequence_id)
+    if zone_id is not None:
+        zone_cfg = config.zones.get(zone_id)
+        if zone_cfg is None:
+            return None
+        return NextRunResponse(
+            sequence_id=zone_id,
+            sequence_label=zone_cfg.label,
+            scheduled_at=started_at.astimezone(UTC).replace(tzinfo=None),
+            duration_min=int(round(status.current_zone.duration_min)),
+            in_progress=True,
+        )
+
+    seq_cfg = config.sequences.get(status.sequence_id)
+    if seq_cfg is None:
+        return None
+    return NextRunResponse(
+        sequence_id=status.sequence_id,
+        sequence_label=seq_cfg.label,
+        scheduled_at=started_at.astimezone(UTC).replace(tzinfo=None),
+        duration_min=_effective_basis(session, config, status.sequence_id),
+        in_progress=True,
+    )
+
+
 def _upcoming_day_runs(
     session: Session,
     config: AppConfig,
     scheduler: AsyncIOScheduler,
+    runner: SequenceRunner,
 ) -> list[NextRunResponse]:
     """Upcoming runs for the next day that has any (local calendar day).
 
     If runs remain today, returns all of today's remaining runs; otherwise all
     runs of the next day that has scheduled runs. Both one-off plans and recurring
-    cron schedules are merged, and user-skipped cron occurrences are excluded.
+    cron schedules are merged, the currently-running run is included (anchored to
+    today), and user-skipped cron occurrences are excluded.
     """
     tz = ZoneInfo(config.timezone)
     now = datetime.now(UTC)
@@ -218,6 +262,11 @@ def _upcoming_day_runs(
                 )
             )
 
+    running = _running_run(runner, session, config)
+    if running is not None:
+        when = running.scheduled_at.replace(tzinfo=UTC)
+        candidates.append((when, running))
+
     if not candidates:
         return []
 
@@ -233,6 +282,7 @@ async def get_status(
     ha: HAClient = Depends(get_ha_client),
     session: Session = Depends(get_session),
     scheduler: AsyncIOScheduler = Depends(get_scheduler),
+    runner: SequenceRunner = Depends(get_runner),
 ) -> SystemStatusResponse:
     snapshot = read_sensor_snapshot(ha, config)
     factors = compute_factors(snapshot, config, session)
@@ -247,7 +297,7 @@ async def get_status(
     today_start = local_day_start_utc(config.timezone)
     week_start = local_week_start_utc(config.timezone)
 
-    upcoming_runs = _upcoming_day_runs(session, config, scheduler)
+    upcoming_runs = _upcoming_day_runs(session, config, scheduler, runner)
     next_runs = _next_runs(session, config, scheduler, 2)
 
     return SystemStatusResponse(
@@ -340,7 +390,8 @@ async def list_valves(
     ha: HAClient = Depends(get_ha_client),
     runner: SequenceRunner = Depends(get_runner),
 ) -> list[ValveStateResponse]:
-    running_id = runner.status().sequence_id
+    run_status = runner.status()
+    running_id = run_status.sequence_id
     result = []
     for zone_id, zone in config.zones.items():
         state_dict = ha.get_state(zone.switch)
@@ -362,6 +413,13 @@ async def list_valves(
         if on_since is not None:
             runtime_min = (datetime.now(UTC) - on_since).total_seconds() / 60.0
 
+        # For a standalone single-zone run, expose its planned duration so the UI
+        # can show remaining time (e.g. "5 / 10 min").
+        single_run = running_id == zone_run_id(zone_id)
+        total_min: float | None = None
+        if single_run and run_status.current_zone is not None:
+            total_min = run_status.current_zone.duration_min
+
         result.append(
             ValveStateResponse(
                 id=zone.switch,
@@ -370,7 +428,8 @@ async def list_valves(
                 state=state,
                 on_since=on_since,
                 runtime_min=runtime_min,
-                single_run=running_id == zone_run_id(zone_id),
+                total_min=total_min,
+                single_run=single_run,
             )
         )
     return result

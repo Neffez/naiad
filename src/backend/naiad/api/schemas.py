@@ -151,6 +151,9 @@ class NextRunResponse(BaseModel):
     # Set for one-off planned runs; the skip endpoint deletes the plan directly.
     # None for recurring cron runs, which are skipped via a SkippedRun record.
     plan_id: str | None = None
+    # True when this entry is the run currently executing (started, not upcoming).
+    # The UI marks it as live and hides the skip action.
+    in_progress: bool = False
 
 
 class SystemStatusResponse(BaseModel):
@@ -185,6 +188,9 @@ class ValveStateResponse(BaseModel):
     state: str
     on_since: UtcDatetime | None
     runtime_min: float | None
+    # Total planned duration of a standalone single-zone run, so the UI can show
+    # remaining time (e.g. "5 / 10 min"). None unless single_run is True.
+    total_min: float | None = None
     # True when this zone is currently running as a standalone single-zone run
     # (started directly, not as part of a sequence) — so the UI can offer a stop.
     single_run: bool = False
