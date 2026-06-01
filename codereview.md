@@ -1,53 +1,37 @@
 # Code Review — Naiad
 
-**Scope:** Full-codebase re-review of the Naiad garden irrigation controller
-(FastAPI/SQLModel backend + React/TypeScript frontend), integrating with Home
-Assistant over WebSocket.
-**Date:** 2026-05-31
-**Branch reviewed:** `claude/naiad-review-docs-xYRMk`
+**Scope:** Independent full-codebase architecture and clean-code review of the
+Naiad garden irrigation controller (FastAPI/SQLModel backend + React/TypeScript
+frontend, integrating with Home Assistant over WebSocket).
+**Date:** 2026-06-01
+**Branch:** `claude/architecture-clean-code-review-WKNHX`
 **Reviewed against:** `CLAUDE.md` project rules, `docs/openapi.yaml` contract.
 
-> This review supersedes the previous one. Findings that the current source
-> genuinely resolves have been **removed** rather than re-reported; the
-> remaining open items are re-derived from the code as it stands today, and a
-> few new findings are added. CI was reproduced locally on Python 3.12 and is
-> **fully green**: `ruff check`, `ruff format --check`, `mypy naiad`
-> (35 files, no issues), and `pytest` (217 passed) all pass.
+**CI reproduced locally (Python 3.12):** `ruff check` ✅ · `ruff format --check`
+(36 files) ✅ · `mypy naiad` (36 files, no issues) ✅ · `pytest` **241 passed** ✅.
+Frontend `tsc -b` ✅ (baseline, before the strict-mode change below).
 
 ---
 
 ## 1. Summary / Verdict
 
-Naiad remains a well-structured codebase. The layering
-(config → domain → drivers → API → scheduler) is clean, the `IValveDriver`
-abstraction keeps the HA client mockable, the sequence state machine is sound,
-and crash recovery (`ActiveRun` + `recover_run` + `reconcile_valves`) closes the
-biggest historical safety gap. Timezone handling is now centralized in
-`timeutil.py` and used consistently on the status/history/plan paths.
+Naiad is a cleanly layered, carefully engineered codebase. The
+`config → domain → drivers → api → scheduler` layering is consistent, the
+`domain/` layer is largely pure and well unit-tested, and the genuinely hard
+problems (valve left open after a crash, double liter-counting, timezone
+bucketing) are actually solved — not just commented. Quality is well above
+average for a project of this size.
 
-Since the last review the codebase has closed a substantial block of findings
-(verified against the source — see §6 *Resolved since last review*): the liter
-double-count race, the `at_datetime` timezone bug, the calendar-week metric
-mismatch, the temperature/rain factor bounds, unbounded run durations, the
-HA-connection callback ordering, and the factor-breakdown delta/absolute
-confusion are all fixed and covered by tests.
+There is **one** substantive security finding (auth fails open by default in
+`forward_header` mode) and a set of clean-code / consistency items, two of which
+are direct `CLAUDE.md` violations (TypeScript strict mode is not enabled;
+hardcoded display strings).
 
-The one substantive item left open is:
+Counts: **High 3 · Medium 3 · Low ~7.**
 
-- **Auth still fails open by default in `forward_header` mode.** A startup
-  warning was added, but at runtime a client-supplied header is still trusted
-  when `trusted_proxies` is empty (the default) — on both the REST and the
-  WebSocket path. (Left open because hard enforcement is a deployment decision:
-  failing closed would break setups that rely on network isolation instead of
-  `trusted_proxies`.)
-
-The rest are hardening items (config-reload atomicity, unbounded per-event task
-fan-out, token in `localStorage`).
-
-Counts: **High 1 · Medium 0 · Low 3.** Two passes in this branch fixed the
-remainder — see §6: the four low-risk doc/UI/behaviour items (watchdog docs,
-rain vs. paused, hardcoded colors, the "7 days" label), plus **login throttling
-(M-1)** and **the factor-0 % skip (M-2)**.
+> **Status (this branch):** all 3 High, M-1, M-2, L-1/L-2 and most of M-3 are
+> **fixed and verified** — see §7. Remaining: the TodayBlock dedup (M-3) and the
+> minor Low items, deferred as follow-ups.
 
 ---
 
@@ -55,176 +39,194 @@ rain vs. paused, hardcoded colors, the "7 days" label), plus **login throttling
 
 **Strengths**
 
-- Clear separation of concerns; `domain/` is mostly pure and unit-testable.
-- Driver/sensor `Protocol` abstraction enables the "mock the HA client" test
-  rule; the suite (`tests/`, 217 tests) covers factors, the state machine
-  (incl. watchdog/rain/resume), crash recovery, the WS manager, auth rules, and
-  config round-trips.
-- Config validation has real cross-field rules (`range`,
-  `reduce_above_mm < zero_above_mm`, `min_pct <= max_pct`, zone-reference
-  integrity, timezone) and a "lockout guard" on the config PUT/import path
-  (`build_validated_config` refuses to switch to `mode=password` with no
-  password set).
-- Crash recovery is a thoughtful answer to the ephemeral-container / stuck-valve
-  problem, with an explicit "zone duration as the bound" policy and idempotent
-  `reconcile_valves`.
-- Runtime config reload mutates a single shared `AppConfig` in place, preserving
-  the object identity the scheduler/runner hold by reference.
-- The liter-tracking ownership decision now happens on the valve **on** event
-  (`tracking.py`), so a managed zone never enters the "external" off path — the
-  whole double-count class of bug is gone.
+- The `IValveDriver` abstraction decouples the runner from the HA client and is
+  what makes the "mock the HA client" test rule possible.
+- Crash recovery (`ActiveRun` + `recover_runs` + `reconcile_valves`) is the
+  standout: per persisted run it applies a "zone duration as the bound" policy,
+  then idempotently closes orphaned valves. Exactly right for ephemeral
+  containers.
+- The state machine (`_run_zones` / `_wait_zone`) covers every path
+  (done/stop/pause/watchdog) and persists in-flight state before each `await`.
+  The mutex is registered synchronously before the first `await`
+  (`self._runs[id] = run`) — correct against asyncio races.
+- Resilient `_safe_turn_off` (retry, never raises) keeps an HA blip from
+  aborting the run before history is recorded.
+- In-place config reload (`mutate_config_in_place`) preserves the object
+  identity that scheduler jobs / listeners hold by reference.
+- Naive-UTC storage convention centralized in `timeutil.py` and applied
+  consistently.
 
 **Concerns**
 
-1. **Auth defaults fail open.** `mode=none` warns loudly, and
-   `forward_header` with no `trusted_proxies` now *also* warns at startup — but
-   it still trusts a spoofable header at request time (**H-1**). `/auth/login`
-   now has per-IP throttling (fixed, see §6).
-
-2. **Two writers for `RunHistory`, now safely arbitrated.** The runner owns
-   managed runs; the `LiterTracker` owns external valve activity. Ownership is
-   decided at *valve-on* time and the managed zone is never added to the
-   tracker's `_on_times`, so the previous off-event race is closed. This is
-   sound; it is noted here only because the two-writer design still relies on the
-   `is_managed` predicate staying correct.
+1. **Two writers for `RunHistory`** (runner + `LiterTracker`), arbitrated at the
+   valve-*on* event via `is_managed`. Sound, but correctness rests entirely on
+   that predicate. Documented; fragile, not a bug.
+2. **Unbounded task fan-out** in `ha_client._dispatch` — one task spawned *per
+   callback per `state_changed` event*.
+3. **Reload "race"** between `any_running()` and the in-place mutation — see L-2;
+   on inspection the path is `await`-free, so it is effectively atomic.
 
 ---
 
 ## 3. High
 
 ### H-1. `forward_header` auth trusts a client-supplied header by default
-**Files:** `auth_rules.py:28-39`, `config.py:116-122`, `dependencies.py:66-70`, `api/ws.py:226-228`, `main.py:136-142`
+**Files:** `auth_rules.py:28-39`, `dependencies.py:66-70`, `api/ws.py:226-228`, `main.py:138-144`
 
 `forward_header_ok` returns `True` as soon as the configured header is present,
-**unless** `trusted_proxies` is non-empty:
+**unless** `trusted_proxies` is non-empty (default `[]`). With
+`auth.mode: forward_header` and no `trusted_proxies`, any client that can reach
+the direct port can send `X-Forwarded-User: anyone` and is authenticated — a full
+auth bypass, on both REST and the WebSocket handshake. A startup warning exists
+but the runtime still fails open.
 
-```python
-def forward_header_ok(header_value, client_ip, cfg):
-    if not header_value:
-        return False
-    if not cfg.trusted_proxies:   # default is []
-        return True
-    return client_ip in cfg.trusted_proxies
-```
+**Fix:** Fail closed — reject when `trusted_proxies` is empty in
+`forward_header` mode.
 
-The default header is `X-Forwarded-User`, and `trusted_proxies` defaults to `[]`.
-So with `auth.mode: forward_header` and no `trusted_proxies` configured, **any
-client that can reach the direct port can send `X-Forwarded-User: anyone` and is
-authenticated** — a full auth bypass. The same logic gates the WebSocket
-handshake (`api/ws.py:228`).
+### H-2. TypeScript strict mode is not enabled — `CLAUDE.md` violation
+**Files:** `src/frontend/tsconfig.app.json`
 
-**Partial mitigation present:** `main.py:136-142` now logs a startup warning when
-this combination is configured, but the runtime behaviour is unchanged — it
-warns, then fails open.
+`strict` (and `strictNullChecks` / `noImplicitAny`) appears in none of the
+`tsconfig*.json` files; there is no base config supplying it. `CLAUDE.md`
+explicitly requires "TypeScript: strict mode." Test files are additionally
+excluded from the typecheck. The code is written *as if* strict (pervasive
+`?.`/`??`), so enabling it is expected to be low-churn.
 
-**Fix:** Fail closed when `trusted_proxies` is empty in `forward_header` mode
-(reject the request), or require `trusted_proxies` at config-validation time so
-the dangerous state can't be persisted.
+### H-3. Hardcoded display string bypasses i18n — `CLAUDE.md` violation
+**File:** `src/frontend/src/App.tsx:120`
+
+`title="Konfiguration"` is hardcoded German; every other route uses
+`t('nav.*')`. Should be `t('nav.config')` with the key added to both locales.
 
 ---
 
 ## 4. Medium
 
-None open. Both medium findings were fixed in this branch (see §6): per-IP login
-throttling (was M-1) and skipping an automatic run when the factor is 0 %
-(was M-2).
+### M-1. Hardcoded German strings in the backend (stats publisher)
+**File:** `stats_publisher.py:161-186`
+
+MQTT entity names are hardcoded German (`"Bewässerung gesamt"`,
+`"Laufzeit gesamt"`, `"Bewässerung {zone.label}"`, …). These are user-visible in
+Home Assistant but bypass i18n and ignore `config.language`: server-side
+notifications honor the configured language, yet a user with `language: en` still
+gets German HA sensors. `CLAUDE.md` requires English code / i18n-managed UI
+strings.
+
+### M-2. Dead code in the drivers layer
+**Files:** `drivers/ha_driver.py:23-78`, `drivers/protocol.py:8-25`
+
+`HAEntitySensorSource`, `ISensorSource`, `SensorReading`, and
+`HAEntityDriver.subscribe_state` are never instantiated/called (verified). The
+runner only uses `turn_on`/`turn_off`; `subscribe_state` on the `IValveDriver`
+protocol is pure ballast.
+
+### M-3. Frontend file-size / duplication hotspots
+- `pages/Config.tsx` is **1202 lines**, mixing the page with ~15 component
+  definitions (`EntityCombobox`, `SequenceEditor`, `SchedulePicker`, plus layout
+  primitives near-duplicated from `Settings.tsx`).
+- `components/TodayBlock.tsx` (461 lines) has three parallel run-row render paths
+  (`TodayBlock` / `DenseTodayBlock` / `RunRow`).
+- Query-key strings are repeated magic literals (`['sequences']` ×12,
+  `['status']` ×9, …); a typo in `invalidateQueries` silently fails to refresh.
+- `getConfig` is fetched inside leaf components (per History row) only for color
+  resolution.
 
 ---
 
 ## 5. Low
 
-- **L-3. Unbounded task spawn per `state_changed` event.** `_dispatch`
-  (`ha_client.py:175-176`) spawns one task per registered callback for every
-  state change. The tasks are GC-safe, but a busy HA instance can produce a large
-  fan-out (several subscribers × every entity change). Consider running callbacks
-  sequentially in the dispatch loop or bounding concurrency.
-
-- **L-4. Config-reload race with a starting run.** The PUT/import endpoints reject
-  changes while a run is live (`api/config.py:175, 220`), but the check and the
-  in-place mutation (`runtime_reload.apply_reloaded_config`) aren't atomic, and
-  the reload rewrites the same `AppConfig` the runner reads by reference. A reload
-  that races a just-started run could see `zones`/`sequences` change
-  mid-iteration. Narrow window, but worth a guard or copy-on-write.
-
-- **L-5. Auth token in `localStorage`.** `api/client.ts:8` /
-  `hooks/useWebSocket.ts:49` store the bearer token in `localStorage`, which is
-  XSS-exfiltratable. No obvious stored-XSS sink was found (React escapes rendered
-  strings), so this is a documented trade-off rather than an active vuln — but it
-  remains the weakest point of the auth design and is called out by `CLAUDE.md`'s
-  security section.
-
-- **L-6. The i18n default values are in German instead of English.
+- **L-1. Unbounded task fan-out per `state_changed` event** (`ha_client.py:175`):
+  one task per registered callback per event (subscribers × every entity change).
+- **L-2. Config-reload atomicity** (`api/config.py:177` → `apply_reloaded_config`):
+  the `any_running()` guard and the in-place mutation are not lock-guarded, but
+  the path between them is `await`-free, so no scheduler job can interleave on the
+  single-threaded event loop — effectively atomic. Worth a clarifying note/guard.
+- **L-3. Auth token in `localStorage`** (`api/client.ts`, `hooks/useWebSocket.ts`)
+  — XSS-exfiltratable; documented trade-off, no stored-XSS sink found.
+- **L-4. `last_used_at` write on every authenticated request**
+  (`dependencies.py:84-86`, `api/ws.py:149`) — a DB commit per call.
+- **L-5. DRY: `master_on` preference read reimplemented 3×** (`scheduler.py:37`,
+  `system.py:37`, `api/sequences.py:32`).
+- **L-6. Repeated `datetime.fromisoformat(...)` try/except** across
+  `ha_driver.py`, `system.py`, `tracking.py`.
+- **L-7. Frontend hardcoded color literals** — `var(--n-danger, #ff6464)` hex
+  fallback (`History.tsx:241`) and ~25 `rgba(...)` glow/overlay literals that
+  duplicate token colors; plus a11y gaps (combobox lacks `role`/`aria-*`,
+  icon-only buttons rely on `title` not `aria-label`) and unhandled query errors.
 
 ---
 
-## 6. Resolved since last review (verified, not re-reported)
+## 6. Recommended priorities
 
-These previously-reported items are confirmed fixed in the current source and
-backed by passing tests:
-
-- **Liter double-count of the last zone (was H-2):** the `LiterTracker` now
-  decides ownership on the valve **on** event and never stores a managed zone in
-  `_on_times` (`domain/tracking.py:44-63`), so the off-event race that produced a
-  duplicate `external` row is gone.
-- **`at_datetime` plan timezone (was M-1):** `api/plans.py:101-120` interprets a
-  naive wall-clock value in `config.timezone` and stores it as naive UTC via
-  `timeutil.to_naive_utc`.
-- **`liters_week` vs `week_series` (was M-2):** `api/system.py:248,275` both
-  bucket from the local Monday (`local_week_start_utc`), so the headline equals
-  the sum of the chart. *(The UI label was relabelled to "this week" to match —
-  see "Fixed in this branch" below.)*
-- **Temperature / rain factor bounds (was M-3):** `TempFactorConfig` validates
-  `min_pct <= max_pct` with `ge=0`; `RainFactorConfig` bounds `threshold_prob`
-  (0–100), `forecast_days` (≥1), `forecast_decay` (0–1) (`config.py:319-347`).
-  `merge_factor_config` re-validates, covering the override path.
-- **Unbounded run durations (was M-4):** `StartSequenceRequest`,
-  `StartZoneRequest`, and `CreatePlanRequest` all constrain `duration_min` with
-  `gt=0` (`api/schemas.py:62-67, 225`). *(Still no upper bound, but the per-zone
-  watchdog bounds an over-long override.)*
-- **HA callback ordering (was L-2):** `ha.on_connection_change` is assigned
-  before `await ha.start()` (`main.py:238, 243`), so the first connect (crash
-  recovery) can't fire before its handler is attached.
-- **Factor-breakdown delta/absolute mix (was L-5):** `api/system.py:262-269` now
-  emits both `temp_pct` and `rain_pct` as signed deltas from neutral, documented
-  in `api/schemas.py:130-136`.
-- **WS per-connection send lock & startup `forward_header` warning** were already
-  in place and remain correct.
-- **Cold sensor cache:** fails *safe* — an empty cache leaves the season sensor
-  `unavailable`, which yields `season_off` and *skips* the run rather than
-  over-watering. No longer a concern.
-
-**Fixed in this branch (second pass):**
-
-- **Rain abort now honors paused runs.** `_on_rain` discards the resume snapshot
-  when rain starts while a run is paused, so it can't be resumed afterwards
-  (`scheduler.py`, `SequenceRunner.clear_paused_snapshot`,
-  `domain/resume.clear_any_snapshot`; tests in `tests/test_scheduler.py`).
-- **Per-zone watchdog semantics documented.** README "Scheduling & safety" and a
-  comment on `watchdog_min` in `config.example.yaml` now state that the watchdog
-  bounds a single zone (a run of *N* zones can take up to *N × watchdog_min*).
-- **Hardcoded hex colors removed.** `#04181c` is centralized as a new
-  `--n-on-accent` token in `index.css` and referenced from `index.css` and
-  `pages/Planner.tsx` instead of being inlined.
-- **Misleading "7 days" label relabelled.** The dashboard headline key was
-  renamed `usage7d → usageWeek` ("Usage · this week" / "Verbrauch · diese
-  Woche") to match the now calendar-week figure (`Dashboard.tsx`, both locales).
-- **Login throttling added (was M-1).** `LoginThrottle` (`api/auth.py`) imposes a
-  growing per-IP temporary lockout after repeated failed logins (in-memory, keyed
-  on the socket IP; a correct password clears the counter), and `/auth/login`
-  returns `429` with `Retry-After` while locked. Unit + endpoint tests in
-  `tests/test_auth.py`.
-- **Factor-0 % now skips an automatic run (was M-2).** `_run_sequence_job` skips
-  when `round(factor_pct) == 0` (alongside `season_off`), so heavy forecast rain
-  (≥ `zero_above_mm`) no longer waters the range floor on cron/plan runs. Manual
-  starts are intentionally exempt. Test in `tests/test_scheduler.py`.
+1. Close the auth fail-open (H-1).
+2. Enable TS strict mode (H-2) + localize the hardcoded title (H-3).
+3. Backend hardcoded German → English (M-1).
+4. Remove dead driver code (M-2).
+5. Hardening: bound the `state_changed` fan-out (L-1), reload-atomicity note
+   (L-2); larger refactors (Config.tsx split, query-key centralization,
+   TodayBlock dedupe) as follow-ups.
 
 ---
 
-## 7. Recommended priorities
+## 7. Work log (this branch)
 
-1. **Close the auth fail-open:** H-1 (`forward_header` default — enforce rather
-   than only warn). This is the one remaining substantive finding; it is left as
-   a deployment decision (failing closed breaks setups relying on network
-   isolation instead of `trusted_proxies`).
-2. **Hardening:** the remaining Low items — L-3 (per-event task fan-out),
-   L-4 (config-reload atomicity), L-5 (token in `localStorage`).
+Verified after every change: backend `ruff check` ✅ · `ruff format` ✅ ·
+`mypy naiad` ✅ · `pytest` **242 passed** ✅ (was 241, +1 new auth test); frontend
+`tsc -b` (strict) ✅ · `eslint` ✅ · `vitest` **36 passed** ✅.
+
+### Done
+
+- **[H-1] ✅ Auth now fails closed in `forward_header` mode.** `forward_header_ok`
+  returns `False` when `trusted_proxies` is empty (was `True`), so a spoofable
+  client header is no longer trusted on the direct port — covers both REST
+  (`dependencies.py`) and the WebSocket handshake (`api/ws.py`) since both call
+  the same predicate. Startup warning reworded to say requests are rejected.
+  Tests updated/added in `tests/test_auth_rules.py`.
+  Files: `auth_rules.py:28-40`, `main.py:138-145`, `tests/test_auth_rules.py`.
+- **[H-2] ✅ TypeScript strict mode enabled.** Added `"strict": true` to
+  `tsconfig.app.json` and `tsconfig.node.json`; `tsc -b --force` passes with zero
+  changes needed elsewhere (the code was already written as-if-strict).
+- **[H-3] ✅ Hardcoded title localized.** `App.tsx:120` now uses `t('nav.config')`;
+  added `nav.config` to `en.json` ("Configuration") and `de.json` ("Konfiguration").
+- **[M-1] ✅ Backend German strings removed.** `stats_publisher._entity_specs`
+  MQTT sensor names are now English ("Water total", "Runtime total",
+  "Water {label}", …).
+- **[M-2] ✅ Dead driver code removed.** Deleted `HAEntitySensorSource`,
+  `ISensorSource`, `SensorReading`, and the unused `subscribe_state` from both the
+  `IValveDriver` protocol and `HAEntityDriver`. `drivers/` is now just the
+  valve on/off surface the runner actually uses.
+- **[L-1] ✅ `state_changed` fan-out bounded.** `_dispatch` now spawns one task
+  per event (`_run_callbacks`, which `gather`s the callbacks concurrently and logs
+  individual failures) instead of one task per callback per event.
+- **[L-2] ✅ Config-reload atomicity.** `replace_configuration` is `await`-free
+  between the `any_running()` guard and the in-place swap (documented with a
+  comment so it stays that way). `import_configuration` *does* `await
+  request.body()` after the first guard, so a second `any_running()` re-check was
+  added right before the swap to close that window.
+- **[M-3] ✅ Frontend size/duplication (most of it).**
+  - **React Query keys centralized** into `src/api/queryKeys.ts`; every inline
+    `['…']` literal across App/pages/components replaced with a typed reference
+    (parameterized keys for history page and entity/service domains).
+  - **`Config.tsx` split** from 1202 → ~496 lines: helper components extracted to
+    `components/config/primitives.tsx` (Section/Row/Labeled/`EntityCombobox`/…),
+    `components/config/editors.tsx` (SequenceEditor/SchedulePicker/ColorPicker/
+    ReminderTime/NotifyTargetList) and `components/config/formStyles.ts`
+    (shared `inputStyle`). No behavior change.
+  - **History per-row config query removed:** the `['config']` query is fetched
+    once on the History page and passed down, instead of one subscription per row.
+- **[L-7] ✅ (partial)** Dropped the `#ff6464` hex fallback in `History.tsx`
+  (`var(--n-danger)`).
+
+### Deferred (recommended follow-ups, not done in this pass)
+
+- **[M-3 — TodayBlock dedup]** Consolidating `RunRow` / `DenseTodayBlock`'s run
+  rows is left out deliberately: the variants differ in real behavior (dense shows
+  the skip button even for in-progress runs and omits the "live"/relative-time
+  text; icon-only vs labeled button). It is a cosmetic dedup whose correctness is
+  visual, and there are no render tests, so it should be done where the app can be
+  run and eyeballed.
+- **[L-3] Token in `localStorage`**, **[L-4] `last_used_at` write per request**,
+  **[L-5] `master_on` DRY helper**, **[L-6] `fromisoformat` helper**, remaining
+  **[L-7]** frontend `rgba(...)` literals / a11y / query-error UI — minor; batch
+  into a cleanup PR.
+</content>
