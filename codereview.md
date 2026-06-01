@@ -29,9 +29,10 @@ hardcoded display strings).
 
 Counts: **High 3 · Medium 3 · Low ~7.**
 
-> **Status (this branch):** all 3 High, M-1, M-2, L-1/L-2 and most of M-3 are
-> **fixed and verified** — see §7. Remaining: the TodayBlock dedup (M-3) and the
-> minor Low items, deferred as follow-ups.
+> **Status (this branch):** all 3 High, M-1, M-2, most of M-3 and L-1/L-2/L-4/L-5/
+> L-6 plus the a11y part of L-7 are **fixed and verified** — see §7. Remaining and
+> deferred (with rationale): L-3 (needs an auth redesign), the TodayBlock dedup
+> (M-3) and the cosmetic remainder of L-7.
 
 ---
 
@@ -214,19 +215,36 @@ Verified after every change: backend `ruff check` ✅ · `ruff format` ✅ ·
     (shared `inputStyle`). No behavior change.
   - **History per-row config query removed:** the `['config']` query is fetched
     once on the History page and passed down, instead of one subscription per row.
+- **[L-4] ✅ `last_used_at` write throttled.** New `touch_token_last_used`
+  (`dependencies.py`) refreshes the field at most once per 60s window instead of a
+  DB commit on every authenticated request; used by both `require_auth` and the
+  WebSocket `_authenticate`. Unit test in `tests/test_auth.py`.
+- **[L-5] ✅ `master_on` DRY.** New `domain/preferences.py`
+  (`read_master_on` / `set_master_on`); `scheduler.py`, `api/system.py` and
+  `api/sequences.py` now call it instead of each reimplementing the
+  `UserPreference` read.
+- **[L-6] ✅ `fromisoformat` helper.** New `timeutil.parse_iso_or_none`; the
+  repeated try/except timestamp parsing in `domain/tracking.py` and
+  `api/system.py` now goes through it.
 - **[L-7] ✅ (partial)** Dropped the `#ff6464` hex fallback in `History.tsx`
-  (`var(--n-danger)`).
+  (`var(--n-danger)`), and added `aria-label` to every icon-only button (valve
+  start/stop, sequence start/pause/stop/schedule, sidebar nav + theme, planner
+  remove, dense skip, config delete/cancel/notify-test) so screen readers get a
+  reliable accessible name rather than only a `title`.
 
 ### Deferred (recommended follow-ups, not done in this pass)
 
+- **[L-3] Token in `localStorage`.** Not a cleanup — fixing it means an auth
+  redesign (httpOnly cookie + CSRF, or short-lived in-memory tokens with refresh),
+  which changes the login flow and needs its own design decision. Left as-is
+  (documented trade-off; no stored-XSS sink found).
 - **[M-3 — TodayBlock dedup]** Consolidating `RunRow` / `DenseTodayBlock`'s run
   rows is left out deliberately: the variants differ in real behavior (dense shows
   the skip button even for in-progress runs and omits the "live"/relative-time
   text; icon-only vs labeled button). It is a cosmetic dedup whose correctness is
   visual, and there are no render tests, so it should be done where the app can be
   run and eyeballed.
-- **[L-3] Token in `localStorage`**, **[L-4] `last_used_at` write per request**,
-  **[L-5] `master_on` DRY helper**, **[L-6] `fromisoformat` helper**, remaining
-  **[L-7]** frontend `rgba(...)` literals / a11y / query-error UI — minor; batch
-  into a cleanup PR.
+- **[L-7 — remaining]** The `rgba(...)` glow/overlay literals (→ `--n-*` tokens),
+  full combobox ARIA (`role="combobox"/"listbox"`, `aria-activedescendant`) and
+  query-error UI are cosmetic/UX changes best verified against the running app.
 </content>
