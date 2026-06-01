@@ -28,14 +28,16 @@ def ingress_request_ok(client_ip: str, ingress_header: str, cfg: IngressConfig) 
 def forward_header_ok(header_value: str, client_ip: str, cfg: ForwardHeaderConfig) -> bool:
     """True if a trusted reverse proxy asserted an authenticated user.
 
-    Requires the configured header to be present and non-empty. If
-    ``trusted_proxies`` is configured, the request must also originate from one
-    of those proxy IPs (so the header can't be spoofed by an arbitrary client).
+    Requires the configured header to be present and non-empty *and* the request
+    to originate from one of the configured ``trusted_proxies`` IPs. The header is
+    client-supplied, so without a trusted-proxy allowlist anyone reaching the
+    direct port could spoof it — therefore an empty ``trusted_proxies`` **fails
+    closed** (rejects) rather than trusting the header from any source.
     """
     if not header_value:
         return False
     if not cfg.trusted_proxies:
-        return True
+        return False  # fail closed — no trusted proxy configured to vouch for the header
     return client_ip in cfg.trusted_proxies
 
 
