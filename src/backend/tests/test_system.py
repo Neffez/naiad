@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlmodel import Session, SQLModel, create_engine
 
-from naiad.api.system import _running_run, _upcoming_day_runs, _week_series
+from naiad.api.system import _running_runs, _upcoming_day_runs, _week_series
 from naiad.config import AppConfig
 from naiad.domain.models import RunHistory
 from naiad.domain.sequences import SequenceState, SequenceStatus, ZoneProgress, zone_run_id
@@ -17,17 +17,17 @@ def _engine():
 
 
 class _FakeRunner:
-    """Minimal runner stub exposing only status() for the upcoming-runs helpers."""
+    """Minimal runner stub exposing iter_runs() for the upcoming-runs helpers."""
 
-    def __init__(self, status: SequenceStatus) -> None:
-        self._status = status
+    def __init__(self, *statuses: SequenceStatus) -> None:
+        self._statuses = list(statuses)
 
-    def status(self) -> SequenceStatus:
-        return self._status
+    def iter_runs(self) -> list[SequenceStatus]:
+        return self._statuses
 
 
 def _idle_runner() -> _FakeRunner:
-    return _FakeRunner(SequenceStatus(state=SequenceState.IDLE))
+    return _FakeRunner()
 
 
 def test_week_series_buckets_runs_by_local_weekday() -> None:
@@ -77,7 +77,7 @@ def test_running_sequence_appears_in_today_runs() -> None:
             state=SequenceState.RUNNING,
             sequence_id="seq_1",
             current_zone=ZoneProgress(zone_id="zone_a", started_at=started, duration_min=30),
-        )
+        ),
     )
     sched = AsyncIOScheduler(timezone=cfg.timezone)
     with Session(_engine()) as s:
@@ -91,7 +91,7 @@ def test_running_sequence_appears_in_today_runs() -> None:
 def test_idle_runner_yields_no_running_run() -> None:
     cfg = _config_no_schedule()
     with Session(_engine()) as s:
-        assert _running_run(_idle_runner(), s, cfg) is None
+        assert _running_runs(_idle_runner(), s, cfg) == []
 
 
 def test_running_single_zone_uses_zone_label_and_duration() -> None:
@@ -105,9 +105,10 @@ def test_running_single_zone_uses_zone_label_and_duration() -> None:
         )
     )
     with Session(_engine()) as s:
-        run = _running_run(runner, s, cfg)
+        runs = _running_runs(runner, s, cfg)
 
-    assert run is not None
+    assert len(runs) == 1
+    run = runs[0]
     assert run.sequence_id == "zone_b"
     assert run.sequence_label == "Zone B"
     assert run.duration_min == 10

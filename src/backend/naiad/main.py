@@ -202,17 +202,17 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         nonlocal recovery_done
         await broadcast_ha_state(connected)
         if connected:
-            if runner.status().sequence_id is not None:
+            if runner.any_running():
                 # A run is live (reconnect mid-run) — don't interfere with it, but
                 # still refresh the fallback max temperature in the background.
                 await refresh_fallback_temp_max(config, ha)
                 return
             if not recovery_done:
-                # First time HA is reachable: recover an interrupted run if its
-                # zone window is still open, otherwise close orphaned valves.
+                # First time HA is reachable: recover interrupted runs whose zone
+                # window is still open, otherwise close orphaned valves.
                 recovery_done = True
-                action = await runner.recover_run()
-                logger.info("Crash recovery: %s", action)
+                actions = await runner.recover_runs()
+                logger.info("Crash recovery: %s", ", ".join(actions))
             else:
                 # Later reconnects while idle: close any orphaned valves. A
                 # manually/externally opened valve is also closed here, since
@@ -229,12 +229,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             # turn_off succeeds once HA returns, the watchdog still bounds the run,
             # and reconcile-on-reconnect closes anything left open. The ActiveRun
             # record is kept, so a crash during the outage still recovers on boot.
-            running = runner.status().sequence_id
-            if running is not None:
+            running = runner.running_run_ids()
+            if running:
                 logger.warning(
-                    "HA connection lost while '%s' is running — run continues; "
-                    "valve will be reconciled when HA returns",
-                    running,
+                    "HA connection lost while %s is running — run(s) continue; "
+                    "valves will be reconciled when HA returns",
+                    ", ".join(running),
                 )
 
     ha.on_connection_change = _ha_connected_cb
