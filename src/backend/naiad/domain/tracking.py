@@ -6,6 +6,7 @@ from typing import Any
 from naiad.config import AppConfig
 from naiad.domain.models import RunHistory
 from naiad.ha_client import HAClient
+from naiad.timeutil import parse_iso_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +50,9 @@ class LiterTracker:
             # spurious "external" run alongside the runner's own entry.
             if self._is_managed(zone_id):
                 return
-            raw_ts = state.get("last_changed", "")
-            try:
-                self._on_times[entity_id] = datetime.fromisoformat(raw_ts)
-            except (ValueError, TypeError):
-                self._on_times[entity_id] = datetime.now(UTC)
+            self._on_times[entity_id] = parse_iso_or_none(
+                state.get("last_changed")
+            ) or datetime.now(UTC)
 
         elif state["state"] == "off" and entity_id in self._on_times:
             on_time = self._on_times.pop(entity_id)
@@ -61,11 +60,7 @@ class LiterTracker:
             if self._is_managed(zone_id):
                 return  # SequenceRunner handles this entry
 
-            off_raw = state.get("last_changed", "")
-            try:
-                off_time = datetime.fromisoformat(off_raw)
-            except (ValueError, TypeError):
-                off_time = datetime.now(UTC)
+            off_time = parse_iso_or_none(state.get("last_changed")) or datetime.now(UTC)
 
             duration_min = (off_time - on_time).total_seconds() / 60
             zone_cfg = self._config.zones[zone_id]

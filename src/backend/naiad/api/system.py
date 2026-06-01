@@ -24,29 +24,15 @@ from naiad.dependencies import (
     require_auth,
 )
 from naiad.domain.factors import compute_factors
-from naiad.domain.models import Plan, RunHistory, SequenceOverride, SkippedRun, UserPreference
+from naiad.domain.models import Plan, RunHistory, SequenceOverride, SkippedRun
+from naiad.domain.preferences import read_master_on, set_master_on
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.domain.sequences import SequenceRunner, zone_run_id
 from naiad.ha_client import HAClient
 from naiad.scheduler import next_run_for_sequence, upcoming_cron_runs
-from naiad.timeutil import local_day_start_utc, local_week_start_utc
+from naiad.timeutil import local_day_start_utc, local_week_start_utc, parse_iso_or_none
 
 router = APIRouter(tags=["system"])
-
-
-def _get_master(session: Session) -> bool:
-    pref = session.get(UserPreference, "master_on")
-    return pref is None or pref.value == "1"
-
-
-def _set_master(session: Session, value: bool) -> None:
-    pref = session.get(UserPreference, "master_on")
-    if pref is None:
-        pref = UserPreference(key="master_on", value="1" if value else "0")
-    else:
-        pref.value = "1" if value else "0"
-    session.add(pref)
-    session.commit()
 
 
 def _week_series(session: Session, tz_name: str) -> list[float]:
@@ -263,7 +249,7 @@ async def get_status(
     next_runs = _next_runs(session, config, scheduler, 2)
 
     return SystemStatusResponse(
-        master_on=_get_master(session),
+        master_on=read_master_on(session),
         ha_connected=ha.is_connected,
         weather=WeatherSummaryResponse(
             temp_c=snapshot.temperature_c,
@@ -309,7 +295,7 @@ async def set_master(
     _: None = Depends(require_auth),
     session: Session = Depends(get_session),
 ) -> dict[str, bool]:
-    _set_master(session, body.on)
+    set_master_on(session, body.on)
     return {"master_on": body.on}
 
 
@@ -363,11 +349,7 @@ async def list_valves(
             state = raw if raw in ("on", "off") else "unknown"
             on_since = None
             if state == "on":
-                raw_ts = state_dict.get("last_changed", "")
-                try:
-                    on_since = datetime.fromisoformat(raw_ts)
-                except (ValueError, TypeError):
-                    on_since = None
+                on_since = parse_iso_or_none(state_dict.get("last_changed"))
 
         runtime_min: float | None = None
         if on_since is not None:

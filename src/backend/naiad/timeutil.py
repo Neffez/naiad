@@ -13,6 +13,18 @@ def now_utc_naive() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+def parse_iso_or_none(raw: str | None) -> datetime | None:
+    """Parse an ISO-8601 timestamp (e.g. a Home Assistant ``last_changed``), or
+    return None when it is absent or unparseable. Callers choose their own
+    fallback (``... or datetime.now(UTC)`` for "treat as now", or keep None)."""
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except (ValueError, TypeError):
+        return None
+
+
 def local_day_start_utc(tz_name: str, now: datetime | None = None) -> datetime:
     """Naive-UTC instant of *today's* local midnight in ``tz_name``."""
     tz = ZoneInfo(tz_name)
