@@ -8,6 +8,7 @@ import {
   type EntityInfo,
   type NotifyTarget,
   type ScheduleSummary,
+  type SequenceColorKey,
   type SequenceConfig,
   exportConfig,
   getConfig,
@@ -31,6 +32,7 @@ import {
   timeToDailyCron,
   weekdayShort,
 } from '../lib/schedule'
+import { SEQUENCE_COLOR_KEYS, SEQUENCE_PALETTE } from '../theme/sequenceColors'
 
 const inputStyle: CSSProperties = {
   height: 36,
@@ -259,11 +261,19 @@ export default function Config() {
               d.sequences[id] = {
                 label: name, zones: [], basis_min_per_zone: 30, range: [5, 240],
                 watchdog_min: 60, schedule: { days: [], times: ['06:00'], cron: null }, enabled: false, wind_blocks: false,
+                color: null,
               }
             })}
           />
         }
       >
+        <Row label={t('config.sequenceColors')}>
+          <Check
+            label={t('config.sequenceColorsHint')}
+            checked={draft.sequence_colors_enabled}
+            onChange={(v) => patch((d) => { d.sequence_colors_enabled = v })}
+          />
+        </Row>
         {Object.keys(draft.sequences).length === 0 && (
           <Empty>{t('config.noSequences')}</Empty>
         )}
@@ -275,6 +285,7 @@ export default function Config() {
             zoneIds={zoneIds}
             zones={draft.zones}
             last={i === arr.length - 1}
+            colorsEnabled={draft.sequence_colors_enabled}
             onChange={(mut) => patch((d) => mut(d.sequences[id]))}
             onDelete={() => setPendingDelete({ type: 'sequence', id })}
           />
@@ -475,12 +486,13 @@ const SENSOR_FIELDS: { key: keyof ConfigDoc['sensors']; domain: string; fallback
 
 // ── Sequence editor ─────────────────────────────────────────────────────────────
 
-function SequenceEditor({ id, seq, zoneIds, zones, last, onChange, onDelete }: {
+function SequenceEditor({ id, seq, zoneIds, zones, last, colorsEnabled, onChange, onDelete }: {
   id: string
   seq: SequenceConfig
   zoneIds: string[]
   zones: ConfigDoc['zones']
   last: boolean
+  colorsEnabled: boolean
   onChange: (mut: (s: SequenceConfig) => void) => void
   onDelete: () => void
 }) {
@@ -532,6 +544,12 @@ function SequenceEditor({ id, seq, zoneIds, zones, last, onChange, onDelete }: {
           </div>
         </div>
       </Labeled>
+
+      {colorsEnabled && (
+        <Labeled label={t('config.color')} align="start">
+          <ColorPicker value={seq.color} onChange={(c) => onChange((s) => { s.color = c })} />
+        </Labeled>
+      )}
 
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
         <Labeled label={t('config.basisMin')}>
@@ -661,6 +679,37 @@ function SchedulePicker({ value, onChange }: {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// Accent-color picker for a sequence card's left bar: a row of palette swatches
+// plus a "default" (neutral) option. Stores a color key (or null for default).
+function ColorPicker({ value, onChange }: {
+  value: SequenceColorKey | null
+  onChange: (c: SequenceColorKey | null) => void
+}) {
+  const { t } = useTranslation()
+  const swatch = (key: SequenceColorKey | null, bg: string, selected: boolean) => (
+    <button
+      key={key ?? 'default'}
+      type="button"
+      title={key ?? t('config.colorDefault')}
+      aria-label={key ?? t('config.colorDefault')}
+      onClick={() => onChange(key)}
+      style={{
+        width: 26, height: 26, borderRadius: '50%', cursor: 'pointer',
+        background: bg,
+        border: selected ? '2px solid var(--n-fg)' : '2px solid var(--n-line-strong)',
+        boxShadow: selected ? '0 0 0 2px var(--n-bg)' : 'none',
+        padding: 0,
+      }}
+    />
+  )
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+      {swatch(null, 'var(--n-card-elev)', value == null)}
+      {SEQUENCE_COLOR_KEYS.map((key) => swatch(key, SEQUENCE_PALETTE[key], value === key))}
     </div>
   )
 }
