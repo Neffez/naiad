@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../api/queryKeys'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { deleteHistory, getConfig, getHistory, type HistoryEntry } from '../api/client'
+import { type ConfigDoc, deleteHistory, getConfig, getHistory, type HistoryEntry } from '../api/client'
 import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
 import { IClock, IPlay } from '../components/icons'
 import { resolveSeqColor } from '../theme/sequenceColors'
@@ -41,6 +41,9 @@ export default function History() {
     queryKey: queryKeys.historyPage(page),
     queryFn: () => getHistory({ page, per_page: 50 }),
   })
+  // Fetched once for the whole table (sequence accent colors); passed down so each
+  // row doesn't open its own ['config'] query subscription.
+  const { data: config } = useQuery({ queryKey: queryKeys.config, queryFn: getConfig })
 
   const deleteMut = useMutation({
     mutationFn: (olderThanDays?: number) => deleteHistory(olderThanDays),
@@ -120,7 +123,7 @@ export default function History() {
 
       {/* Table rows */}
       {items.map((row) => (
-        <HistoryRow key={row.id} row={row} />
+        <HistoryRow key={row.id} row={row} config={config} />
       ))}
 
       {/* Empty state */}
@@ -194,9 +197,8 @@ function SummaryBlock({ label, value }: { label: string; value: string }) {
   )
 }
 
-function HistoryRow({ row }: { row: HistoryEntry }) {
+function HistoryRow({ row, config }: { row: HistoryEntry; config: ConfigDoc | undefined }) {
   const { t, i18n } = useTranslation()
-  const { data: config } = useQuery({ queryKey: queryKeys.config, queryFn: getConfig })
   const isManual = row.triggered_by === 'manual'
   const triggerLabel = isManual ? t('history.manual') : t('history.scheduled')
   const barColor = resolveSeqColor(config, row.sequence_id) ?? 'var(--n-fg-dim)'
@@ -239,7 +241,7 @@ function HistoryRow({ row }: { row: HistoryEntry }) {
             padding: '4px 10px', borderRadius: 999,
             border: '1px solid rgba(255,100,100,0.30)',
             background: 'rgba(255,100,100,0.08)',
-            color: 'var(--n-danger, #ff6464)',
+            color: 'var(--n-danger)',
             fontSize: 11.5, fontWeight: 500,
           }}>
             ⚠ {row.abort_reason ? t(`abortReason.${row.abort_reason}`, { defaultValue: row.abort_reason }) : t('history.aborted')}
