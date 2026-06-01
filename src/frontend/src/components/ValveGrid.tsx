@@ -45,7 +45,9 @@ function ValveCell({
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {state === 'on' && valve.runtime_min != null && (
             <span className="mono" style={{ fontSize: 11, color: 'var(--n-teal-200)' }}>
-              {valve.runtime_min.toFixed(0)} min
+              {valve.total_min != null
+                ? `${valve.runtime_min.toFixed(0)} / ${valve.total_min.toFixed(0)} min`
+                : `${valve.runtime_min.toFixed(0)} min`}
             </span>
           )}
           {canStop ? (
