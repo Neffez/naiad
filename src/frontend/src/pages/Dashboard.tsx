@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '../api/queryKeys'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -41,28 +42,28 @@ export default function Dashboard() {
   const navigate = useNavigate()
 
   const { data: status } = useQuery<SystemStatus>({
-    queryKey: ['status'],
+    queryKey: queryKeys.status,
     queryFn: getStatus,
     refetchInterval: 30_000,
   })
   const { data: sequences = [] } = useQuery<SequenceState[]>({
-    queryKey: ['sequences'],
+    queryKey: queryKeys.sequences,
     queryFn: getSequences,
     refetchInterval: 15_000,
   })
   const { data: valves = [] } = useQuery({
-    queryKey: ['valves'],
+    queryKey: queryKeys.valves,
     queryFn: getValves,
     refetchInterval: 15_000,
   })
   const { data: prefs } = useQuery<UserPreferences>({
-    queryKey: ['preferences'],
+    queryKey: queryKeys.preferences,
     queryFn: getPreferences,
   })
 
   const masterMut = useMutation({
     mutationFn: (on: boolean) => setMaster(on),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['status'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.status }),
   })
 
   // Persist a new card order. The dashboard derives its display order from the
@@ -70,16 +71,16 @@ export default function Dashboard() {
   const reorderMut = useMutation({
     mutationFn: (body: Partial<UserPreferences>) => updatePreferences(body),
     onMutate: async (body) => {
-      await qc.cancelQueries({ queryKey: ['preferences'] })
-      const previous = qc.getQueryData<UserPreferences>(['preferences'])
-      qc.setQueryData<UserPreferences>(['preferences'], (old) => (old ? { ...old, ...body } : old))
+      await qc.cancelQueries({ queryKey: queryKeys.preferences })
+      const previous = qc.getQueryData<UserPreferences>(queryKeys.preferences)
+      qc.setQueryData<UserPreferences>(queryKeys.preferences, (old) => (old ? { ...old, ...body } : old))
       return { previous }
     },
     onError: (_err, _body, ctx) => {
-      if (ctx?.previous) qc.setQueryData(['preferences'], ctx.previous)
+      if (ctx?.previous) qc.setQueryData(queryKeys.preferences, ctx.previous)
       toast(t('toast.reorderFailed'), 'error')
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ['preferences'] }),
+    onSettled: () => qc.invalidateQueries({ queryKey: queryKeys.preferences }),
   })
 
   const orderedSequences = applyOrder(sequences, prefs?.sequence_order ?? [])
@@ -87,9 +88,9 @@ export default function Dashboard() {
 
   useWebSocket((msg) => {
     if (['status_snapshot', 'sequence_changed', 'run_tick', 'valve_changed', 'factor_updated'].includes(msg.type)) {
-      qc.invalidateQueries({ queryKey: ['sequences'] })
-      qc.invalidateQueries({ queryKey: ['status'] })
-      qc.invalidateQueries({ queryKey: ['valves'] })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
+      qc.invalidateQueries({ queryKey: queryKeys.status })
+      qc.invalidateQueries({ queryKey: queryKeys.valves })
     }
   })
 
@@ -104,7 +105,7 @@ export default function Dashboard() {
     try {
       await startSequence(seq.id, durationMin)
       toast(t('toast.started', { name: seq.label }), 'success')
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     }
@@ -116,7 +117,7 @@ export default function Dashboard() {
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
     }
   }
 
@@ -126,7 +127,7 @@ export default function Dashboard() {
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
     }
   }
 
@@ -134,7 +135,7 @@ export default function Dashboard() {
     try {
       await startZone(zone.zone_id, durationMin)
       toast(t('toast.zoneStarted', { name: zone.label }), 'success')
-      qc.invalidateQueries({ queryKey: ['valves'] })
+      qc.invalidateQueries({ queryKey: queryKeys.valves })
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     }
@@ -146,7 +147,7 @@ export default function Dashboard() {
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
-      qc.invalidateQueries({ queryKey: ['valves'] })
+      qc.invalidateQueries({ queryKey: queryKeys.valves })
     }
   }
 
@@ -159,7 +160,7 @@ export default function Dashboard() {
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
     }
   }
 
