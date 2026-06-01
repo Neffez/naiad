@@ -55,6 +55,7 @@ function ValveCell({
               className="n-iconbtn"
               style={{ width: 26, height: 26 }}
               title={t('valve.stop')}
+              aria-label={t('valve.stop')}
               onPointerDown={stop}
               onClick={(e) => { stop(e); onStopZone(valve.zone_id) }}
             >
@@ -65,6 +66,7 @@ function ValveCell({
               className="n-iconbtn"
               style={{ width: 26, height: 26 }}
               title={t('valve.start')}
+              aria-label={t('valve.start')}
               onPointerDown={stop}
               onClick={(e) => { stop(e); onStartZone(valve.zone_id) }}
             >
