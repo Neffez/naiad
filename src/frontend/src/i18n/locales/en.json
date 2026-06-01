@@ -241,6 +241,7 @@
     "restartRequired": "HA connection changed — a restart is required for the new connection to take effect.",
     "addEntry": "Add",
     "add": "OK",
+    "cancel": "Cancel",
     "delete": "Delete",
     "deleteZoneTitle": "Delete zone?",
     "deleteZoneMsg": "Really delete zone “{{name}}”? It will also be removed from all sequences.",
