@@ -15,8 +15,67 @@ Naiad replaces the irrigation automation logic that typically lives inside Home 
 </div>
 
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/dashboard_light.png" alt="Dashboard (light)" width="100%"></td>
+    <td width="50%"><img src="docs/dashboard_dark.png" alt="Dashboard (dark)" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Dashboard</b> — light</sub></td>
+    <td align="center"><sub><b>Dashboard</b> — dark</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/planner.png" alt="Planner" width="100%"></td>
+    <td width="50%"><img src="docs/sequences.png" alt="Sequences" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Planner</b> — manual one-off plans</sub></td>
+    <td align="center"><sub><b>Sequences</b> — ordered zones &amp; schedules</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/zones.png" alt="Zones" width="100%"></td>
+    <td width="50%"><img src="docs/history.png" alt="History" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Zones</b> — valve &amp; flow configuration</sub></td>
+    <td align="center"><sub><b>History</b> — per-run liters &amp; durations</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/system_config.png" alt="System configuration" width="100%"></td>
+    <td width="50%"><img src="docs/mqtt_and_notifications.png" alt="MQTT and notifications" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>System configuration</b></sub></td>
+    <td align="center"><sub><b>MQTT &amp; notifications</b></sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/settings.png" alt="Settings" width="100%"></td>
+    <td width="50%"><img src="docs/system.png" alt="System" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Settings</b></sub></td>
+    <td align="center"><sub><b>System</b> — status &amp; diagnostics</sub></td>
+  </tr>
+</table>
+
+### Mobile
+
+<table>
+  <tr>
+    <td width="50%" align="center"><img src="docs/dashboard_mobile.png" alt="Dashboard (mobile)" width="280"></td>
+    <td width="50%" align="center"><img src="docs/naiad_mobile.gif" alt="Naiad on mobile" width="280"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Dashboard</b> — mobile</sub></td>
+    <td align="center"><sub><b>Naiad</b> — mobile walkthrough</sub></td>
+  </tr>
+</table>
+
 ## Table of Contents
 
+* [Screenshots](#screenshots)
 * [Why](#why)
 * [Scope](#scope)
 * [Tech Stack](#tech-stack)
