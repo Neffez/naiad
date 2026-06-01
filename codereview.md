@@ -231,6 +231,9 @@ Verified after every change: backend `ruff check` ✅ · `ruff format` ✅ ·
   start/stop, sequence start/pause/stop/schedule, sidebar nav + theme, planner
   remove, dense skip, config delete/cancel/notify-test) so screen readers get a
   reliable accessible name rather than only a `title`.
+- **✅ Dead `EmergencyStop` component removed.** `components/EmergencyStop.tsx`
+  (and its `emergency.*` i18n keys in en/de) was never imported or rendered
+  anywhere — deleted.
 
 ### Deferred (recommended follow-ups, not done in this pass)
 
