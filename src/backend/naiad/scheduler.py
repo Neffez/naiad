@@ -1,6 +1,5 @@
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -18,7 +17,13 @@ from naiad.config import (
     target_service_data,
 )
 from naiad.domain.factors import compute_factors
-from naiad.domain.models import Plan, SequenceOverride, SkippedRun, UserPreference
+from naiad.domain.models import (
+    Plan,
+    QueuedNotification,
+    SequenceOverride,
+    SkippedRun,
+    UserPreference,
+)
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.domain.sequences import MutexConflict, SequenceRunner, zone_id_of_run
 from naiad.ha_client import HAClient
@@ -75,81 +80,133 @@ def _consume_skip(session_factory: SessionFactory, sequence_id: str, now: dateti
     return hit
 
 
-@dataclass
-class _QueuedNotification:
-    """A notification held back because Home Assistant was unreachable."""
-
-    target: NotifyTarget
-    message: str
-    category: str
-    enqueued_at: datetime
-
-
 # Hard cap so a long HA outage cannot grow the queue without bound (oldest first).
 _QUEUE_MAX_ITEMS = 500
 
 
+def _utcnow_naive() -> datetime:
+    """Current UTC time without tzinfo — matches how datetimes round-trip through
+    SQLite (the driver returns naive values), so stored and computed times compare."""
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 class NotificationQueue:
-    """Buffers notifications that fail to send while HA is offline and re-delivers
-    them on reconnect. Entries older than ``notifications.queue_max_hours`` are
-    dropped rather than arriving late."""
+    """Persists notifications that fail to send while HA is offline and re-delivers
+    them on the next (re)connect — including after a restart, since the rows live in
+    the database. Entries older than ``notifications.queue_max_hours`` are dropped
+    rather than arriving late.
+
+    Bound to a session factory at startup (see ``setup_scheduler``); until then it
+    silently drops, so a misconfiguration never crashes a notification path.
+    """
 
     def __init__(self) -> None:
-        self._items: list[_QueuedNotification] = []
+        self._session_factory: SessionFactory | None = None
 
-    def __len__(self) -> int:
-        return len(self._items)
+    def bind(self, session_factory: SessionFactory | None) -> None:
+        self._session_factory = session_factory
+
+    def pending_count(self) -> int:
+        if self._session_factory is None:
+            return 0
+        with self._session_factory() as session:
+            return len(session.exec(select(QueuedNotification)).all())
 
     def enqueue(self, target: NotifyTarget, message: str, category: str, config: AppConfig) -> None:
         if config.notifications.queue_max_hours <= 0:
             return  # queuing disabled — drop, preserving the previous behaviour
-        self._prune_stale(config)
-        self._items.append(_QueuedNotification(target, message, category, datetime.now(UTC)))
-        if len(self._items) > _QUEUE_MAX_ITEMS:
-            overflow = len(self._items) - _QUEUE_MAX_ITEMS
-            del self._items[:overflow]
-            logger.warning("Notification queue full — dropped %d oldest item(s)", overflow)
+        if self._session_factory is None:
+            logger.warning("Notification queue not bound to a database — dropping (%s)", category)
+            return
+        with self._session_factory() as session:
+            self._prune_stale(session, config)
+            session.add(
+                QueuedNotification(
+                    service=target.service,
+                    message=message,
+                    category=category,
+                    quiet=target.quiet,
+                    platform=target.platform,
+                    enqueued_at=_utcnow_naive(),
+                )
+            )
+            session.commit()
+            self._enforce_cap(session)
+            pending = len(session.exec(select(QueuedNotification)).all())
         logger.info(
             "Notification queued for '%s' (%s) — HA unreachable; %d pending",
             target.service,
             category,
-            len(self._items),
+            pending,
         )
 
-    def _prune_stale(self, config: AppConfig) -> None:
-        max_age = timedelta(hours=config.notifications.queue_max_hours)
-        now = datetime.now(UTC)
-        fresh = [it for it in self._items if now - it.enqueued_at <= max_age]
-        dropped = len(self._items) - len(fresh)
-        if dropped:
+    def _prune_stale(self, session: Session, config: AppConfig) -> None:
+        cutoff = _utcnow_naive() - timedelta(hours=config.notifications.queue_max_hours)
+        stale = list(
+            session.exec(
+                select(QueuedNotification).where(col(QueuedNotification.enqueued_at) < cutoff)
+            ).all()
+        )
+        for row in stale:
+            session.delete(row)
+        if stale:
+            session.commit()
             logger.warning(
                 "Dropped %d queued notification(s) older than %sh",
-                dropped,
+                len(stale),
                 config.notifications.queue_max_hours,
             )
-        self._items = fresh
+
+    def _enforce_cap(self, session: Session) -> None:
+        rows = list(
+            session.exec(
+                select(QueuedNotification).order_by(col(QueuedNotification.enqueued_at))
+            ).all()
+        )
+        overflow = len(rows) - _QUEUE_MAX_ITEMS
+        if overflow > 0:
+            for row in rows[:overflow]:
+                session.delete(row)
+            session.commit()
+            logger.warning("Notification queue full — dropped %d oldest item(s)", overflow)
 
     async def flush(self, ha: HAClient, config: AppConfig) -> None:
-        """Re-deliver every queued notification: drop the stale ones, send the rest,
-        and re-queue any that still fail because HA dropped again mid-flush."""
-        self._prune_stale(config)
-        if not self._items:
+        """Re-deliver every queued notification, oldest first: drop the stale ones,
+        send the rest, and stop early if HA drops again mid-flush (the remaining rows
+        stay in the database for the next reconnect)."""
+        if self._session_factory is None:
             return
-        pending, self._items = self._items, []
+        with self._session_factory() as session:
+            self._prune_stale(session, config)
+            rows = list(
+                session.exec(
+                    select(QueuedNotification).order_by(col(QueuedNotification.enqueued_at))
+                ).all()
+            )
         delivered = 0
-        for item in pending:
-            if await _deliver(ha, item.target, item.message):
+        for row in rows:
+            target = NotifyTarget.model_validate(
+                {"service": row.service, "quiet": row.quiet, "platform": row.platform}
+            )
+            if await _deliver(ha, target, row.message):
+                self._delete(row.id)
                 delivered += 1
-                logger.info(
-                    "Delivered queued notification to '%s' (%s)",
-                    item.target.service,
-                    item.category,
-                )
+                logger.info("Delivered queued notification to '%s' (%s)", row.service, row.category)
             elif not ha.is_connected:
-                self._items.append(item)  # still offline — keep for the next reconnect
-            # else: permanent service error (already warned) — drop it
+                break  # still offline — keep this and the rest for the next reconnect
+            else:
+                self._delete(row.id)  # permanent service error (already warned) — drop it
         if delivered:
             logger.info("Flushed %d queued notification(s)", delivered)
+
+    def _delete(self, row_id: int | None) -> None:
+        if self._session_factory is None or row_id is None:
+            return
+        with self._session_factory() as session:
+            row = session.get(QueuedNotification, row_id)
+            if row is not None:
+                session.delete(row)
+                session.commit()
 
 
 _notification_queue = NotificationQueue()
@@ -653,6 +710,10 @@ def setup_scheduler(
     session_factory: SessionFactory,
 ) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=config.timezone)
+
+    # Back the offline notification queue with the app database so buffered
+    # notifications survive a restart and flush on the next HA (re)connect.
+    _notification_queue.bind(session_factory)
 
     _register_sequence_jobs(scheduler, config, runner, ha, session_factory)
 
