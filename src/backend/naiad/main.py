@@ -170,7 +170,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         broadcast_valve_changed,
     )
     from naiad.api.ws import manager as ws_manager
-    from naiad.scheduler import push_notification
+    from naiad.scheduler import flush_notification_queue, push_notification
 
     async def _on_run_started(sequence_id: str, triggered_by: str) -> None:
         await broadcast_sequence_changed(sequence_id, "running", triggered_by)
@@ -202,6 +202,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         nonlocal recovery_done
         await broadcast_ha_state(connected)
         if connected:
+            # Deliver anything buffered while HA was unreachable, before any other
+            # reconnect work (recovery/reconciliation may itself push notifications).
+            await flush_notification_queue(ha, config)
             if runner.any_running():
                 # A run is live (reconnect mid-run) — don't interfere with it, but
                 # still refresh the fallback max temperature in the background.
