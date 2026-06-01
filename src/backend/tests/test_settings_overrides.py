@@ -95,9 +95,7 @@ async def test_manual_pct_clamped_to_temp_bounds(minimal_config: AppConfig) -> N
 
     eng = _engine()
     with Session(eng) as s:
-        body = UpdateSettingsRequest(
-            factors=FactorSettingsInput(manual_mode=True, manual_pct=999)
-        )
+        body = UpdateSettingsRequest(factors=FactorSettingsInput(manual_mode=True, manual_pct=999))
         result = await update_settings(body=body, _=None, config=minimal_config, session=s)
 
     # minimal_config temp max_pct = 150
