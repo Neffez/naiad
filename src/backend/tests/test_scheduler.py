@@ -10,10 +10,14 @@ from naiad.config import AppConfig
 from naiad.domain.models import Plan, SkippedRun, UserPreference
 from naiad.domain.sequences import SequenceRunner, zone_run_id
 from naiad.scheduler import (
+    NotificationQueue,
     _consume_skip,
+    _notification_queue,
     _on_rain,
     _plan_tick,
+    _QueuedNotification,
     _run_sequence_job,
+    flush_notification_queue,
     push_notification,
 )
 from tests.conftest import MINIMAL_CONFIG_DATA
@@ -357,3 +361,100 @@ async def test_push_no_targets_is_noop() -> None:
     ha = _RecordingHA()
     await push_notification(ha, _cfg_targets([]), "hi", category="start")
     assert ha.calls == []
+
+
+# ── Notifications: offline queue + reconnect flush ─────────────────────────────
+
+
+class _ToggleHA:
+    """Mock HA whose connection can be flipped; call_service fails while offline."""
+
+    def __init__(self, connected: bool = True) -> None:
+        self.is_connected = connected
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    async def call_service(self, domain: str, service: str, **data: Any) -> None:
+        if not self.is_connected:
+            raise RuntimeError("Not connected to Home Assistant")
+        self.calls.append((domain, service, data))
+
+
+@pytest.fixture(autouse=True)
+def _clear_queue() -> Any:
+    _notification_queue._items.clear()
+    yield
+    _notification_queue._items.clear()
+
+
+async def test_push_queues_when_disconnected() -> None:
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(ha, cfg, "hi", category="start")
+    assert ha.calls == []  # nothing delivered while offline
+    assert len(_notification_queue) == 1
+
+
+async def test_flush_delivers_queued_on_reconnect() -> None:
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(ha, cfg, "hi", category="start")
+    assert len(_notification_queue) == 1
+
+    ha.is_connected = True
+    await flush_notification_queue(ha, cfg)
+    assert ha.calls == [("notify", "a", {"message": "hi"})]
+    assert len(_notification_queue) == 0
+
+
+async def test_flush_keeps_items_when_still_offline() -> None:
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(ha, cfg, "hi", category="start")
+    # Reconnect callback fired but HA dropped again before the flush completed.
+    await flush_notification_queue(ha, cfg)
+    assert ha.calls == []
+    assert len(_notification_queue) == 1  # retained for the next reconnect
+
+
+async def test_flush_drops_stale_items() -> None:
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    target = cfg.ha.notify_targets[0]
+    old = datetime.now(UTC) - timedelta(hours=cfg.notifications.queue_max_hours + 1)
+    _notification_queue._items.append(_QueuedNotification(target, "old", "start", old))
+
+    ha = _ToggleHA(connected=True)
+    await flush_notification_queue(ha, cfg)
+    assert ha.calls == []  # too old → dropped, not delivered late
+    assert len(_notification_queue) == 0
+
+
+async def test_queue_disabled_when_max_hours_zero() -> None:
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    cfg.notifications.queue_max_hours = 0
+    await push_notification(ha, cfg, "hi", category="start")
+    assert len(_notification_queue) == 0  # queuing off → dropped immediately
+
+
+async def test_real_service_error_is_not_queued() -> None:
+    # Connected, but the notify service itself raises → permanent error, not queued.
+    class _FailingHA:
+        is_connected = True
+
+        async def call_service(self, domain: str, service: str, **data: Any) -> None:
+            raise RuntimeError("Unknown service notify.a")
+
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(_FailingHA(), cfg, "hi", category="start")
+    assert len(_notification_queue) == 0
+
+
+async def test_queue_caps_total_items() -> None:
+    from naiad.scheduler import _QUEUE_MAX_ITEMS
+
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    target = cfg.ha.notify_targets[0]
+    q = NotificationQueue()
+    for i in range(_QUEUE_MAX_ITEMS + 10):
+        q.enqueue(target, f"m{i}", "start", cfg)
+    assert len(q) == _QUEUE_MAX_ITEMS
