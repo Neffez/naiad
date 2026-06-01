@@ -368,6 +368,18 @@ class NotificationsConfig(BaseModel):
     platform) live on each :class:`NotifyTarget`."""
 
     evening_reminder_cron: str = "0 21 * * *"  # when the nightly reminder is sent
+    # When Home Assistant is unreachable, notifications that could not be sent are
+    # queued and re-delivered on reconnect. Items older than this many hours are
+    # dropped instead of arriving late. 0 disables queuing (failed sends are dropped
+    # immediately, the previous behaviour).
+    queue_max_hours: float = 6.0
+
+    @field_validator("queue_max_hours")
+    @classmethod
+    def _non_negative_max_hours(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("queue_max_hours must be >= 0")
+        return v
 
 
 # ── Root ─────────────────────────────────────────────────────────────────────
