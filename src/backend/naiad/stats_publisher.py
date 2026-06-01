@@ -158,19 +158,17 @@ class StatsPublisher:
     def _entity_specs(self) -> list[_EntitySpec]:
         """The full set of sensors to publish for the current zone configuration."""
         specs: list[_EntitySpec] = [
-            _EntitySpec("water_total", "Bewässerung gesamt", "water", "total_increasing", "L"),
-            _EntitySpec("runtime_total", "Laufzeit gesamt", "duration", "total_increasing", "min"),
-            _EntitySpec("last_run_liters", "Letzter Lauf Liter", "water", "measurement", "L"),
-            _EntitySpec(
-                "last_run_duration", "Letzter Lauf Dauer", "duration", "measurement", "min"
-            ),
-            _EntitySpec("last_run", "Letzter Lauf", "timestamp", None, None),
+            _EntitySpec("water_total", "Water total", "water", "total_increasing", "L"),
+            _EntitySpec("runtime_total", "Runtime total", "duration", "total_increasing", "min"),
+            _EntitySpec("last_run_liters", "Last run liters", "water", "measurement", "L"),
+            _EntitySpec("last_run_duration", "Last run duration", "duration", "measurement", "min"),
+            _EntitySpec("last_run", "Last run", "timestamp", None, None),
         ]
         for zone_id, zone in self._config.zones.items():
             specs.append(
                 _EntitySpec(
                     f"water_{zone_id}",
-                    f"Bewässerung {zone.label}",
+                    f"Water {zone.label}",
                     "water",
                     "total_increasing",
                     "L",
@@ -179,7 +177,7 @@ class StatsPublisher:
             specs.append(
                 _EntitySpec(
                     f"runtime_{zone_id}",
-                    f"Laufzeit {zone.label}",
+                    f"Runtime {zone.label}",
                     "duration",
                     "total_increasing",
                     "min",
