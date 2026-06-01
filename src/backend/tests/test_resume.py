@@ -2,7 +2,7 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
 from naiad.domain.resume import (
-    clear_orphan_snapshot,
+    clear_all_snapshots,
     clear_snapshot,
     load_snapshot,
     save_pause_snapshot,
@@ -47,16 +47,26 @@ def test_clear_wrong_sequence_does_nothing(session: Session) -> None:
     assert load_snapshot(session, "seq_1") is not None
 
 
-def test_clear_orphan_snapshot_drops_other_sequence(session: Session) -> None:
+def test_multiple_snapshots_coexist(session: Session) -> None:
+    """Each paused sequence keeps its own snapshot — starting/pausing another
+    sequence no longer abandons the first."""
     save_pause_snapshot(session, "seq_1", "zone_a", 0, 5.0)
-    clear_orphan_snapshot(session, "seq_2")  # starting a different sequence
-    assert load_snapshot(session, "seq_1") is None
-
-
-def test_clear_orphan_snapshot_keeps_same_sequence(session: Session) -> None:
-    save_pause_snapshot(session, "seq_1", "zone_a", 0, 5.0)
-    clear_orphan_snapshot(session, "seq_1")  # resuming the same sequence
+    save_pause_snapshot(session, "seq_2", "zone_b", 1, 3.0)
     assert load_snapshot(session, "seq_1") is not None
+    assert load_snapshot(session, "seq_2") is not None
+
+
+def test_clear_all_snapshots_returns_ids_and_drops_all(session: Session) -> None:
+    save_pause_snapshot(session, "seq_1", "zone_a", 0, 5.0)
+    save_pause_snapshot(session, "seq_2", "zone_b", 1, 3.0)
+    cleared = clear_all_snapshots(session)
+    assert set(cleared) == {"seq_1", "seq_2"}
+    assert load_snapshot(session, "seq_1") is None
+    assert load_snapshot(session, "seq_2") is None
+
+
+def test_clear_all_snapshots_empty(session: Session) -> None:
+    assert clear_all_snapshots(session) == []
 
 
 def test_save_overwrites_existing(session: Session) -> None:
