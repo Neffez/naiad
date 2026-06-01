@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '../api/queryKeys'
 import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -16,9 +17,9 @@ export default function Settings() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
-  const { data: status } = useQuery({ queryKey: ['status'], queryFn: getStatus })
-  const { data: health } = useQuery({ queryKey: ['health'], queryFn: getHealth })
+  const { data: settings } = useQuery({ queryKey: queryKeys.settings, queryFn: getSettings })
+  const { data: status } = useQuery({ queryKey: queryKeys.status, queryFn: getStatus })
+  const { data: health } = useQuery({ queryKey: queryKeys.health, queryFn: getHealth })
   const [saved, setSaved] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>(
     () => (localStorage.getItem('naiad_theme') === 'light' ? 'light' : 'dark'),
@@ -33,8 +34,8 @@ export default function Settings() {
   const mut = useMutation({
     mutationFn: updateSettings,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings'] })
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      qc.invalidateQueries({ queryKey: queryKeys.settings })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     },

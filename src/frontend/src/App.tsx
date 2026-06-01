@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from './api/queryKeys'
 import { type ReactNode, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom'
@@ -134,8 +135,8 @@ function AppShell() {
 
 function PageShell({ title, children }: { title: string; children: React.ReactNode }) {
   const queryClient = useQueryClient()
-  const { data: status } = useQuery<SystemStatus>({ queryKey: ['status'], queryFn: getStatus, refetchInterval: 30_000 })
-  const masterMut = useMutation({ mutationFn: (on: boolean) => setMaster(on), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status'] }) })
+  const { data: status } = useQuery<SystemStatus>({ queryKey: queryKeys.status, queryFn: getStatus, refetchInterval: 30_000 })
+  const masterMut = useMutation({ mutationFn: (on: boolean) => setMaster(on), onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.status }) })
   const masterOn = status?.master_on ?? true
 
   return (

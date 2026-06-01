@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { queryKeys } from '../api/queryKeys'
 import { useTranslation } from 'react-i18next'
 import { getConfig, type SequenceState } from '../api/client'
 import { formatSchedule } from '../lib/schedule'
@@ -24,7 +25,7 @@ function runProgress(run: { elapsed_min: number; remaining_min: number } | null 
 }
 
 export function SequenceCard({ seq, size = 'regular', onStart, onPause, onResume, onStop, onSchedule }: SequenceCardProps) {
-  const { data: config } = useQuery({ queryKey: ['config'], queryFn: getConfig })
+  const { data: config } = useQuery({ queryKey: queryKeys.config, queryFn: getConfig })
   const color = resolveSeqColor(config, seq.id)
   if (size === 'rich') {
     return (

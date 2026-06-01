@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '../api/queryKeys'
 import type { TFunction } from 'i18next'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -67,8 +68,8 @@ function useSkip() {
       skipRun({ sequence_id: run.sequence_id, scheduled_at: run.scheduled_at, plan_id: run.plan_id }),
     onSuccess: (_d, run) => {
       toast(t('today.skipped', { name: run.sequence_label }), 'success')
-      qc.invalidateQueries({ queryKey: ['status'] })
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      qc.invalidateQueries({ queryKey: queryKeys.status })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
     },
     onError: (e) => toast(e instanceof Error ? e.message : String(e), 'error'),
   })
@@ -90,16 +91,16 @@ function AdjustmentSection({ sys, breakdown, compact = false }: {
   const { t } = useTranslation()
   const qc = useQueryClient()
   const f = sys.today_factor
-  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
+  const { data: settings } = useQuery({ queryKey: queryKeys.settings, queryFn: getSettings })
   const [editing, setEditing] = useState(false)
 
   const mut = useMutation({
     mutationFn: (factors: { manual_mode?: boolean; manual_pct?: number }) =>
       updateSettings({ factors }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['status'] })
-      qc.invalidateQueries({ queryKey: ['settings'] })
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      qc.invalidateQueries({ queryKey: queryKeys.status })
+      qc.invalidateQueries({ queryKey: queryKeys.settings })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
     },
     onError: (e) => toast(e instanceof Error ? e.message : String(e), 'error'),
   })
@@ -215,7 +216,7 @@ function AdjustmentSection({ sys, breakdown, compact = false }: {
 export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
   const { t, i18n } = useTranslation()
   const skip = useSkip()
-  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
+  const { data: settings } = useQuery({ queryKey: queryKeys.settings, queryFn: getSettings })
   // A run pending skip confirmation — guards against an accidental tap.
   const [pendingSkip, setPendingSkip] = useState<NextRun | null>(null)
   const f = sys.today_factor
