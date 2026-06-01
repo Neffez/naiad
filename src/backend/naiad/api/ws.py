@@ -9,6 +9,7 @@ from sqlmodel import Session
 
 from naiad.auth_rules import INGRESS_HEADER, forward_header_ok, ingress_request_ok
 from naiad.config import AppConfig
+from naiad.dependencies import touch_token_last_used
 from naiad.domain.factors import compute_factors
 from naiad.domain.models import AuthToken
 from naiad.domain.sensors import read_sensor_snapshot
@@ -146,8 +147,7 @@ def _authenticate(token_str: str, session: Session) -> bool:
         return False
     if db_token.expires_at.replace(tzinfo=UTC) < datetime.now(UTC):
         return False
-    db_token.last_used_at = datetime.now(UTC)
-    session.commit()
+    touch_token_last_used(session, db_token, datetime.now(UTC))
     return True
 
 
