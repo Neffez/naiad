@@ -172,8 +172,29 @@ class HAClient:
                     new_state: dict[str, Any] | None = data.get("new_state")
                     if new_state:
                         self._state_cache[entity_id] = new_state
-                        for cb in self._state_callbacks:
-                            self._spawn(cb(entity_id, new_state), name=f"state-cb-{entity_id}")
+                        if self._state_callbacks:
+                            # One task per event (not per callback): the callbacks
+                            # still run concurrently, but the fan-out is bounded to a
+                            # single task per state change instead of one × every
+                            # registered subscriber.
+                            self._spawn(
+                                self._run_callbacks(entity_id, new_state),
+                                name=f"state-cbs-{entity_id}",
+                            )
+
+    async def _run_callbacks(self, entity_id: str, new_state: dict[str, Any]) -> None:
+        """Run every registered state callback concurrently for one event.
+
+        A failure in one callback must not prevent the others from running, so
+        results are gathered with ``return_exceptions=True`` and any exception is
+        logged rather than propagated."""
+        results = await asyncio.gather(
+            *(cb(entity_id, new_state) for cb in self._state_callbacks),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, Exception):
+                logger.exception("State callback failed for %s", entity_id, exc_info=result)
 
     # ── Command helper ────────────────────────────────────────────────────────
 
