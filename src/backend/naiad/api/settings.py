@@ -128,7 +128,7 @@ async def update_settings(
         # (compute_factors) re-validates and would otherwise raise on every
         # call, bricking status + scheduler. Fail fast with 422 instead.
         try:
-            eff_temp, _ = merge_factor_config(config, fo)
+            eff_temp, _eff_rain = merge_factor_config(config, fo)
         except ValidationError as e:
             raise HTTPException(422, f"Invalid factor settings: {e}") from e
         if f.manual_mode is not None:

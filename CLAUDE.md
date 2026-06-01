@@ -38,7 +38,19 @@ Exception: user-visible UI strings are managed through i18n (`src/frontend/src/i
 
 Follow conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`.
 
-Before every commit, run the linters/formatters and fix anything they report — CI fails the build otherwise:
+A `pre-commit` hook enforces the linters/formatters on every commit (CI fails
+the build otherwise). After cloning, install it once:
 
-- Backend (from `src/backend/`): `ruff format .` then `ruff check .` (CI runs `ruff format --check .`, so the working tree must already be formatted).
-- Frontend (from `src/frontend/`): `npm run lint` and `npx tsc -b`.
+```
+pip install pre-commit   # if not already available
+pre-commit install
+```
+
+The hook (`.pre-commit-config.yaml`) runs:
+- Backend: `ruff` (with `--fix`), `ruff-format`, `mypy`.
+- Frontend: `eslint` and `tsc -b`.
+
+To run it manually without committing: `pre-commit run --all-files`. If a commit
+is ever made in an environment where the hook is not installed, run the checks by
+hand first: `ruff format . && ruff check .` (in `src/backend/`) and
+`npm run lint && npx tsc -b` (in `src/frontend/`).
