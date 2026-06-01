@@ -296,11 +296,6 @@
     "login": "Log in",
     "error": "Wrong password"
   },
-  "emergency": {
-    "title": "Emergency stop — stop system + all zones immediately",
-    "label": "Emergency",
-    "confirm": "Confirm?"
-  },
   "confirm": {
     "startNow": "Start now",
     "zones": "Zones",
