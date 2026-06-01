@@ -165,6 +165,8 @@ export default function Dashboard() {
   const weekData = buildWeekData(status, t('weekdaysShort', { returnObjects: true }) as string[])
   const running = sequences.filter((s) => s.status === 'running').length
   const idle = sequences.filter((s) => s.status === 'idle').length
+  const zonesRunning = valves.filter((v) => v.state === 'on').length
+  const zonesIdle = valves.length - zonesRunning
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -286,15 +288,20 @@ export default function Dashboard() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span className="n-eyebrow">{t('dashboard.valvesLive')}</span>
-                  <span style={{ fontSize: 16, fontWeight: 500 }}>{valves.length} {t('sequence.zones')}</span>
+                  <span className="n-eyebrow">{t('dashboard.zones')}</span>
                 </div>
-                {valves.some((v) => v.state === 'on') && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--n-teal-200)', fontSize: 12.5 }}>
-                    <span className="n-drop" />
-                    {valves.filter((v) => v.state === 'on').length} {t('dashboard.live')}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12.5 }}>
+                  {zonesRunning > 0 && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--n-teal-200)' }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
+                      {zonesRunning} {t('dashboard.running')}
+                    </span>
+                  )}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--n-fg-muted)' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-fg-dim)' }} />
+                    {zonesIdle} {t('dashboard.ready')}
                   </span>
-                )}
+                </div>
               </div>
               <ValveGrid valves={orderedValves} cols={2} onReorder={(ids) => reorderMut.mutate({ zone_order: ids })} onStartZone={(id) => setConfirmZone(valves.find((v) => v.zone_id === id) ?? null)} onStopZone={handleStopZone} />
             </div>
@@ -357,12 +364,11 @@ export default function Dashboard() {
         {valves.length > 0 && (
           <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '0 2px' }}>
-              <span className="n-eyebrow">{t('dashboard.valves')}</span>
-              {valves.some((v) => v.state === 'on') && (
-                <span className="n-label" style={{ fontSize: 11, color: 'var(--n-teal-200)' }}>
-                  {valves.filter((v) => v.state === 'on').length} {t('dashboard.live')}
-                </span>
-              )}
+              <span className="n-eyebrow">{t('dashboard.zones')}</span>
+              <span className="n-label" style={{ fontSize: 11 }}>
+                {zonesRunning > 0 && <span style={{ color: 'var(--n-teal-200)' }}>{zonesRunning} {t('dashboard.running')} · </span>}
+                {zonesIdle} {t('dashboard.ready')}
+              </span>
             </div>
             <ValveGrid valves={orderedValves} cols={2} onReorder={(ids) => reorderMut.mutate({ zone_order: ids })} onStartZone={(id) => setConfirmZone(valves.find((v) => v.zone_id === id) ?? null)} onStopZone={handleStopZone} />
           </section>
