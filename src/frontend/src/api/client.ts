@@ -210,7 +210,7 @@ export interface SystemStatus {
   weather: { temp_c: number | null; rain_24h_mm: number; wind_label: string; season_active: boolean }
   // temp_pct and rain_pct are signed deltas from neutral (0 = no adjustment); combined_pct is the overall factor (100 = neutral).
   today_factor: {
-    temp_pct: number; rain_pct: number; combined_pct: number; wind_blocking_sequences: string[]
+    temp_pct: number; rain_pct: number; combined_pct: number; manual: boolean; wind_blocking_sequences: string[]
     temp_input_c: number | null; rain_prob_pct: number | null; rain_mm: number | null
   }
   next_run: NextRun | null
@@ -303,6 +303,8 @@ export interface AppSettings {
   factors: {
     temp: { basis_c: number; pct_per_c: number; min_pct: number; max_pct: number }
     rain: { forecast_days: number; threshold_prob: number; reduce_above_mm: number; zero_above_mm: number; forecast_decay: number }
+    manual_mode: boolean
+    manual_pct: number | null
   }
   token_lifetime_days: number
   auto_login_enabled: boolean
@@ -313,6 +315,8 @@ export interface UpdateSettingsRequest {
   factors?: {
     temp?: Partial<AppSettings['factors']['temp']>
     rain?: Partial<AppSettings['factors']['rain']>
+    manual_mode?: boolean
+    manual_pct?: number
   }
   token_lifetime_days?: number
   auto_login_enabled?: boolean
