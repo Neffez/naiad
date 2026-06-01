@@ -2,10 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
-import { createPlan, deletePlan, getPlans, getSequences, getValves, type CreatePlanRequest } from '../api/client'
+import { createPlan, deletePlan, getConfig, getPlans, getSequences, getValves, type CreatePlanRequest } from '../api/client'
 import { IChevDown, IX } from '../components/icons'
 import { NumberField } from '../components/NumberField'
-import { seqColor } from '../theme/sequenceColors'
+import { resolveSeqColor } from '../theme/sequenceColors'
 
 type Target = 'sequence' | 'zone'
 
@@ -15,6 +15,7 @@ export default function Planner() {
   const { data: plans = [] } = useQuery({ queryKey: ['plans'], queryFn: getPlans })
   const { data: sequences = [] } = useQuery({ queryKey: ['sequences'], queryFn: getSequences })
   const { data: valves = [] } = useQuery({ queryKey: ['valves'], queryFn: getValves })
+  const { data: config } = useQuery({ queryKey: ['config'], queryFn: getConfig })
 
   // Preselect the target when arriving from a card's "schedule" button (?seq=… / ?zone=…).
   const [searchParams] = useSearchParams()
@@ -272,7 +273,7 @@ export default function Planner() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{
                   width: 4, height: 28, borderRadius: 2,
-                  background: seqColor(p.zone_id ?? p.sequence_id ?? ''),
+                  background: resolveSeqColor(config, p.sequence_id ?? '') ?? 'var(--n-fg-dim)',
                 }} />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span style={{ fontSize: 15, fontWeight: 600 }}>

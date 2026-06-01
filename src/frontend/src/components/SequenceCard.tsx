@@ -1,7 +1,8 @@
+import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { SequenceState } from '../api/client'
+import { getConfig, type SequenceState } from '../api/client'
 import { formatSchedule } from '../lib/schedule'
-import { seqColor } from '../theme/sequenceColors'
+import { resolveSeqColor } from '../theme/sequenceColors'
 import { ICal, IPause, IPlay, IStop } from './icons'
 import { StatusChip } from './StatusChip'
 
@@ -23,24 +24,27 @@ function runProgress(run: { elapsed_min: number; remaining_min: number } | null 
 }
 
 export function SequenceCard({ seq, size = 'regular', onStart, onPause, onResume, onStop, onSchedule }: SequenceCardProps) {
+  const { data: config } = useQuery({ queryKey: ['config'], queryFn: getConfig })
+  const color = resolveSeqColor(config, seq.id)
   if (size === 'rich') {
     return (
-      <SequenceCardRich seq={seq} onStart={onStart} onPause={onPause} onResume={onResume} onStop={onStop} onSchedule={onSchedule} />
+      <SequenceCardRich seq={seq} color={color} onStart={onStart} onPause={onPause} onResume={onResume} onStop={onStop} onSchedule={onSchedule} />
     )
   }
   return (
-    <SequenceCardRegular seq={seq} onStart={onStart} onPause={onPause} onResume={onResume} onStop={onStop} onSchedule={onSchedule} />
+    <SequenceCardRegular seq={seq} color={color} onStart={onStart} onPause={onPause} onResume={onResume} onStop={onStop} onSchedule={onSchedule} />
   )
 }
 
-function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedule }: Omit<SequenceCardProps, 'size'>) {
+type CardVariantProps = Omit<SequenceCardProps, 'size'> & { color: string | null }
+
+function SequenceCardRegular({ seq, color, onStart, onPause, onResume, onStop, onSchedule }: CardVariantProps) {
   const { t, i18n } = useTranslation()
   const isRunning = seq.status === 'running'
   const isPaused = seq.status === 'paused'
   const isDisabled = seq.status === 'disabled' || !seq.enabled
 
   const progress = runProgress(seq.current_run)
-  const color = seqColor(seq.id)
 
   return (
     <div
@@ -55,17 +59,19 @@ function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedu
         overflow: 'hidden',
       }}
     >
-      <span
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          bottom: 0,
-          width: 3,
-          background: color,
-          opacity: isDisabled ? 0.3 : 0.85,
-        }}
-      />
+      {color && (
+        <span
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            bottom: 0,
+            width: 3,
+            background: color,
+            opacity: isDisabled ? 0.3 : 0.85,
+          }}
+        />
+      )}
 
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
@@ -148,12 +154,11 @@ function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedu
   )
 }
 
-function SequenceCardRich({ seq, onStart, onPause, onResume, onStop, onSchedule }: Omit<SequenceCardProps, 'size'>) {
+function SequenceCardRich({ seq, color, onStart, onPause, onResume, onStop, onSchedule }: CardVariantProps) {
   const { t, i18n } = useTranslation()
   const isRunning = seq.status === 'running'
   const isPaused = seq.status === 'paused'
   const isDisabled = seq.status === 'disabled' || !seq.enabled
-  const color = seqColor(seq.id)
 
   const progress = runProgress(seq.current_run)
 
@@ -172,17 +177,19 @@ function SequenceCardRich({ seq, onStart, onPause, onResume, onStop, onSchedule 
         lineHeight: '1',
       }}
     >
-      <span
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          bottom: 0,
-          width: 4,
-          background: color,
-          opacity: isDisabled ? 0.3 : 0.9,
-        }}
-      />
+      {color && (
+        <span
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            bottom: 0,
+            width: 4,
+            background: color,
+            opacity: isDisabled ? 0.3 : 0.9,
+          }}
+        />
+      )}
 
       {/* header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}>
