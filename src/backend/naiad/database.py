@@ -22,8 +22,32 @@ def create_tables() -> None:
     from naiad.domain import models  # noqa: F401 — registers SQLModel metadata
 
     engine = get_engine()
+    _drop_legacy_singleton_tables(engine)
     SQLModel.metadata.create_all(engine)
     _add_missing_columns(engine)
+
+
+def _drop_legacy_singleton_tables(engine: Engine) -> None:
+    """Drop the old single-row (id=1 PK) recovery tables so they are recreated
+    with the new ``sequence_id`` primary key.
+
+    ``resume_snapshot`` and ``active_run`` switched from a singleton ``id`` PK to
+    one row per sequence (parallel runs). ``create_all`` never alters an existing
+    table's primary key, so a table left over from an older version must be
+    dropped. These hold only ephemeral pause/crash-recovery state, so dropping
+    them is safe — at worst a run interrupted exactly across the upgrade is not
+    recovered.
+    """
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    for table in ("resume_snapshot", "active_run"):
+        if not inspector.has_table(table):
+            continue
+        columns = {col["name"] for col in inspector.get_columns(table)}
+        if "id" in columns:  # legacy singleton schema
+            with engine.begin() as conn:
+                conn.execute(text(f"DROP TABLE {table}"))
 
 
 def _add_missing_columns(engine: Engine) -> None:
