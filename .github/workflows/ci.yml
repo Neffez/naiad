@@ -63,3 +63,6 @@ jobs:
 
       - name: Lint (eslint)
         run: npx eslint .
+
+      - name: Test (vitest)
+        run: npm test
