@@ -133,6 +133,9 @@ class FactorBreakdownResponse(BaseModel):
     temp_pct: int
     rain_pct: int
     combined_pct: int  # overall factor as a percentage (100 = neutral)
+    # True when combined_pct comes from a manual override; the temp/rain deltas
+    # above are neutral (0) in that case and should not be shown as a breakdown.
+    manual: bool = False
     wind_blocking_sequences: list[str]
     # Sensor inputs used in the factor calculation, for UI traceability.
     temp_input_c: float | None = None
@@ -264,6 +267,8 @@ class RainFactorSettingsInput(BaseModel):
 class FactorSettingsInput(BaseModel):
     temp: TempFactorSettingsInput | None = None
     rain: RainFactorSettingsInput | None = None
+    manual_mode: bool | None = None
+    manual_pct: int | None = None
 
 
 class SequenceOverrideInput(BaseModel):
@@ -303,6 +308,8 @@ class SequenceOverrideResponse(BaseModel):
 class FactorSettingsResponse(BaseModel):
     temp: TempFactorSettingsResponse
     rain: RainFactorSettingsResponse
+    manual_mode: bool = False
+    manual_pct: int | None = None
 
 
 class AppSettingsResponse(BaseModel):
