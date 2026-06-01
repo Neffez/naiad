@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '../api/queryKeys'
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -50,15 +51,15 @@ const inputStyle: CSSProperties = {
 export default function Config() {
   const { t } = useTranslation()
   const qc = useQueryClient()
-  const { data } = useQuery({ queryKey: ['config'], queryFn: getConfig })
-  const switches = useQuery({ queryKey: ['entities', 'switch'], queryFn: () => getEntities('switch') })
-  const sensors = useQuery({ queryKey: ['entities', 'sensor'], queryFn: () => getEntities('sensor') })
+  const { data } = useQuery({ queryKey: queryKeys.config, queryFn: getConfig })
+  const switches = useQuery({ queryKey: queryKeys.entities('switch'), queryFn: () => getEntities('switch') })
+  const sensors = useQuery({ queryKey: queryKeys.entities('sensor'), queryFn: () => getEntities('sensor') })
   const binarySensors = useQuery({
-    queryKey: ['entities', 'binary_sensor'],
+    queryKey: queryKeys.entities('binary_sensor'),
     queryFn: () => getEntities('binary_sensor'),
   })
   const notifyServices = useQuery({
-    queryKey: ['services', 'notify'],
+    queryKey: queryKeys.services('notify'),
     queryFn: () => getServices('notify'),
   })
 
@@ -81,9 +82,9 @@ export default function Config() {
       setRestart(resp.restart_required)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
-      qc.invalidateQueries({ queryKey: ['config'] })
-      qc.invalidateQueries({ queryKey: ['sequences'] })
-      qc.invalidateQueries({ queryKey: ['status'] })
+      qc.invalidateQueries({ queryKey: queryKeys.config })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
+      qc.invalidateQueries({ queryKey: queryKeys.status })
     },
     onError: (e: Error) => setError(e.message),
   })
@@ -95,8 +96,8 @@ export default function Config() {
       setRestart(resp.restart_required)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
-      qc.invalidateQueries({ queryKey: ['config'] })
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      qc.invalidateQueries({ queryKey: queryKeys.config })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
     },
     onError: (e: Error) => setError(e.message),
   })
