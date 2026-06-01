@@ -189,7 +189,7 @@ export function SchedulePicker({ value, onChange }: {
             <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <input type="time" value={tm} style={{ ...inputStyle, width: 120, fontVariantNumeric: 'tabular-nums' }}
                 onChange={(e) => setTimes(value.times.map((x, j) => (j === i ? e.target.value : x)))} />
-              <button className="n-btn" title={t('config.delete')}
+              <button className="n-btn" title={t('config.delete')} aria-label={t('config.delete')}
                 style={{ height: 30, width: 30, padding: 0, fontSize: 13, color: 'var(--n-danger)' }}
                 onClick={() => setTimes(value.times.filter((_, j) => j !== i))}>✕</button>
             </span>
@@ -332,6 +332,7 @@ export function NotifyTargetList({ values, services, dirty, onChange }: {
             <button
               className="n-btn"
               title={dirty ? t('config.saveFirst') : t('config.notifyTestThis')}
+              aria-label={t('config.notifyTestThis')}
               style={{ height: 36, width: 36, padding: 0, fontSize: 15, color: testStates[i] === 'ok' ? 'var(--n-teal-400)' : 'var(--n-fg-muted)' }}
               disabled={dirty || !tg.service || testStates[i] === 'pending'}
               onClick={() => handleTestTarget(i, tg.service)}

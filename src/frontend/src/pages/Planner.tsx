@@ -299,6 +299,7 @@ export default function Planner() {
                 onClick={() => deleteMut.mutate(p.id)}
                 style={{ width: 36, height: 36 }}
                 title={t('planner.remove')}
+                aria-label={t('planner.remove')}
               >
                 <IX size={15} />
               </button>

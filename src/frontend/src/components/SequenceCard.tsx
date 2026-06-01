@@ -123,6 +123,7 @@ function SequenceCardRegular({ seq, color, onStart, onPause, onResume, onStop, o
           disabled={isDisabled}
           style={{ width: 44, height: 44, opacity: isDisabled ? 0.4 : 1 }}
           title={isRunning ? t('sequence.pause') : t('sequence.start')}
+          aria-label={isRunning ? t('sequence.pause') : t('sequence.start')}
         >
           {isRunning ? <IPause size={18} /> : <IPlay size={16} />}
         </button>
@@ -132,6 +133,7 @@ function SequenceCardRegular({ seq, color, onStart, onPause, onResume, onStop, o
           disabled={isDisabled}
           style={{ width: 44, height: 44, opacity: isDisabled ? 0.4 : 1 }}
           title={t('planner.schedule')}
+          aria-label={t('planner.schedule')}
         >
           <ICal size={17} />
         </button>
@@ -140,6 +142,7 @@ function SequenceCardRegular({ seq, color, onStart, onPause, onResume, onStop, o
           onClick={onStop}
           disabled={isDisabled || (!isRunning && !isPaused)}
           title={t('sequence.stop')}
+          aria-label={t('sequence.stop')}
           style={{
             width: 44,
             height: 44,
@@ -364,6 +367,7 @@ function SequenceCardRich({ seq, color, onStart, onPause, onResume, onStop, onSc
           onClick={onStop}
           disabled={isDisabled || (!isRunning && !isPaused)}
           title={t('sequence.stop')}
+          aria-label={t('sequence.stop')}
           style={{ width: 44, height: 44, flex: '0 0 44px', opacity: isDisabled || (!isRunning && !isPaused) ? 0.4 : 1 }}
         >
           <IStop size={16} />

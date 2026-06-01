@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, HTTPException, Request
@@ -16,6 +16,21 @@ from naiad.ha_client import HAClient
 from naiad.stats_publisher import StatsPublisher
 
 _bearer = HTTPBearer(auto_error=False)
+
+# Throttle window for the per-token ``last_used_at`` bookkeeping: the field only
+# feeds the "last used" display, so refreshing it at most once per window avoids a
+# DB write (and commit) on every authenticated request.
+_LAST_USED_THROTTLE = timedelta(seconds=60)
+
+
+def touch_token_last_used(session: Session, token: AuthToken, now: datetime) -> None:
+    """Refresh a token's ``last_used_at`` only if it has drifted past the throttle
+    window, so a burst of requests doesn't cause a write each time."""
+    last = token.last_used_at
+    if last is None or (now - last.replace(tzinfo=UTC)) > _LAST_USED_THROTTLE:
+        token.last_used_at = now
+        session.add(token)
+        session.commit()
 
 
 def get_config(request: Request) -> AppConfig:
@@ -81,6 +96,4 @@ async def require_auth(
     if db_token.expires_at.replace(tzinfo=UTC) < datetime.now(UTC):
         raise HTTPException(status_code=401, detail="Token expired")
 
-    db_token.last_used_at = datetime.now(UTC)
-    session.add(db_token)
-    session.commit()
+    touch_token_last_used(session, db_token, datetime.now(UTC))
