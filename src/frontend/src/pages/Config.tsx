@@ -336,6 +336,27 @@ export default function Config() {
               onChange={(cron) => patch((d) => { d.notifications.evening_reminder_cron = cron })}
           />
         </Row>
+        <Row
+            label={
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                {t('config.notifyQueueMaxHours')}
+                <InfoTip text={t('config.notifyQueueMaxHoursHelp')} />
+              </span>
+            }
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+                type="number" min={0} step={1}
+                style={{ ...inputStyle, width: 120, fontVariantNumeric: 'tabular-nums' }}
+                value={draft.notifications.queue_max_hours}
+                onChange={(e) => patch((d) => {
+                  const n = Number(e.target.value)
+                  d.notifications.queue_max_hours = e.target.value === '' || Number.isNaN(n) ? 0 : Math.max(0, n)
+                })}
+            />
+            <span style={{ color: 'var(--n-dim)', fontSize: 13 }}>{t('config.notifyQueueMaxHoursUnit')}</span>
+          </div>
+        </Row>
         <Row label={t('config.notifyTargets')} last align="start">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
             <NotifyTargetList
