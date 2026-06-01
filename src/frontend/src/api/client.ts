@@ -418,6 +418,7 @@ export interface AuthConfigResponse {
 
 export interface NotificationsConfig {
   evening_reminder_cron: string
+  queue_max_hours: number
 }
 
 export interface ConfigDoc {
