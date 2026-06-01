@@ -2,9 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { type NextRun, type SystemStatus, getSettings, skipRun } from '../api/client'
+import { type NextRun, type SystemStatus, getSettings, skipRun, updateSettings } from '../api/client'
 import { ConfirmActionDialog } from './ConfirmActionDialog'
 import { InfoTip } from './InfoTip'
+import { NumberField } from './NumberField'
 import { toast } from './Toast'
 import { IClock, IX } from './icons'
 
@@ -59,6 +60,133 @@ function useSkip() {
     },
     onError: (e) => toast(e instanceof Error ? e.message : String(e), 'error'),
   })
+}
+
+type BreakdownItem = { label: string; delta: string; positive: boolean; tip?: string }
+
+/**
+ * Adjustment factor block: a clickable auto/manual mode chip and the combined
+ * percentage. In auto mode the percentage reflects the automatic temp/rain
+ * calculation and is read-only. In manual mode the breakdown is hidden and the
+ * percentage becomes click-to-edit, clamped to the configured min/max bounds.
+ */
+function AdjustmentSection({ sys, breakdown, compact = false }: {
+  sys: SystemStatus
+  breakdown: BreakdownItem[]
+  compact?: boolean
+}) {
+  const { t } = useTranslation()
+  const qc = useQueryClient()
+  const f = sys.today_factor
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
+  const [editing, setEditing] = useState(false)
+
+  const mut = useMutation({
+    mutationFn: (factors: { manual_mode?: boolean; manual_pct?: number }) =>
+      updateSettings({ factors }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['status'] })
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['sequences'] })
+    },
+    onError: (e) => toast(e instanceof Error ? e.message : String(e), 'error'),
+  })
+
+  const manual = f.manual
+  const minPct = settings?.factors.temp.min_pct ?? 0
+  const maxPct = settings?.factors.temp.max_pct ?? 200
+
+  const toggleMode = () => {
+    setEditing(false)
+    // Switching to auto discards the manual value; switching to manual seeds it
+    // with the current (automatic) percentage so editing starts from there.
+    if (manual) mut.mutate({ manual_mode: false })
+    else mut.mutate({ manual_mode: true, manual_pct: f.combined_pct })
+  }
+
+  const commitPct = (v: number) => {
+    setEditing(false)
+    mut.mutate({ manual_pct: v })
+  }
+
+  const bigSize = compact ? 28 : 42
+  const unitSize = compact ? 12 : 16
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: compact ? 6 : 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {!compact && <span className="n-eyebrow">{t('today.adjustment')}</span>}
+          <button
+            type="button"
+            onClick={toggleMode}
+            disabled={mut.isPending}
+            title={t('today.toggleMode')}
+            style={{
+              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+              fontSize: 10,
+              color: manual ? 'var(--n-leaf-300)' : 'var(--n-teal-300)',
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+            }}
+          >
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />
+            {manual ? t('today.manual') : t('today.auto')}
+          </button>
+        </div>
+        {!manual && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {breakdown.map((b, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: compact ? 8 : 10, fontSize: compact ? 11.5 : 12.5 }}>
+                <span style={{ color: 'var(--n-fg-soft)', minWidth: compact ? 70 : 80, display: 'inline-flex', alignItems: 'center', gap: compact ? 4 : 5 }}>
+                  {b.label}
+                  {b.tip && <InfoTip text={b.tip} />}
+                </span>
+                <span className="mono" style={{ color: !b.positive ? 'var(--n-paused)' : 'var(--n-leaf-300)', fontWeight: 500 }}>
+                  {b.delta}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {manual && (
+          <span style={{ fontSize: compact ? 11 : 12, color: 'var(--n-fg-muted)' }}>
+            {t('today.manualHint', { min: minPct, max: maxPct })}
+          </span>
+        )}
+      </div>
+
+      {manual && editing ? (
+        <NumberField
+          value={f.combined_pct}
+          unit="%"
+          min={minPct}
+          max={maxPct}
+          step={1}
+          width={64}
+          autoFocus
+          aria-label={t('today.adjustment')}
+          onChange={commitPct}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={manual ? () => setEditing(true) : undefined}
+          disabled={!manual}
+          title={manual ? t('today.editPct') : undefined}
+          style={{
+            background: 'none', border: 'none', padding: 0,
+            display: 'flex', alignItems: 'baseline', gap: 2,
+            cursor: manual ? 'pointer' : 'default',
+          }}
+        >
+          <span className="n-bignum" style={{ fontSize: bigSize, color: 'var(--n-teal-200)', letterSpacing: '-0.03em', lineHeight: 1 }}>
+            {f.combined_pct}
+          </span>
+          <span style={{ fontSize: unitSize, color: 'var(--n-fg-muted)' }}>%</span>
+        </button>
+      )}
+    </div>
+  )
 }
 
 export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
@@ -166,58 +294,7 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
       <div className="n-divider" />
 
       {/* Adjustment factor — compact / tertiary */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="n-eyebrow">{t('today.adjustment')}</span>
-            <span
-              style={{
-                fontSize: 10,
-                color: 'var(--n-teal-300)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
-              {t('today.auto')}
-            </span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {breakdown.map((b, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 }}>
-                <span style={{ color: 'var(--n-fg-soft)', minWidth: 80, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  {b.label}
-                  {b.tip && <InfoTip text={b.tip} />}
-                </span>
-                <span
-                  className="mono"
-                  style={{
-                    color: !b.positive ? 'var(--n-paused)' : 'var(--n-leaf-300)',
-                    fontWeight: 500,
-                  }}
-                >
-                  {b.delta}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
-          <span
-            className="n-bignum"
-            style={{
-              fontSize: 42,
-              color: 'var(--n-teal-200)',
-              letterSpacing: '-0.03em',
-              lineHeight: 1,
-            }}
-          >
-            {f.combined_pct}
-          </span>
-          <span style={{ fontSize: 16, color: 'var(--n-fg-muted)' }}>%</span>
-        </div>
-      </div>
+      <AdjustmentSection sys={sys} breakdown={breakdown} />
     </div>
     {skipDialog}
     </>
@@ -289,7 +366,6 @@ function DenseTodayBlock({
   onSkip: (run: NextRun) => void
 }) {
   const { t, i18n } = useTranslation()
-  const f = sys.today_factor
   const runs = sys.upcoming_runs ?? []
   const dayLabel = runs.length > 0 ? formatDayLabel(runs[0].scheduled_at, t, i18n.language) : null
 
@@ -338,27 +414,7 @@ function DenseTodayBlock({
       <div className="n-divider" />
 
       {/* Adjustment — inline */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {breakdown.map((b, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
-              <span style={{ color: 'var(--n-fg-soft)', minWidth: 70, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                {b.label}
-                {b.tip && <InfoTip text={b.tip} />}
-              </span>
-              <span className="mono" style={{ color: !b.positive ? 'var(--n-paused)' : 'var(--n-leaf-300)' }}>
-                {b.delta}
-              </span>
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
-          <span className="n-bignum" style={{ fontSize: 28, color: 'var(--n-teal-200)', lineHeight: 1 }}>
-            {f.combined_pct}
-          </span>
-          <span style={{ fontSize: 12, color: 'var(--n-fg-muted)' }}>%</span>
-        </div>
-      </div>
+      <AdjustmentSection sys={sys} breakdown={breakdown} compact />
     </div>
   )
 }

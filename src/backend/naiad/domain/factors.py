@@ -34,6 +34,9 @@ class FactorResult:
     wind_on: bool
     season_off: bool
     sensors_unavailable: list[str] = field(default_factory=list)
+    # True when factor_pct comes from a manual override rather than the automatic
+    # temp/rain calculation. The temp/rain breakdown fields are neutral in that case.
+    manual: bool = False
 
 
 def _compute_temp_factor(temp_c: float, cfg: TempFactorConfig) -> float:
@@ -106,17 +109,9 @@ def merge_factor_config(
     return eff_temp, eff_rain
 
 
-def _effective_factor_config(
-    config: AppConfig,
-    session: Session | None,
-) -> tuple[TempFactorConfig, RainFactorConfig]:
-    """Merge YAML factor config with DB overrides (if any)."""
-    if session is None:
-        return config.factors.temp, config.factors.rain
-
-    from naiad.domain.models import FactorOverride
-
-    return merge_factor_config(config, session.get(FactorOverride, 1))
+def _clamp_manual_pct(pct: int, eff_temp: TempFactorConfig) -> int:
+    """Clamp a manual adjustment percentage to the temperature factor's bounds."""
+    return max(eff_temp.min_pct, min(eff_temp.max_pct, pct))
 
 
 def compute_factors(
@@ -124,7 +119,27 @@ def compute_factors(
     config: AppConfig,
     session: Session | None = None,
 ) -> FactorResult:
-    eff_temp, eff_rain = _effective_factor_config(config, session)
+    override = None
+    if session is not None:
+        from naiad.domain.models import FactorOverride
+
+        override = session.get(FactorOverride, 1)
+
+    eff_temp, eff_rain = merge_factor_config(config, override)
+
+    # Manual override: bypass the automatic calculation entirely and use the
+    # user-set percentage (clamped to the configured bounds) as the combined factor.
+    if override is not None and override.manual_mode and override.manual_pct is not None:
+        manual = float(_clamp_manual_pct(override.manual_pct, eff_temp))
+        return FactorResult(
+            factor_pct=manual,
+            temp_delta_pct=0.0,
+            rain_factor_pct=100.0,
+            wind_on=snapshot.wind_on,
+            season_off=False,
+            sensors_unavailable=snapshot.unavailable,
+            manual=True,
+        )
 
     if not snapshot.season_on:
         return FactorResult(
