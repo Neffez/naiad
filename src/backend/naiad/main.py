@@ -138,8 +138,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     if config.auth.mode == "forward_header" and not config.auth.forward_header.trusted_proxies:
         logger.warning(
             "auth.mode='forward_header' with no auth.forward_header.trusted_proxies: the "
-            "'%s' header is trusted from ANY client, so anyone who can reach the direct port "
-            "can impersonate any user. Set trusted_proxies to your reverse-proxy IP(s).",
+            "'%s' header would be spoofable by any client, so it is NOT trusted and every "
+            "direct-port request will be rejected (401). Set trusted_proxies to your "
+            "reverse-proxy IP(s) to enable forward-header auth.",
             config.auth.forward_header.header,
         )
 
