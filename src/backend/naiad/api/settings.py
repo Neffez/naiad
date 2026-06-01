@@ -70,7 +70,12 @@ def _read_settings(config: AppConfig, session: Session) -> AppSettingsResponse:
 
     return AppSettingsResponse(
         sequences=sequences,
-        factors=FactorSettingsResponse(temp=temp, rain=rain),
+        factors=FactorSettingsResponse(
+            temp=temp,
+            rain=rain,
+            manual_mode=fo.manual_mode if fo else False,
+            manual_pct=fo.manual_pct if fo else None,
+        ),
         token_lifetime_days=lifetime,
         auto_login_enabled=auto_login,
     )
@@ -123,9 +128,15 @@ async def update_settings(
         # (compute_factors) re-validates and would otherwise raise on every
         # call, bricking status + scheduler. Fail fast with 422 instead.
         try:
-            merge_factor_config(config, fo)
+            eff_temp, _eff_rain = merge_factor_config(config, fo)
         except ValidationError as e:
             raise HTTPException(422, f"Invalid factor settings: {e}") from e
+        if f.manual_mode is not None:
+            fo.manual_mode = f.manual_mode
+        if f.manual_pct is not None:
+            # Clamp to the effective temperature factor bounds: a value beyond the
+            # configured min/max is pinned to the nearest limit (see spec).
+            fo.manual_pct = max(eff_temp.min_pct, min(eff_temp.max_pct, f.manual_pct))
         fo.updated_at = datetime.now(UTC)
         session.add(fo)
 

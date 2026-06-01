@@ -157,6 +157,70 @@ def test_no_factor_override_uses_yaml(minimal_config: AppConfig, factor_engine) 
     assert result.factor_pct == pytest.approx(100.0)
 
 
+# ── Manual adjustment override ────────────────────────────────────────────────
+
+
+def test_manual_mode_overrides_automatic_factor(minimal_config: AppConfig, factor_engine) -> None:
+    """With manual_mode on, the automatic temp/rain calculation is bypassed."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, manual_mode=True, manual_pct=120))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        # A hot day that would normally push the factor up, plus heavy rain that
+        # would normally zero it out — neither applies in manual mode.
+        result = compute_factors(
+            _snap(temperature_c=40.0, precipitation_prob_today=90.0, precipitation_today_mm=25.0),
+            minimal_config,
+            session,
+        )
+
+    assert result.manual is True
+    assert result.factor_pct == pytest.approx(120.0)
+    assert result.temp_delta_pct == pytest.approx(0.0)
+    assert result.rain_factor_pct == pytest.approx(100.0)
+
+
+def test_manual_mode_clamped_to_temp_bounds(minimal_config: AppConfig, factor_engine) -> None:
+    """A manual percentage beyond the temp factor's min/max is clamped."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, manual_mode=True, manual_pct=999))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(_snap(), minimal_config, session)
+
+    # minimal_config temp max_pct = 150
+    assert result.factor_pct == pytest.approx(150.0)
+
+
+def test_manual_mode_off_uses_automatic(minimal_config: AppConfig, factor_engine) -> None:
+    """A stored manual_pct is ignored when manual_mode is False."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, manual_mode=False, manual_pct=120))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(_snap(temperature_c=25.0), minimal_config, session)
+
+    assert result.manual is False
+    assert result.factor_pct == pytest.approx(135.0)
+
+
+def test_manual_mode_overrides_season_off(minimal_config: AppConfig, factor_engine) -> None:
+    """Manual mode takes precedence even when the season is off."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, manual_mode=True, manual_pct=100))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(_snap(season_on=False), minimal_config, session)
+
+    assert result.manual is True
+    assert result.season_off is False
+    assert result.factor_pct == pytest.approx(100.0)
+
+
 # ── Override validation (C-2 regression) ──────────────────────────────────────
 
 

@@ -266,6 +266,7 @@ async def get_status(
             temp_pct=int(round(factors.temp_delta_pct)),
             rain_pct=int(round(factors.rain_factor_pct)) - 100,
             combined_pct=int(round(factors.factor_pct)),
+            manual=factors.manual,
             wind_blocking_sequences=wind_blocking,
             temp_input_c=(
                 snapshot.max_temperature_c
