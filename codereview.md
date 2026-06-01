@@ -29,9 +29,9 @@ hardcoded display strings).
 
 Counts: **High 3 · Medium 3 · Low ~7.**
 
-> **Status (this branch):** all 3 High, M-1, M-2, and L-1/L-2 are **fixed and
-> verified** — see §7. Remaining: M-3 and the minor Low items, deferred as
-> follow-ups.
+> **Status (this branch):** all 3 High, M-1, M-2, L-1/L-2 and most of M-3 are
+> **fixed and verified** — see §7. Remaining: the TodayBlock dedup (M-3) and the
+> minor Low items, deferred as follow-ups.
 
 ---
 
@@ -203,16 +203,30 @@ Verified after every change: backend `ruff check` ✅ · `ruff format` ✅ ·
   comment so it stays that way). `import_configuration` *does* `await
   request.body()` after the first guard, so a second `any_running()` re-check was
   added right before the swap to close that window.
+- **[M-3] ✅ Frontend size/duplication (most of it).**
+  - **React Query keys centralized** into `src/api/queryKeys.ts`; every inline
+    `['…']` literal across App/pages/components replaced with a typed reference
+    (parameterized keys for history page and entity/service domains).
+  - **`Config.tsx` split** from 1202 → ~496 lines: helper components extracted to
+    `components/config/primitives.tsx` (Section/Row/Labeled/`EntityCombobox`/…),
+    `components/config/editors.tsx` (SequenceEditor/SchedulePicker/ColorPicker/
+    ReminderTime/NotifyTargetList) and `components/config/formStyles.ts`
+    (shared `inputStyle`). No behavior change.
+  - **History per-row config query removed:** the `['config']` query is fetched
+    once on the History page and passed down, instead of one subscription per row.
+- **[L-7] ✅ (partial)** Dropped the `#ff6464` hex fallback in `History.tsx`
+  (`var(--n-danger)`).
 
 ### Deferred (recommended follow-ups, not done in this pass)
 
-These are larger refactors or lower-risk items left for a dedicated change so they
-can be verified by running the app:
-
-- **[M-3] Frontend size/duplication:** split `Config.tsx` (1202 lines), extract
-  `EntityCombobox`, centralize React Query keys into a `queryKeys` module, dedupe
-  `TodayBlock` render paths. Mechanical but high-churn; better isolated.
+- **[M-3 — TodayBlock dedup]** Consolidating `RunRow` / `DenseTodayBlock`'s run
+  rows is left out deliberately: the variants differ in real behavior (dense shows
+  the skip button even for in-progress runs and omits the "live"/relative-time
+  text; icon-only vs labeled button). It is a cosmetic dedup whose correctness is
+  visual, and there are no render tests, so it should be done where the app can be
+  run and eyeballed.
 - **[L-3] Token in `localStorage`**, **[L-4] `last_used_at` write per request**,
-  **[L-5] `master_on` DRY helper**, **[L-6] `fromisoformat` helper**, **[L-7]
-  frontend color literals / a11y / query-error UI** — minor; batch into a cleanup PR.
+  **[L-5] `master_on` DRY helper**, **[L-6] `fromisoformat` helper**, remaining
+  **[L-7]** frontend `rgba(...)` literals / a11y / query-error UI — minor; batch
+  into a cleanup PR.
 </content>
