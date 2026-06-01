@@ -341,6 +341,7 @@
     "blocked": "{{seqs}} blockiert",
     "today": "Heute",
     "tomorrow": "Morgen",
+    "live": "Live",
     "skip": "Überspringen",
     "skipped": "{{name}} übersprungen",
     "tempTip": "Messwert: {{input}} · Basis: {{basis}} °C · {{pct}} % pro °C · Bereich: {{min}}–{{max}} %",
