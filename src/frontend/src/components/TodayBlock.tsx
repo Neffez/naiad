@@ -377,7 +377,6 @@ function DenseTodayBlock({
             <span className="n-eyebrow" style={{ fontSize: 9.5 }}>{t('today.title')}</span>
             {dayLabel && <span className="n-eyebrow" style={{ fontSize: 9, color: 'var(--n-teal-300)' }}>{dayLabel}</span>}
           </div>
-          <div className="n-scroll-y" style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300 }}>
           {runs.map((run, i) => (
             <div
               key={`${run.sequence_id}-${run.scheduled_at}`}
@@ -404,7 +403,6 @@ function DenseTodayBlock({
               </button>
             </div>
           ))}
-          </div>
         </div>
       )}
       {runs.length === 0 && (
