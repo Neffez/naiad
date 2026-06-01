@@ -335,6 +335,8 @@ export interface ZoneConfig {
   flow_lph: number
 }
 
+export type SequenceColorKey = 'green' | 'sand' | 'purple' | 'slate' | 'blue' | 'rose'
+
 export interface SequenceConfig {
   label: string
   zones: string[]
@@ -344,6 +346,7 @@ export interface SequenceConfig {
   schedule: ScheduleSummary
   enabled: boolean
   wind_blocks: boolean
+  color: SequenceColorKey | null
 }
 
 export interface SensorsConfig {
@@ -419,6 +422,7 @@ export interface ConfigDoc {
   factors: FactorsConfig
   notifications: NotificationsConfig
   timezone: string
+  sequence_colors_enabled: boolean
   restart_required: boolean
 }
 
