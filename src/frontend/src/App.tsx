@@ -117,7 +117,7 @@ function AppShell() {
               <Route path="/planner" element={<PageShell title={t('nav.planner')}><Planner /></PageShell>} />
               <Route path="/history" element={<PageShell title={t('nav.history')}><History /></PageShell>} />
               <Route path="/settings" element={<PageShell title={t('nav.settings')}><Settings /></PageShell>} />
-              <Route path="/config" element={<PageShell title="Konfiguration"><Config /></PageShell>} />
+              <Route path="/config" element={<PageShell title={t('nav.config')}><Config /></PageShell>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

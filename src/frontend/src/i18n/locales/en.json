@@ -11,6 +11,7 @@
     "planner": "Planner",
     "history": "History",
     "settings": "Settings",
+    "config": "Configuration",
     "theme": "Theme"
   },
   "status": {
