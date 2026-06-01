@@ -129,3 +129,7 @@ notifications:
   # When the nightly reminder fires (who receives it is per-target, via the
   # "reminder" category on each notify target above).
   evening_reminder_cron: "0 21 * * *"
+  # If Home Assistant is briefly unreachable when a notification is sent, it is
+  # queued and re-delivered on reconnect. Entries older than this many hours are
+  # dropped instead of arriving late. Set to 0 to disable queuing.
+  queue_max_hours: 6
