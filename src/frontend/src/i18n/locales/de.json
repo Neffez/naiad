@@ -296,11 +296,6 @@
     "login": "Einloggen",
     "error": "Falsches Passwort"
   },
-  "emergency": {
-    "title": "Notaus — System + alle Zonen sofort stoppen",
-    "label": "Notaus",
-    "confirm": "Bestätigen?"
-  },
   "confirm": {
     "startNow": "Sofort starten",
     "zones": "Zonen",
