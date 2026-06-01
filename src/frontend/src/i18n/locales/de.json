@@ -311,6 +311,11 @@
     "title": "Lauf stoppen?",
     "message": "{{name}} wird sofort gestoppt."
   },
+  "confirmParallel": {
+    "title": "Parallel starten?",
+    "message": "Es läuft bereits ein anderer Lauf. {{name}} wird zusätzlich gestartet — achte darauf, dass genug Durchfluss für beide vorhanden ist.",
+    "confirm": "Trotzdem starten"
+  },
   "confirmSkip": {
     "title": "Lauf überspringen?",
     "message": "{{name}} um {{time}} wird übersprungen und läuft erst beim nächsten Zeitplan wieder."

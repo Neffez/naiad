@@ -14,6 +14,7 @@ from naiad.domain.sequences import (
     MutexConflict,
     NotRunning,
     SequenceRunner,
+    SequenceState,
     ZoneNotFound,
     zone_run_id,
 )
@@ -75,9 +76,9 @@ async def stop_zone(
     """Stop a standalone single-zone run. Refuses if the zone is on as part of a
     sequence — that is stopped via the sequence."""
     run_id = zone_run_id(zone_id)
-    if runner.status().sequence_id != run_id:
+    if runner.status_of(run_id).state != SequenceState.RUNNING:
         raise HTTPException(409, f"Zone '{zone_id}' is not running as a standalone run")
     with contextlib.suppress(NotRunning):
-        await runner.stop()
+        await runner.stop(run_id)
     await broadcast_sequence_changed(run_id, "idle", "manual")
     return {"stopped": zone_id}

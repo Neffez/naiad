@@ -29,6 +29,15 @@ def _master_on(session_factory: SessionFactory) -> bool:
         return pref is None or pref.value == "1"
 
 
+def _run_label(config: AppConfig, run_id: str | None) -> str:
+    """Human label for a run id (real sequence or synthetic single-zone run)."""
+    if run_id is None:
+        return "?"
+    zid = zone_id_of_run(run_id)
+    cfg = config.zones.get(zid) if zid else config.sequences.get(run_id)
+    return cfg.label if cfg else (zid or run_id)
+
+
 # Tolerance for matching a one-off skip to the fire time of a cron run. A cron job
 # fires on the minute, so a 2-minute window comfortably absorbs scheduler jitter.
 _SKIP_MATCH_TOLERANCE_S = 120.0
@@ -181,11 +190,10 @@ async def _run_sequence_job(
         )
     except MutexConflict as e:
         logger.warning("Conflict for '%s': %s", sequence_id, e)
-        # Name the sequence that is actually blocking (the running one), not the
-        # one we just tried to start.
-        running_id = runner.status().sequence_id
-        running_cfg = config.sequences.get(running_id) if running_id else None
-        running_label = running_cfg.label if running_cfg else (running_id or "?")
+        # Name the run that is actually blocking (the one reserving a shared zone),
+        # not the one we just tried to start.
+        running_id = runner.conflicting_run(seq_cfg.zones)
+        running_label = _run_label(config, running_id)
         conflict_note = t(
             "skip.conflict_sequence", config.language, label=seq_cfg.label, running=running_label
         )
@@ -238,10 +246,8 @@ async def _run_zone_job(
         await runner.start_zone(zone_id, duration_min, triggered_by=triggered_by)
     except MutexConflict as e:
         logger.warning("Conflict for zone '%s': %s", zone_id, e)
-        running_id = runner.status().sequence_id
-        zid = zone_id_of_run(running_id) if running_id else None
-        running_cfg = config.zones.get(zid) if zid else config.sequences.get(running_id or "")
-        running_label = running_cfg.label if running_cfg else (running_id or "?")
+        running_id = runner.conflicting_run([zone_id])
+        running_label = _run_label(config, running_id)
         conflict_note = t(
             "skip.conflict_zone", config.language, label=zone_cfg.label, running=running_label
         )
@@ -328,40 +334,30 @@ async def _on_rain(
     if new_state.get("state") != "on":
         return
 
-    status = runner.status()
-    if status.sequence_id is None:
-        # No live run — but a *paused* run (resume snapshot) would otherwise
-        # survive the rain and could be resumed later. Discard it so rain during
-        # a pause is honored too.
-        cleared = runner.clear_paused_snapshot()
-        if cleared is not None:
-            seq_cfg = config.sequences.get(cleared)
-            label = seq_cfg.label if seq_cfg else cleared
-            logger.info("Rain detected — discarding paused run '%s'", cleared)
-            rain_note = t("abort.paused_rain", config.language, label=label)
+    # Abort every live run. Each run is independent, so a failure on one must not
+    # prevent aborting the others.
+    for run_id in runner.running_run_ids():
+        label = _run_label(config, run_id)
+        logger.info("Rain detected — aborting '%s'", run_id)
+        try:
+            await runner.stop(run_id, reason="rain")
+            rain_note = t("abort.rain", config.language, label=label)
             await push_notification(ha, config, rain_note, category="abort")
-            await broadcast_sequence_changed(cleared, "idle", "rain")
+            await broadcast_sequence_changed(run_id, "idle", "rain")
             await broadcast_notification(rain_note, level="warning")
-        return
+        except Exception:
+            logger.exception("Error aborting run '%s' on rain", run_id)
 
-    zid = zone_id_of_run(status.sequence_id)
-    if zid is not None:
-        zone_cfg = config.zones.get(zid)
-        label = zone_cfg.label if zone_cfg else zid
-    else:
-        seq_cfg = config.sequences.get(status.sequence_id)
-        label = seq_cfg.label if seq_cfg else status.sequence_id
-    logger.info("Rain detected — aborting '%s'", status.sequence_id)
-
-    try:
-        seq_id = status.sequence_id
-        await runner.stop(reason="rain")
-        rain_note = t("abort.rain", config.language, label=label)
+    # Paused runs (resume snapshots) would otherwise survive the rain and could be
+    # resumed later. Discard them all so rain during a pause is honored too.
+    for cleared in runner.clear_paused_snapshots():
+        seq_cfg = config.sequences.get(cleared)
+        label = seq_cfg.label if seq_cfg else cleared
+        logger.info("Rain detected — discarding paused run '%s'", cleared)
+        rain_note = t("abort.paused_rain", config.language, label=label)
         await push_notification(ha, config, rain_note, category="abort")
-        await broadcast_sequence_changed(seq_id, "idle", "rain")
+        await broadcast_sequence_changed(cleared, "idle", "rain")
         await broadcast_notification(rain_note, level="warning")
-    except Exception:
-        logger.exception("Error aborting sequence on rain")
 
 
 async def _evening_reminder(
