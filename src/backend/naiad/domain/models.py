@@ -149,3 +149,25 @@ class FactorOverride(SQLModel, table=True):
     manual_mode: bool = False
     manual_pct: int | None = None
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class QueuedNotification(SQLModel, table=True):
+    """A push notification buffered because Home Assistant was unreachable.
+
+    Re-delivered on the next HA (re)connect — including after a restart, since the
+    rows survive in the database. Entries older than ``notifications.queue_max_hours``
+    are pruned instead of being delivered late. ``quiet``/``platform`` are stored so
+    the original silent/platform payload can be rebuilt at delivery time.
+    """
+
+    __tablename__ = "queued_notifications"
+
+    id: int | None = Field(default=None, primary_key=True)
+    service: str
+    message: str
+    category: str
+    quiet: bool = False
+    platform: str = "auto"
+    enqueued_at: datetime = Field(  # naive UTC, like skipped_runs
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )
