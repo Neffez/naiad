@@ -96,6 +96,9 @@ export default function Dashboard() {
   const [confirmSeq, setConfirmSeq] = useState<SequenceState | null>(null)
   const [confirmStop, setConfirmStop] = useState<SequenceState | null>(null)
   const [confirmZone, setConfirmZone] = useState<ValveState | null>(null)
+  // Flow warning when starting a sequence while another run is already active —
+  // parallel runs share the water supply, which is the user's responsibility.
+  const [confirmParallel, setConfirmParallel] = useState<{ seq: SequenceState; dur?: number } | null>(null)
 
   async function handleStart(seq: SequenceState, durationMin?: number) {
     try {
@@ -403,10 +406,28 @@ export default function Dashboard() {
           zones={confirmSeq.zones.length}
           defaultDuration={confirmSeq.basis_min_per_zone}
           onConfirm={(dur) => {
-            handleStart(confirmSeq, dur)
+            const seq = confirmSeq
             setConfirmSeq(null)
+            // If another run is already active, warn about shared flow before starting.
+            if (running > 0 || zonesRunning > 0) setConfirmParallel({ seq, dur })
+            else handleStart(seq, dur)
           }}
           onCancel={() => setConfirmSeq(null)}
+        />
+      )}
+
+      {/* Parallel-start flow warning */}
+      {confirmParallel && (
+        <ConfirmActionDialog
+          open={!!confirmParallel}
+          title={t('confirmParallel.title')}
+          message={t('confirmParallel.message', { name: confirmParallel.seq.label })}
+          confirmLabel={t('confirmParallel.confirm')}
+          onConfirm={() => {
+            handleStart(confirmParallel.seq, confirmParallel.dur)
+            setConfirmParallel(null)
+          }}
+          onCancel={() => setConfirmParallel(null)}
         />
       )}
 

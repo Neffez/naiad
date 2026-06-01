@@ -164,46 +164,53 @@ def _next_runs(
     return [run for _, run in candidates[:limit]]
 
 
-def _running_run(
+def _running_runs(
     runner: SequenceRunner,
     session: Session,
     config: AppConfig,
-) -> NextRunResponse | None:
-    """The run currently executing, as a today-anchored NextRunResponse.
+) -> list[NextRunResponse]:
+    """The runs currently executing, as today-anchored NextRunResponses.
 
     A run that has already started no longer appears among the scheduler's future
     fire times, so without this it would vanish from the day list the moment it
     begins — and an evening run starting at 20:00 would make the list jump to
     tomorrow. Surfacing it keeps "today's runs" showing what is happening now.
     """
-    status = runner.status()
-    if status.sequence_id is None or status.current_zone is None:
-        return None
+    results: list[NextRunResponse] = []
+    for status in runner.iter_runs():
+        if status.sequence_id is None or status.current_zone is None:
+            continue
 
-    started_at = status.current_zone.started_at
-    zone_id = zone_id_of_run(status.sequence_id)
-    if zone_id is not None:
-        zone_cfg = config.zones.get(zone_id)
-        if zone_cfg is None:
-            return None
-        return NextRunResponse(
-            sequence_id=zone_id,
-            sequence_label=zone_cfg.label,
-            scheduled_at=started_at.astimezone(UTC).replace(tzinfo=None),
-            duration_min=int(round(status.current_zone.duration_min)),
-            in_progress=True,
+        started_at = status.current_zone.started_at
+        zone_id = zone_id_of_run(status.sequence_id)
+        if zone_id is not None:
+            zone_cfg = config.zones.get(zone_id)
+            if zone_cfg is None:
+                continue
+            results.append(
+                NextRunResponse(
+                    sequence_id=zone_id,
+                    sequence_label=zone_cfg.label,
+                    scheduled_at=started_at.astimezone(UTC).replace(tzinfo=None),
+                    duration_min=int(round(status.current_zone.duration_min)),
+                    in_progress=True,
+                )
+            )
+            continue
+
+        seq_cfg = config.sequences.get(status.sequence_id)
+        if seq_cfg is None:
+            continue
+        results.append(
+            NextRunResponse(
+                sequence_id=status.sequence_id,
+                sequence_label=seq_cfg.label,
+                scheduled_at=started_at.astimezone(UTC).replace(tzinfo=None),
+                duration_min=_effective_basis(session, config, status.sequence_id),
+                in_progress=True,
+            )
         )
-
-    seq_cfg = config.sequences.get(status.sequence_id)
-    if seq_cfg is None:
-        return None
-    return NextRunResponse(
-        sequence_id=status.sequence_id,
-        sequence_label=seq_cfg.label,
-        scheduled_at=started_at.astimezone(UTC).replace(tzinfo=None),
-        duration_min=_effective_basis(session, config, status.sequence_id),
-        in_progress=True,
-    )
+    return results
 
 
 def _upcoming_day_runs(
@@ -262,8 +269,7 @@ def _upcoming_day_runs(
                 )
             )
 
-    running = _running_run(runner, session, config)
-    if running is not None:
+    for running in _running_runs(runner, session, config):
         when = running.scheduled_at.replace(tzinfo=UTC)
         candidates.append((when, running))
 
@@ -390,8 +396,6 @@ async def list_valves(
     ha: HAClient = Depends(get_ha_client),
     runner: SequenceRunner = Depends(get_runner),
 ) -> list[ValveStateResponse]:
-    run_status = runner.status()
-    running_id = run_status.sequence_id
     result = []
     for zone_id, zone in config.zones.items():
         state_dict = ha.get_state(zone.switch)
@@ -415,10 +419,11 @@ async def list_valves(
 
         # For a standalone single-zone run, expose its planned duration so the UI
         # can show remaining time (e.g. "5 / 10 min").
-        single_run = running_id == zone_run_id(zone_id)
+        zone_run = runner.find_zone_run(zone_id)
+        single_run = zone_run is not None and zone_run[0] == zone_run_id(zone_id)
         total_min: float | None = None
-        if single_run and run_status.current_zone is not None:
-            total_min = run_status.current_zone.duration_min
+        if single_run and zone_run is not None:
+            total_min = zone_run[1].duration_min
 
         result.append(
             ValveStateResponse(

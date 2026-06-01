@@ -66,12 +66,15 @@ class UserPreference(SQLModel, table=True):
 
 
 class ResumeSnapshot(SQLModel, table=True):
-    """Manual-pause state only. Rain abort writes no snapshot."""
+    """Manual-pause state only. Rain abort writes no snapshot.
+
+    One row per paused sequence (keyed by ``sequence_id``) so multiple sequences
+    can be paused independently while others keep running.
+    """
 
     __tablename__ = "resume_snapshot"
 
-    id: int = Field(default=1, primary_key=True)
-    sequence_id: str
+    sequence_id: str = Field(primary_key=True)
     zone_id: str
     zone_index: int
     remaining_min: float
@@ -79,18 +82,18 @@ class ResumeSnapshot(SQLModel, table=True):
 
 
 class ActiveRun(SQLModel, table=True):
-    """In-flight run state for crash recovery (singleton id=1).
+    """In-flight run state for crash recovery (one row per running sequence).
 
     Written at every zone start and cleared at every *graceful* end (completion,
     stop, pause, watchdog, error). It therefore survives only a hard crash /
     abrupt process restart — exactly the case where the in-memory runner state
-    and watchdog are lost while a valve may still be physically open.
+    and watchdog are lost while a valve may still be physically open. Keyed by
+    ``sequence_id`` so several concurrent runs can each be recovered.
     """
 
     __tablename__ = "active_run"
 
-    id: int = Field(default=1, primary_key=True)
-    sequence_id: str
+    sequence_id: str = Field(primary_key=True)
     zone_index: int
     zone_started_at: datetime
     zone_planned_min: float  # planned duration of the current zone (for staleness/remaining)

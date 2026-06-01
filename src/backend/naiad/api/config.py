@@ -174,7 +174,7 @@ async def replace_configuration(
     stats_publisher: StatsPublisher = Depends(get_stats_publisher),
     session_factory: Callable[[], Session] = Depends(get_session_factory),
 ) -> ConfigResponse:
-    if runner.status().sequence_id is not None:
+    if runner.any_running():
         raise HTTPException(409, "Cannot change configuration while a sequence is running")
     try:
         fresh = build_validated_config(body.model_dump(), config)
@@ -219,7 +219,7 @@ async def import_configuration(
     stats_publisher: StatsPublisher = Depends(get_stats_publisher),
     session_factory: Callable[[], Session] = Depends(get_session_factory),
 ) -> ConfigResponse:
-    if runner.status().sequence_id is not None:
+    if runner.any_running():
         raise HTTPException(409, "Cannot change configuration while a sequence is running")
     raw = await request.body()
     try:

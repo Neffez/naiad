@@ -311,6 +311,11 @@
     "title": "Stop run?",
     "message": "{{name}} will be stopped immediately."
   },
+  "confirmParallel": {
+    "title": "Start in parallel?",
+    "message": "Another run is already active. {{name}} will start in addition — make sure there is enough flow for both.",
+    "confirm": "Start anyway"
+  },
   "confirmSkip": {
     "title": "Skip run?",
     "message": "{{name}} at {{time}} will be skipped and will only run again at the next schedule."

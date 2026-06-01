@@ -162,12 +162,12 @@ def _status_snapshot(
 ) -> dict[str, Any]:
     snapshot = read_sensor_snapshot(ha, config)
     factors = compute_factors(snapshot, config, session)
-    status = runner.status()
+    running = runner.running_run_ids()
     return {
         "type": "status_snapshot",
         "data": {
             "ha_connected": ha.is_connected,
-            "sequence_running": status.sequence_id,
+            "sequences_running": running,
             "factor_pct": int(round(factors.factor_pct)),
             "season_off": factors.season_off,
             "wind_on": factors.wind_on,
@@ -288,23 +288,23 @@ async def _heartbeat(
 async def _run_tick(ws: WebSocket, runner: SequenceRunner) -> None:
     while True:
         await asyncio.sleep(10)
-        status = runner.status()
-        if status.sequence_id is None or status.current_zone is None:
-            continue
-        z = status.current_zone
-        elapsed = (datetime.now(UTC) - z.started_at).total_seconds() / 60.0
-        remaining = max(0.0, z.duration_min - elapsed)
-        ok = await manager.send(
-            ws,
-            {
-                "type": "run_tick",
-                "data": {
-                    "sequence_id": status.sequence_id,
-                    "zone_id": z.zone_id,
-                    "elapsed_min": round(elapsed, 2),
-                    "remaining_min": round(remaining, 2),
+        for status in runner.iter_runs():
+            if status.current_zone is None:
+                continue
+            z = status.current_zone
+            elapsed = (datetime.now(UTC) - z.started_at).total_seconds() / 60.0
+            remaining = max(0.0, z.duration_min - elapsed)
+            ok = await manager.send(
+                ws,
+                {
+                    "type": "run_tick",
+                    "data": {
+                        "sequence_id": status.sequence_id,
+                        "zone_id": z.zone_id,
+                        "elapsed_min": round(elapsed, 2),
+                        "remaining_min": round(remaining, 2),
+                    },
                 },
-            },
-        )
-        if not ok:
-            break
+            )
+            if not ok:
+                return
