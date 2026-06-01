@@ -243,7 +243,6 @@ export default function Dashboard() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '0 2px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span className="n-eyebrow">{t('dashboard.sequences')}</span>
-              <span style={{ fontSize: 16, fontWeight: 500 }}>{sequences.length} {t('dashboard.configured')}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12.5 }}>
               {running > 0 && (
