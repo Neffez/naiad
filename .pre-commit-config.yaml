@@ -14,3 +14,17 @@ repos:
         files: ^src/backend/naiad/
         additional_dependencies: [types-pyyaml, pydantic>=2.7, sqlmodel>=0.0.19]
         args: [--ignore-missing-imports]
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint (frontend)
+        entry: bash -c 'cd src/frontend && npm run --silent lint'
+        language: system
+        files: ^src/frontend/.*\.(ts|tsx)$
+        pass_filenames: false
+      - id: tsc
+        name: tsc --noEmit (frontend)
+        entry: bash -c 'cd src/frontend && npx tsc -b'
+        language: system
+        files: ^src/frontend/.*\.(ts|tsx)$
+        pass_filenames: false

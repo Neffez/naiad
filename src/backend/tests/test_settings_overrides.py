@@ -82,3 +82,54 @@ async def test_clear_single_no_override_is_noop(minimal_config: AppConfig) -> No
     # No row existed; call still succeeds and reports defaults.
     assert result.sequences["seq_1"].basis_min_per_zone is None
     assert result.sequences["seq_1"].paused is False
+
+
+# ── Manual adjustment override ────────────────────────────────────────────────
+
+
+async def test_manual_pct_clamped_to_temp_bounds(minimal_config: AppConfig) -> None:
+    """Setting a manual percentage above max_pct pins it to the limit."""
+    from naiad.api.schemas import FactorSettingsInput, UpdateSettingsRequest
+    from naiad.api.settings import update_settings
+    from naiad.domain.models import FactorOverride
+
+    eng = _engine()
+    with Session(eng) as s:
+        body = UpdateSettingsRequest(factors=FactorSettingsInput(manual_mode=True, manual_pct=999))
+        result = await update_settings(body=body, _=None, config=minimal_config, session=s)
+
+    # minimal_config temp max_pct = 150
+    assert result.factors.manual_mode is True
+    assert result.factors.manual_pct == 150
+
+    with Session(eng) as s:
+        fo = s.get(FactorOverride, 1)
+        assert fo is not None
+        assert fo.manual_pct == 150
+
+
+async def test_manual_mode_toggle_off_persists(minimal_config: AppConfig) -> None:
+    """Toggling manual_mode off keeps the stored manual_pct but disables it."""
+    from naiad.api.schemas import FactorSettingsInput, UpdateSettingsRequest
+    from naiad.api.settings import update_settings
+
+    eng = _engine()
+    with Session(eng) as s:
+        await update_settings(
+            body=UpdateSettingsRequest(
+                factors=FactorSettingsInput(manual_mode=True, manual_pct=110)
+            ),
+            _=None,
+            config=minimal_config,
+            session=s,
+        )
+    with Session(eng) as s:
+        result = await update_settings(
+            body=UpdateSettingsRequest(factors=FactorSettingsInput(manual_mode=False)),
+            _=None,
+            config=minimal_config,
+            session=s,
+        )
+
+    assert result.factors.manual_mode is False
+    assert result.factors.manual_pct == 110
