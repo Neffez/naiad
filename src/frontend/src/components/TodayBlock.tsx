@@ -270,7 +270,7 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
 
       {/* Upcoming runs of the day */}
       {runs.length > 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="n-scroll-y" style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 360 }}>
           {runs.map((run, i) => (
             <RunRow
               key={`${run.sequence_id}-${run.scheduled_at}`}
