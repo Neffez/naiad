@@ -11,10 +11,9 @@ from naiad.config import AppConfig, ScheduleConfig, SequenceConfig, ZoneConfig
 from naiad.domain.models import ActiveRun, RunHistory
 from naiad.domain.resume import (
     clear_active_run,
-    clear_any_snapshot,
-    clear_orphan_snapshot,
+    clear_all_snapshots,
     clear_snapshot,
-    load_active_run,
+    load_active_runs,
     load_snapshot,
     save_active_run,
     save_pause_snapshot,
@@ -26,7 +25,19 @@ logger = logging.getLogger(__name__)
 
 
 class MutexConflict(Exception):
-    """Another sequence is already running."""
+    """A run could not start because of a conflict with an active run."""
+
+
+class ZoneBusy(MutexConflict):
+    """One or more requested zones are already in use by an active run.
+
+    Subclasses :class:`MutexConflict` so existing ``except MutexConflict`` paths
+    keep handling it. ``zones`` holds the conflicting zone ids.
+    """
+
+    def __init__(self, zones: list[str]) -> None:
+        self.zones = zones
+        super().__init__(f"zone(s) already running: {', '.join(zones)}")
 
 
 class SequenceNotFound(Exception):
@@ -80,7 +91,7 @@ class NotRunning(Exception):
 class SequenceState(StrEnum):
     IDLE = "idle"
     RUNNING = "running"
-    # NOTE: PAUSED is never returned by SequenceRunner.status() — on pause the run
+    # NOTE: PAUSED is never returned by SequenceRunner.status_of() — on pause the run
     # task ends and the runner goes IDLE. "Paused" is derived at the API layer from
     # the persisted ResumeSnapshot (see api/sequences.py:_sequence_status).
     PAUSED = "paused"
@@ -99,6 +110,25 @@ class SequenceStatus:
     sequence_id: str | None = None
     current_zone: ZoneProgress | None = None
     triggered_by: str = "manual"
+
+
+@dataclass
+class _Run:
+    """In-memory state of one active run (a real sequence or a standalone zone).
+
+    For a standalone single-zone run, ``seq`` is the synthetic single-zone
+    config and ``run_id`` is the synthetic ``__zone__<id>`` id.
+    """
+
+    run_id: str
+    seq: SequenceConfig
+    triggered_by: str
+    stop_event: asyncio.Event
+    pause_event: asyncio.Event
+    is_zone_run: bool = False
+    stop_reason: str = "manual_stop"
+    current_zone: ZoneProgress | None = None
+    task: asyncio.Task[None] | None = None
 
 
 _STOP = "stop"
@@ -144,18 +174,10 @@ class SequenceRunner:
         self._config = config
         self._driver = driver
         self._session_factory = session_factory
-        self._running: str | None = None
-        self._current_zone: ZoneProgress | None = None
-        self._stop_event: asyncio.Event = asyncio.Event()
-        self._pause_event: asyncio.Event = asyncio.Event()
-        self._task: asyncio.Task[None] | None = None
-        self._stop_reason: str = "manual_stop"
-        self._triggered_by: str = "manual"
-        # Active standalone single-zone run: the synthetic config is held only in
-        # memory for the duration of the run so the rest of the machinery can
-        # resolve it by its synthetic id (see _seq).
-        self._zone_run_id: str | None = None
-        self._zone_run_seq: SequenceConfig | None = None
+        # All active runs (real sequences and standalone single-zone runs), keyed
+        # by run id. Multiple runs may execute in parallel as long as their zone
+        # sets are disjoint (enforced at start by _check_zone_conflict).
+        self._runs: dict[str, _Run] = {}
         # Invoked once a run actually opens its first valve (sequence_id, triggered_by),
         # so "running" is broadcast only after the run is confirmed, not when it's scheduled.
         self.on_started: Callable[[str, str], Awaitable[None]] | None = None
@@ -182,34 +204,81 @@ class SequenceRunner:
         except Exception:
             logger.exception("on_run_recorded callback failed")
 
-    def _seq(self, sequence_id: str) -> SequenceConfig | None:
-        """Resolve a sequence config by id, including the active single-zone run's
+    def _seq(self, run_id: str) -> SequenceConfig | None:
+        """Resolve a sequence config by id, including an active single-zone run's
         synthetic config."""
-        seq = self._config.sequences.get(sequence_id)
+        seq = self._config.sequences.get(run_id)
         if seq is not None:
             return seq
-        if sequence_id == self._zone_run_id:
-            return self._zone_run_seq
-        return None
+        run = self._runs.get(run_id)
+        return run.seq if run is not None else None
+
+    def _zones_in_use(self, exclude_run: str | None = None) -> set[str]:
+        """Every zone reserved by an active run.
+
+        The full zone set of each running sequence is reserved (not just the
+        currently-open zone), since a sequence still has to step through its
+        remaining zones. Standalone zone runs carry a single-zone synthetic
+        sequence, so this uniformly covers sequence and zone runs.
+        """
+        used: set[str] = set()
+        for run_id, run in self._runs.items():
+            if run_id == exclude_run:
+                continue
+            used.update(run.seq.zones)
+        return used
+
+    def _check_zone_conflict(self, zones: list[str]) -> None:
+        conflict = sorted(set(zones) & self._zones_in_use())
+        if conflict:
+            raise ZoneBusy(conflict)
 
     def is_managed(self, zone_id: str) -> bool:
-        if self._running is None:
-            return False
-        seq = self._seq(self._running)
-        return seq is not None and zone_id in seq.zones
+        return any(zone_id in run.seq.zones for run in self._runs.values())
 
-    def status(self) -> SequenceStatus:
-        """Live in-memory state: only IDLE or RUNNING. A paused run reads as IDLE
-        here; the PAUSED state is reconstructed from the ResumeSnapshot at the API
-        layer."""
-        if self._running is None:
-            return SequenceStatus(state=SequenceState.IDLE)
+    def conflicting_run(self, zones: list[str]) -> str | None:
+        """The run id that reserves any of ``zones`` (or None)."""
+        wanted = set(zones)
+        for run_id, run in self._runs.items():
+            if wanted & set(run.seq.zones):
+                return run_id
+        return None
+
+    def _status_of_run(self, run: _Run) -> SequenceStatus:
         return SequenceStatus(
             state=SequenceState.RUNNING,
-            sequence_id=self._running,
-            current_zone=self._current_zone,
-            triggered_by=self._triggered_by,
+            sequence_id=run.run_id,
+            current_zone=run.current_zone,
+            triggered_by=run.triggered_by,
         )
+
+    def status_of(self, run_id: str) -> SequenceStatus:
+        """Live in-memory state of one run: RUNNING if active, else IDLE.
+
+        A paused run reads as IDLE here; the PAUSED state is reconstructed from
+        the ResumeSnapshot at the API layer."""
+        run = self._runs.get(run_id)
+        if run is None:
+            return SequenceStatus(state=SequenceState.IDLE)
+        return self._status_of_run(run)
+
+    def iter_runs(self) -> list[SequenceStatus]:
+        """A status for every currently-active run."""
+        return [self._status_of_run(run) for run in self._runs.values()]
+
+    def running_run_ids(self) -> list[str]:
+        return list(self._runs.keys())
+
+    def any_running(self) -> bool:
+        return bool(self._runs)
+
+    def find_zone_run(self, zone_id: str) -> tuple[str, ZoneProgress] | None:
+        """The (run_id, ZoneProgress) of the run that currently has ``zone_id``
+        open, or None."""
+        for run_id, run in self._runs.items():
+            if run.current_zone is not None and run.current_zone.zone_id == zone_id:
+                return run_id, run.current_zone
+        return None
 
     async def start(
         self,
@@ -220,17 +289,20 @@ class SequenceRunner:
     ) -> None:
         if sequence_id not in self._config.sequences:
             raise SequenceNotFound(sequence_id)
-        if self._running is not None:
-            raise MutexConflict(f"'{self._running}' is already running")
+        if sequence_id in self._runs:
+            raise MutexConflict(f"'{sequence_id}' is already running")
+        self._check_zone_conflict(self._config.sequences[sequence_id].zones)
 
-        self._running = sequence_id  # set before first await — asyncio mutex
-        self._stop_event.clear()
-        self._pause_event.clear()
-        self._stop_reason = "manual_stop"
-        self._triggered_by = triggered_by
-
-        self._task = asyncio.create_task(
-            self._execute(sequence_id, factor_pct, override_min, triggered_by),
+        run = _Run(
+            run_id=sequence_id,
+            seq=self._config.sequences[sequence_id],
+            triggered_by=triggered_by,
+            stop_event=asyncio.Event(),
+            pause_event=asyncio.Event(),
+        )
+        self._runs[sequence_id] = run  # registered before first await — asyncio mutex
+        run.task = asyncio.create_task(
+            self._execute(run, factor_pct, override_min),
             name=f"seq-{sequence_id}",
         )
 
@@ -242,98 +314,93 @@ class SequenceRunner:
     ) -> None:
         """Run a single zone in isolation for ``duration_min`` minutes.
 
-        Shares the runner mutex with sequence runs (only one run at a time) and
-        reuses the full execution path via a synthetic single-zone sequence.
+        Runs in parallel with other runs as long as the zone is free (it must not
+        already be reserved by a running sequence or another zone run), reusing
+        the full execution path via a synthetic single-zone sequence.
         """
         if zone_id not in self._config.zones:
             raise ZoneNotFound(zone_id)
-        if self._running is not None:
-            raise MutexConflict(f"'{self._running}' is already running")
-
         run_id = zone_run_id(zone_id)
-        self._zone_run_seq = build_zone_sequence(zone_id, self._config.zones[zone_id], duration_min)
-        self._zone_run_id = run_id
-        self._running = run_id  # set before first await — asyncio mutex
-        self._stop_event.clear()
-        self._pause_event.clear()
-        self._stop_reason = "manual_stop"
-        self._triggered_by = triggered_by
+        if run_id in self._runs:
+            raise MutexConflict(f"zone '{zone_id}' is already running")
+        self._check_zone_conflict([zone_id])
 
-        self._task = asyncio.create_task(
-            self._execute_zone(run_id, duration_min, triggered_by),
+        run = _Run(
+            run_id=run_id,
+            seq=build_zone_sequence(zone_id, self._config.zones[zone_id], duration_min),
+            triggered_by=triggered_by,
+            stop_event=asyncio.Event(),
+            pause_event=asyncio.Event(),
+            is_zone_run=True,
+        )
+        self._runs[run_id] = run  # registered before first await — asyncio mutex
+        run.task = asyncio.create_task(
+            self._execute_zone(run, duration_min),
             name=f"zone-{zone_id}",
         )
 
-    async def _execute_zone(self, run_id: str, duration_min: float, triggered_by: str) -> None:
-        seq = self._zone_run_seq
-        assert seq is not None
+    async def _execute_zone(self, run: _Run, duration_min: float) -> None:
         try:
             # A standalone zone run deliberately bypasses the resume/snapshot
             # machinery (which is keyed to real sequences): it always runs its one
             # zone fresh for the given duration.
             await self._run_zones(
-                run_id,
-                seq,
+                run,
                 factor_pct=100.0,
                 start_index=0,
                 start_remaining=None,
                 override_min=duration_min,
-                triggered_by=triggered_by,
             )
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Unhandled error in zone run '%s'", run_id)
-            self._clear_active_run()
+            logger.exception("Unhandled error in zone run '%s'", run.run_id)
+            self._clear_active_run(run.run_id)
         finally:
-            self._running = None
-            self._current_zone = None
-            self._task = None
-            self._zone_run_id = None
-            self._zone_run_seq = None
+            self._runs.pop(run.run_id, None)
 
-    async def stop(self, reason: str = "manual_stop") -> None:
-        if self._running is None:
+    async def stop(self, run_id: str, reason: str = "manual_stop") -> None:
+        run = self._runs.get(run_id)
+        if run is None:
             raise NotRunning
-        self._stop_reason = reason
+        run.stop_reason = reason
         with self._session_factory() as session:
-            clear_snapshot(session, self._running)
-        self._stop_event.set()
-        if self._task:
-            await self._task
+            clear_snapshot(session, run_id)
+        run.stop_event.set()
+        if run.task:
+            await run.task
 
-    async def pause(self) -> None:
-        if self._running is None:
+    async def pause(self, run_id: str) -> None:
+        run = self._runs.get(run_id)
+        if run is None:
             raise NotRunning
-        self._pause_event.set()
-        if self._task:
-            await self._task
+        run.pause_event.set()
+        if run.task:
+            await run.task
 
     def discard_snapshot(self, sequence_id: str) -> None:
         """Drop a paused sequence's resume snapshot (cancel without resuming)."""
         with self._session_factory() as session:
             clear_snapshot(session, sequence_id)
 
-    def clear_paused_snapshot(self) -> str | None:
-        """Discard any persisted paused-run snapshot, returning its sequence id.
+    def clear_paused_snapshots(self) -> list[str]:
+        """Discard every persisted paused-run snapshot, returning their sequence ids.
 
-        Used to cancel a paused run on rain so it can't later be resumed; returns
-        None if no run was paused.
+        Used to cancel paused runs on rain so they can't later be resumed; returns
+        an empty list if nothing was paused.
         """
         with self._session_factory() as session:
-            return clear_any_snapshot(session)
+            return clear_all_snapshots(session)
 
     async def _execute(
         self,
-        sequence_id: str,
+        run: _Run,
         factor_pct: float,
         override_min: float | None = None,
-        triggered_by: str = "manual",
     ) -> None:
-        seq = self._config.sequences[sequence_id]
+        sequence_id = run.run_id
         try:
             with self._session_factory() as session:
-                clear_orphan_snapshot(session, sequence_id)  # abandon a different paused seq
                 snapshot = load_snapshot(session, sequence_id)
 
             start_index = 0
@@ -341,18 +408,16 @@ class SequenceRunner:
             if snapshot is not None:
                 start_index = snapshot.zone_index
                 start_remaining = snapshot.remaining_min
-                triggered_by = "resume"
+                run.triggered_by = "resume"
                 with self._session_factory() as session:
                     clear_snapshot(session, sequence_id)
 
             await self._run_zones(
-                sequence_id,
-                seq,
+                run,
                 factor_pct,
                 start_index,
                 start_remaining,
                 override_min,
-                triggered_by,
             )
         except asyncio.CancelledError:
             # Process shutdown/restart — keep the ActiveRun record so the run can
@@ -360,11 +425,9 @@ class SequenceRunner:
             raise
         except Exception:
             logger.exception("Unhandled error in sequence '%s'", sequence_id)
-            self._clear_active_run()
+            self._clear_active_run(sequence_id)
         finally:
-            self._running = None
-            self._current_zone = None
-            self._task = None
+            self._runs.pop(sequence_id, None)
 
     def _effective_seq_params(self, seq: SequenceConfig, sequence_id: str) -> tuple[float, float]:
         """Return (basis_min_per_zone, watchdog_min) with DB overrides applied."""
@@ -415,50 +478,78 @@ class SequenceRunner:
         )
         return False
 
-    async def reconcile_valves(self, exclude: str | None = None) -> None:
-        """Turn off every configured zone except the live/excluded one.
+    async def reconcile_valves(self, exclude: set[str] | str | None = None) -> None:
+        """Turn off every configured zone except the live/excluded ones.
 
         Safety net for valves left ON by a previous process / crash, and for
         closing a zone after an HA disconnect aborted its run. ``exclude`` keeps
-        a specific zone open (used when resuming a run owns that zone).
+        specific zones open (used when resuming runs that own those zones); the
+        zones of all currently-live runs are kept open implicitly.
         Idempotent: turning off an already-off switch is harmless.
         """
-        running_zone = self._current_zone.zone_id if self._current_zone else None
+        if exclude is None:
+            excluded: set[str] = set()
+        elif isinstance(exclude, str):
+            excluded = {exclude}
+        else:
+            excluded = set(exclude)
+        running_zones = {
+            run.current_zone.zone_id for run in self._runs.values() if run.current_zone is not None
+        }
+        keep = excluded | running_zones
         for zone_id, zone_cfg in self._config.zones.items():
-            if zone_id in (running_zone, exclude):
+            if zone_id in keep:
                 continue
             await self._safe_turn_off(zone_cfg, zone_id, attempts=1)
 
-    def _clear_active_run(self) -> None:
+    def _clear_active_run(self, sequence_id: str) -> None:
         with self._session_factory() as session:
-            clear_active_run(session)
+            clear_active_run(session, sequence_id)
 
-    async def recover_run(self) -> str:
-        """Recover (or clean up) an in-flight run after a crash/restart.
+    async def recover_runs(self) -> list[str]:
+        """Recover (or clean up) in-flight runs after a crash/restart.
 
         Called once when HA first becomes reachable. Policy ("zone duration as
-        the bound"): if the current zone's planned window has **not** elapsed,
-        resume it for the remaining time and continue the following zones;
-        otherwise the run is stale → close all valves and discard it. In every
-        non-resume branch any orphaned valve is also closed. Returns the action
-        taken (for logging/tests).
+        the bound") is applied per persisted run: if the current zone's planned
+        window has **not** elapsed, resume it for the remaining time and continue
+        the following zones; otherwise the run is stale → discard it. After all
+        runs are processed, orphaned valves (not owned by a resumed run) are
+        closed. Returns the per-run actions taken (for logging/tests).
         """
         with self._session_factory() as session:
-            record = load_active_run(session)
+            records = load_active_runs(session)
 
-        if record is None:
+        if not records:
             await self.reconcile_valves()
-            return "reconciled"
+            return ["reconciled"]
 
+        actions: list[str] = []
+        resuming_zones: set[str] = set()
+        for record in records:
+            action, zone = self._recover_one(record)
+            actions.append(action)
+            if zone is not None:
+                resuming_zones.add(zone)
+
+        # Close any valve not owned by a resumed run (runs registered above keep
+        # their zones open via reconcile_valves' implicit running-zone exclusion).
+        await self.reconcile_valves(exclude=resuming_zones)
+        return actions
+
+    def _recover_one(self, record: ActiveRun) -> tuple[str, str | None]:
+        """Process one persisted run; returns (action, resuming_zone_or_None).
+
+        Registers a live ``_Run`` and starts its recovery task when resuming.
+        Does not close valves itself — the caller reconciles once at the end.
+        """
         seq = self._config.sequences.get(record.sequence_id)
         if seq is None or record.zone_index >= len(seq.zones):
             logger.warning(
                 "Crash recovery: discarding active run for unknown sequence/zone '%s'",
                 record.sequence_id,
             )
-            self._clear_active_run()
-            await self.reconcile_valves()
-            return "discarded"
+            self._clear_active_run(record.sequence_id)
+            return "discarded", None
 
         started = record.zone_started_at
         if started.tzinfo is None:
@@ -473,9 +564,8 @@ class SequenceRunner:
                 elapsed,
                 record.zone_planned_min,
             )
-            self._clear_active_run()
-            await self.reconcile_valves()
-            return "closed_stale"
+            self._clear_active_run(record.sequence_id)
+            return "closed_stale", None
 
         remaining = max(0.0, min(record.zone_planned_min, record.zone_planned_min - elapsed))
         resuming_zone = seq.zones[record.zone_index]
@@ -487,50 +577,48 @@ class SequenceRunner:
             remaining,
         )
 
-        self._running = record.sequence_id  # claim the mutex before awaiting
-        await self.reconcile_valves(exclude=resuming_zone)  # close any other orphan valves
-        self._stop_event.clear()
-        self._pause_event.clear()
-        self._stop_reason = "manual_stop"
-        self._triggered_by = "resume"
-        self._task = asyncio.create_task(
-            self._recover_execute(record, remaining),
+        run = _Run(
+            run_id=record.sequence_id,
+            seq=seq,
+            triggered_by="resume",
+            stop_event=asyncio.Event(),
+            pause_event=asyncio.Event(),
+        )
+        self._runs[record.sequence_id] = run  # claim the run before awaiting
+        run.task = asyncio.create_task(
+            self._recover_execute(run, record, remaining),
             name=f"seq-resume-{record.sequence_id}",
         )
-        return "resumed"
+        return "resumed", resuming_zone
 
-    async def _recover_execute(self, record: ActiveRun, remaining_min: float) -> None:
-        seq = self._config.sequences[record.sequence_id]
+    async def _recover_execute(self, run: _Run, record: ActiveRun, remaining_min: float) -> None:
         try:
             await self._run_zones(
-                record.sequence_id,
-                seq,
+                run,
                 factor_pct=100.0,
                 start_index=record.zone_index,
                 start_remaining=remaining_min,
                 override_min=record.run_duration_min,
-                triggered_by="resume",
             )
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Unhandled error during crash recovery of '%s'", record.sequence_id)
-            self._clear_active_run()
+            logger.exception("Unhandled error during crash recovery of '%s'", run.run_id)
+            self._clear_active_run(run.run_id)
         finally:
-            self._running = None
-            self._current_zone = None
-            self._task = None
+            self._runs.pop(run.run_id, None)
 
     async def _run_zones(
         self,
-        sequence_id: str,
-        seq: SequenceConfig,
+        run: _Run,
         factor_pct: float,
         start_index: int,
         start_remaining: float | None,
         override_min: float | None = None,
-        triggered_by: str = "manual",
     ) -> None:
+        sequence_id = run.run_id
+        seq = run.seq
+        triggered_by = run.triggered_by
         effective_basis, effective_watchdog = self._effective_seq_params(seq, sequence_id)
 
         if override_min is not None:
@@ -554,7 +642,7 @@ class SequenceRunner:
             start_remaining = None  # only applies to first resumed zone
 
             started_at = datetime.now(UTC)
-            self._current_zone = ZoneProgress(
+            run.current_zone = ZoneProgress(
                 zone_id=zone_id, started_at=started_at, duration_min=zone_duration
             )
             # Persist the in-flight state so a hard crash can recover (see ActiveRun).
@@ -587,7 +675,7 @@ class SequenceRunner:
                     logger.exception("on_started callback failed for '%s'", sequence_id)
 
             result = await _wait_zone(
-                zone_duration, effective_watchdog, self._stop_event, self._pause_event
+                zone_duration, effective_watchdog, run.stop_event, run.pause_event
             )
 
             off_time = datetime.now(UTC)
@@ -602,7 +690,7 @@ class SequenceRunner:
             if result == _WATCHDOG:
                 abort_reason = "watchdog"
             elif result == _STOP:
-                abort_reason = self._stop_reason
+                abort_reason = run.stop_reason
 
             # Finalize the history row created at zone start.
             with self._session_factory() as session:
@@ -636,7 +724,7 @@ class SequenceRunner:
             await self._emit_run_recorded()
 
             if result == _STOP:
-                self._clear_active_run()
+                self._clear_active_run(sequence_id)
                 return
             if result == _WATCHDOG:
                 logger.warning("Watchdog triggered for zone %s", zone_id)
@@ -650,14 +738,14 @@ class SequenceRunner:
                     ),
                     "warning",
                 )
-                self._clear_active_run()
+                self._clear_active_run(sequence_id)
                 return
             if result == _PAUSE:
                 remaining = zone_duration - actual_min
                 with self._session_factory() as session:
                     save_pause_snapshot(session, sequence_id, zone_id, i, max(0.0, remaining))
-                self._clear_active_run()
+                self._clear_active_run(sequence_id)
                 return
 
         # All zones completed normally.
-        self._clear_active_run()
+        self._clear_active_run(sequence_id)
