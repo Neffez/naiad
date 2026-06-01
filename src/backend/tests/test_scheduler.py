@@ -8,7 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from naiad.config import AppConfig
 from naiad.domain.models import Plan, SkippedRun, UserPreference
-from naiad.domain.sequences import SequenceRunner
+from naiad.domain.sequences import SequenceRunner, zone_run_id
 from naiad.scheduler import (
     _consume_skip,
     _on_rain,
@@ -86,7 +86,7 @@ async def test_run_sequence_job_status_transitions(fast_config: AppConfig, engin
     assert await _run_sequence_job("seq_1", runner, ha, fast_config, sf) == "started"
     # Second start while running → transient conflict.
     assert await _run_sequence_job("seq_1", runner, ha, fast_config, sf) == "conflict"
-    await runner.stop()
+    await runner.stop("seq_1")
 
 
 async def test_run_sequence_job_skips_when_master_off(fast_config: AppConfig, engine) -> None:
@@ -109,7 +109,7 @@ async def test_run_sequence_job_skips_when_factor_zero(fast_config: AppConfig, e
     result = await _run_sequence_job("seq_1", runner, ha, fast_config, sf, triggered_by="cron")
     assert result == "skipped"
     assert driver.on_calls == []  # no valve was opened
-    assert runner.status().sequence_id is None
+    assert not runner.any_running()
 
 
 async def test_run_sequence_job_skips_when_season_off(fast_config: AppConfig, engine) -> None:
@@ -142,11 +142,11 @@ async def test_plan_kept_on_conflict_then_consumed(fast_config: AppConfig, engin
         assert len(list(s.exec(select(Plan)).all())) == 1  # plan retained on conflict
 
     # Free the runner; the next tick consumes the plan.
-    await runner.stop()
+    await runner.stop("seq_1")
     await _plan_tick(runner, ha, fast_config, sf)
     with Session(engine) as s:
         assert list(s.exec(select(Plan)).all()) == []  # plan consumed
-    await runner.stop()
+    await runner.stop("seq_1")
 
 
 async def test_zone_plan_runs_only_that_zone(fast_config: AppConfig, engine) -> None:
@@ -172,7 +172,7 @@ async def test_zone_plan_runs_only_that_zone(fast_config: AppConfig, engine) -> 
     assert "switch.zone_a" not in driver.on_calls
     with Session(engine) as s:
         assert list(s.exec(select(Plan)).all()) == []  # plan consumed
-    await runner.stop()
+    await runner.stop(zone_run_id("zone_b"))
 
 
 async def test_zone_plan_skipped_when_master_off(fast_config: AppConfig, engine) -> None:
@@ -228,7 +228,7 @@ async def test_manual_trigger_ignores_skip(fast_config: AppConfig, engine) -> No
 
     result = await _run_sequence_job("seq_1", runner, ha, fast_config, sf, triggered_by="plan")
     assert result == "started"
-    await runner.stop()
+    await runner.stop("seq_1")
 
 
 async def test_rain_discards_paused_run(fast_config: AppConfig, engine) -> None:
@@ -244,6 +244,26 @@ async def test_rain_discards_paused_run(fast_config: AppConfig, engine) -> None:
 
     with Session(engine) as s:
         assert load_snapshot(s, "seq_1") is None
+
+
+async def test_rain_aborts_all_live_runs(minimal_config: AppConfig, engine) -> None:
+    """Rain aborts every live run, not just one."""
+    data = minimal_config.model_dump()
+    for seq in data["sequences"].values():
+        seq["basis_min_per_zone"] = 5.0
+        seq["range"] = [0.0, 10.0]
+        seq["watchdog_min"] = 60
+    config = AppConfig.model_validate(data)
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(config, FakeDriver(), sf)
+
+    await runner.start("seq_1")
+    await runner.start("seq_wind")
+    await asyncio.sleep(0)
+    assert len(runner.running_run_ids()) == 2
+
+    await _on_rain("binary_sensor.regen", {"state": "on"}, runner, config, FakeHA())
+    assert not runner.any_running()
 
 
 async def test_rain_noop_when_nothing_running_or_paused(fast_config: AppConfig, engine) -> None:
