@@ -549,3 +549,16 @@ svg { display: block; }
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--n-line-strong); border-radius: 3px; }
+
+/* Vertically scrollable region with a themed, thin scrollbar. Used where a list
+   can grow past its container (e.g. many runs in the upcoming-runs block). The
+   negative-margin/padding pair keeps content aligned with its surroundings while
+   pushing the scrollbar to the card edge. */
+.n-scroll-y {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--n-line-strong) transparent;
+  margin-right: -8px;
+  padding-right: 8px;
+}
