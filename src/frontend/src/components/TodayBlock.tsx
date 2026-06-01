@@ -281,7 +281,7 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
 
       {/* Upcoming runs of the day */}
       {runs.length > 0 ? (
-        <div className="n-scroll-y" style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 360 }}>
+        <div className="n-scroll-y" style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0 }}>
           {runs.map((run, i) => (
             <RunRow
               key={`${run.sequence_id}-${run.scheduled_at}`}
@@ -295,13 +295,13 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
           ))}
         </div>
       ) : (
-        <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--n-line)' }}>
-          <span style={{ fontSize: 14, color: 'var(--n-fg-muted)' }}>{t('today.noRun')}</span>
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--n-line)' }}>
+            <span style={{ fontSize: 14, color: 'var(--n-fg-muted)' }}>{t('today.noRun')}</span>
+          </div>
         </div>
       )}
 
-      {/* Spacer to push adjustment to bottom */}
-      <div style={{ flex: 1 }} />
       <div className="n-divider" />
 
       {/* Adjustment factor — compact / tertiary */}
