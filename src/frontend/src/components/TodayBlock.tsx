@@ -279,9 +279,13 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
         )}
       </div>
 
-      {/* Upcoming runs of the day */}
+      {/* Upcoming runs of the day. The page root grows with content (min-height,
+          not a fixed viewport height), so flex alone never bounds this list —
+          we cap it relative to the viewport so it fills most of the column and
+          scrolls internally once the runs exceed that, instead of stretching the
+          column indefinitely. */}
       {runs.length > 0 ? (
-        <div className="n-scroll-y" style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0 }}>
+        <div className="n-scroll-y" style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, maxHeight: 'calc(100vh - 340px)' }}>
           {runs.map((run, i) => (
             <RunRow
               key={`${run.sequence_id}-${run.scheduled_at}`}
