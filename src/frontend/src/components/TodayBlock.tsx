@@ -34,7 +34,19 @@ function formatClock(isoDate: string, lng: string): string {
   return new Date(isoDate).toLocaleString(lng, { hour: '2-digit', minute: '2-digit' })
 }
 
-/** Day heading shared by all runs in the block (they're all on the same day). */
+/** Group consecutive runs by their local calendar day, preserving order. */
+function groupByDay(runs: NextRun[]): { day: string; runs: NextRun[] }[] {
+  const groups: { day: string; runs: NextRun[] }[] = []
+  for (const run of runs) {
+    const day = new Date(run.scheduled_at).toDateString()
+    const last = groups[groups.length - 1]
+    if (last && last.day === day) last.runs.push(run)
+    else groups.push({ day, runs: [run] })
+  }
+  return groups
+}
+
+/** Day heading for a run, relative ("today"/"tomorrow") or an explicit date. */
 function formatDayLabel(isoDate: string, t: TFunction, lng: string): string {
   const d = new Date(isoDate)
   const now = new Date()
@@ -255,7 +267,9 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
     )
   }
 
-  const dayLabel = runs.length > 0 ? formatDayLabel(runs[0].scheduled_at, t, i18n.language) : null
+  // Runs may span two calendar days (today's remaining + the next day with runs),
+  // so they are grouped with a per-day heading rather than one shared label.
+  const groups = groupByDay(runs)
 
   return (
     <>
@@ -274,28 +288,32 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span className="n-eyebrow">{t('today.title')}</span>
-        {dayLabel && (
-          <span className="n-eyebrow" style={{ fontSize: 9.5, color: 'var(--n-teal-300)' }}>{dayLabel}</span>
-        )}
       </div>
 
-      {/* Upcoming runs of the day. The page root grows with content (min-height,
-          not a fixed viewport height), so flex alone never bounds this list —
-          we cap it relative to the viewport so it fills most of the column and
-          scrolls internally once the runs exceed that, instead of stretching the
-          column indefinitely. */}
+      {/* Upcoming runs, grouped by day. The page root grows with content
+          (min-height, not a fixed viewport height), so flex alone never bounds
+          this list — we cap it relative to the viewport so it fills most of the
+          column and scrolls internally once the runs exceed that, instead of
+          stretching the column indefinitely. */}
       {runs.length > 0 ? (
-        <div className="n-scroll-y" style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, maxHeight: 'calc(100vh - 340px)' }}>
-          {runs.map((run, i) => (
-            <RunRow
-              key={`${run.sequence_id}-${run.scheduled_at}`}
-              run={run}
-              hero={i === 0}
-              t={t}
-              lng={i18n.language}
-              onSkip={() => setPendingSkip(run)}
-              skipping={skip.isPending}
-            />
+        <div className="n-scroll-y" style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, maxHeight: 'calc(100vh - 340px)' }}>
+          {groups.map((group) => (
+            <div key={group.day} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span className="n-eyebrow" style={{ fontSize: 9.5, color: 'var(--n-teal-300)' }}>
+                {formatDayLabel(group.runs[0].scheduled_at, t, i18n.language)}
+              </span>
+              {group.runs.map((run) => (
+                <RunRow
+                  key={`${run.sequence_id}-${run.scheduled_at}`}
+                  run={run}
+                  hero={run === runs[0]}
+                  t={t}
+                  lng={i18n.language}
+                  onSkip={() => setPendingSkip(run)}
+                  skipping={skip.isPending}
+                />
+              ))}
+            </div>
           ))}
         </div>
       ) : (
@@ -386,43 +404,44 @@ function DenseTodayBlock({
 }) {
   const { t, i18n } = useTranslation()
   const runs = sys.upcoming_runs ?? []
-  const dayLabel = runs.length > 0 ? formatDayLabel(runs[0].scheduled_at, t, i18n.language) : null
+  const groups = groupByDay(runs)
 
   return (
     <div className="n-card" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
       {runs.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span className="n-eyebrow" style={{ fontSize: 9.5 }}>{t('today.title')}</span>
-            {dayLabel && <span className="n-eyebrow" style={{ fontSize: 9, color: 'var(--n-teal-300)' }}>{dayLabel}</span>}
-          </div>
-          {runs.map((run, i) => (
-            <div
-              key={`${run.sequence_id}-${run.scheduled_at}`}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                padding: '8px 10px', borderRadius: 8,
-                background: i === 0 ? 'var(--n-teal-glow)' : 'rgba(255,255,255,0.018)',
-                border: i === 0 ? '1px solid rgba(94,200,216,0.15)' : '1px solid var(--n-line)',
-              }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{run.sequence_label}</div>
-                <span className="mono" style={{ fontSize: 11.5, color: 'var(--n-teal-200)' }}>
-                  {formatClock(run.scheduled_at, i18n.language)} · {run.duration_min} min
-                  {run.in_progress && <span style={{ color: 'var(--n-leaf-300)' }}> · {t('today.live')}</span>}
-                </span>
-              </div>
-              {!run.in_progress && (
-                <button
-                  className="n-iconbtn"
-                  onClick={() => onSkip(run)}
-                  title={t('today.skip')}
-                  style={{ width: 32, height: 32, flex: '0 0 32px', color: 'var(--n-fg-muted)' }}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <span className="n-eyebrow" style={{ fontSize: 9.5 }}>{t('today.title')}</span>
+          {groups.map((group) => (
+            <div key={group.day} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span className="n-eyebrow" style={{ fontSize: 9, color: 'var(--n-teal-300)' }}>
+                {formatDayLabel(group.runs[0].scheduled_at, t, i18n.language)}
+              </span>
+              {group.runs.map((run) => (
+                <div
+                  key={`${run.sequence_id}-${run.scheduled_at}`}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                    padding: '8px 10px', borderRadius: 8,
+                    background: run === runs[0] ? 'var(--n-teal-glow)' : 'rgba(255,255,255,0.018)',
+                    border: run === runs[0] ? '1px solid rgba(94,200,216,0.15)' : '1px solid var(--n-line)',
+                  }}
                 >
-                  <IX size={14} />
-                </button>
-              )}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{run.sequence_label}</div>
+                    <span className="mono" style={{ fontSize: 11.5, color: 'var(--n-teal-200)' }}>
+                      {formatClock(run.scheduled_at, i18n.language)} · {run.duration_min} min
+                    </span>
+                  </div>
+                  <button
+                    className="n-iconbtn"
+                    onClick={() => onSkip(run)}
+                    title={t('today.skip')}
+                    style={{ width: 32, height: 32, flex: '0 0 32px', color: 'var(--n-fg-muted)' }}
+                  >
+                    <IX size={14} />
+                  </button>
+                </div>
+              ))}
             </div>
           ))}
         </div>

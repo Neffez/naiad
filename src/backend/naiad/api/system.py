@@ -26,7 +26,7 @@ from naiad.dependencies import (
 from naiad.domain.factors import compute_factors
 from naiad.domain.models import Plan, RunHistory, SequenceOverride, SkippedRun, UserPreference
 from naiad.domain.sensors import read_sensor_snapshot
-from naiad.domain.sequences import SequenceRunner, zone_id_of_run, zone_run_id
+from naiad.domain.sequences import SequenceRunner, zone_run_id
 from naiad.ha_client import HAClient
 from naiad.scheduler import next_run_for_sequence, upcoming_cron_runs
 from naiad.timeutil import local_day_start_utc, local_week_start_utc
@@ -164,71 +164,24 @@ def _next_runs(
     return [run for _, run in candidates[:limit]]
 
 
-def _running_runs(
-    runner: SequenceRunner,
-    session: Session,
-    config: AppConfig,
-) -> list[NextRunResponse]:
-    """The runs currently executing, as today-anchored NextRunResponses.
-
-    A run that has already started no longer appears among the scheduler's future
-    fire times, so without this it would vanish from the day list the moment it
-    begins — and an evening run starting at 20:00 would make the list jump to
-    tomorrow. Surfacing it keeps "today's runs" showing what is happening now.
-    """
-    results: list[NextRunResponse] = []
-    for status in runner.iter_runs():
-        if status.sequence_id is None or status.current_zone is None:
-            continue
-
-        started_at = status.current_zone.started_at
-        zone_id = zone_id_of_run(status.sequence_id)
-        if zone_id is not None:
-            zone_cfg = config.zones.get(zone_id)
-            if zone_cfg is None:
-                continue
-            results.append(
-                NextRunResponse(
-                    sequence_id=zone_id,
-                    sequence_label=zone_cfg.label,
-                    scheduled_at=started_at.astimezone(UTC).replace(tzinfo=None),
-                    duration_min=int(round(status.current_zone.duration_min)),
-                    in_progress=True,
-                )
-            )
-            continue
-
-        seq_cfg = config.sequences.get(status.sequence_id)
-        if seq_cfg is None:
-            continue
-        results.append(
-            NextRunResponse(
-                sequence_id=status.sequence_id,
-                sequence_label=seq_cfg.label,
-                scheduled_at=started_at.astimezone(UTC).replace(tzinfo=None),
-                duration_min=_effective_basis(session, config, status.sequence_id),
-                in_progress=True,
-            )
-        )
-    return results
-
-
 def _upcoming_day_runs(
     session: Session,
     config: AppConfig,
     scheduler: AsyncIOScheduler,
-    runner: SequenceRunner,
 ) -> list[NextRunResponse]:
-    """Upcoming runs for the next day that has any (local calendar day).
+    """Upcoming (not-yet-started) runs: today's remaining runs plus all runs of
+    the next future day that has any (local calendar days).
 
-    If runs remain today, returns all of today's remaining runs; otherwise all
-    runs of the next day that has scheduled runs. Both one-off plans and recurring
-    cron schedules are merged, the currently-running run is included (anchored to
-    today), and user-skipped cron occurrences are excluded.
+    Returns today's remaining runs (if any) followed by every run of the earliest
+    later day that has scheduled runs — at most two calendar days, or just the next
+    day when nothing remains today. Both one-off plans and recurring cron schedules
+    are merged and user-skipped cron occurrences are excluded. Currently-running
+    runs are *not* included here; they are surfaced live on the sequence/zone cards.
     """
     tz = ZoneInfo(config.timezone)
     now = datetime.now(UTC)
     until = now + timedelta(days=8)
+    today = now.astimezone(tz).date()
 
     # User-skipped cron occurrences, keyed by sequence → set of minute-truncated
     # naive-UTC fire times.
@@ -269,16 +222,20 @@ def _upcoming_day_runs(
                 )
             )
 
-    for running in _running_runs(runner, session, config):
-        when = running.scheduled_at.replace(tzinfo=UTC)
-        candidates.append((when, running))
-
     if not candidates:
         return []
 
     candidates.sort(key=lambda c: c[0])
-    target_date = candidates[0][0].astimezone(tz).date()
-    return [run for when, run in candidates if when.astimezone(tz).date() == target_date]
+
+    # All candidates fire at or after "now", so each lands on today or a later day.
+    today_runs = [run for when, run in candidates if when.astimezone(tz).date() == today]
+    later = [(when, run) for when, run in candidates if when.astimezone(tz).date() > today]
+    next_day_runs: list[NextRunResponse] = []
+    if later:
+        next_date = later[0][0].astimezone(tz).date()
+        next_day_runs = [run for when, run in later if when.astimezone(tz).date() == next_date]
+
+    return today_runs + next_day_runs
 
 
 @router.get("/status", response_model=SystemStatusResponse)
@@ -288,7 +245,6 @@ async def get_status(
     ha: HAClient = Depends(get_ha_client),
     session: Session = Depends(get_session),
     scheduler: AsyncIOScheduler = Depends(get_scheduler),
-    runner: SequenceRunner = Depends(get_runner),
 ) -> SystemStatusResponse:
     snapshot = read_sensor_snapshot(ha, config)
     factors = compute_factors(snapshot, config, session)
@@ -303,7 +259,7 @@ async def get_status(
     today_start = local_day_start_utc(config.timezone)
     week_start = local_week_start_utc(config.timezone)
 
-    upcoming_runs = _upcoming_day_runs(session, config, scheduler, runner)
+    upcoming_runs = _upcoming_day_runs(session, config, scheduler)
     next_runs = _next_runs(session, config, scheduler, 2)
 
     return SystemStatusResponse(

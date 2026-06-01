@@ -163,8 +163,10 @@ class SystemStatusResponse(BaseModel):
     today_factor: FactorBreakdownResponse
     next_run: NextRunResponse | None
     after_next: NextRunResponse | None
-    # All upcoming runs of the next day that has any: today if more runs remain
-    # today, otherwise the next day with scheduled runs.
+    # Upcoming (not-yet-started) runs: today's remaining runs plus all runs of the
+    # next future day that has any. Spans at most two calendar days (today + next),
+    # or one day if nothing remains today. Currently-running runs are excluded —
+    # they are shown live on the sequence/zone cards instead.
     upcoming_runs: list[NextRunResponse]
     liters_today: float
     liters_week: float
