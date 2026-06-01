@@ -10,6 +10,11 @@
 
 Naiad replaces the irrigation automation logic that typically lives inside Home Assistant (Irrigation Unlimited, automations, pyscript, helpers, dashboard cards) with a single standalone web application. Home Assistant remains the driver for the physical switches and the source of weather and sensor data; everything else, like schedules, factor calculation, manual planning, history and UI happens in Naiad. For the Home Assistant app repo see [app-naiad](https://github.com/Neffez/app-naiad).
 
+<div align="center">
+<img src="docs/naiad.gif" alt="Naiad Gif" width="420" height="200">
+</div>
+
+
 ## Table of Contents
 
 * [Why](#why)
