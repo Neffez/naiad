@@ -150,6 +150,7 @@ components:
         temp_pct:                 { type: integer, description: "Signed temperature delta in % (0 = neutral)." }
         rain_pct:                 { type: integer, description: "Signed rain delta in % (0 = neutral)." }
         combined_pct:             { type: integer, description: "Overall factor in % (100 = neutral)." }
+        manual:                   { type: boolean, description: "True when combined_pct is a manual override (temp/rain deltas are neutral)." }
         wind_blocking_sequences:
           type: array
           items: { type: string }
@@ -317,6 +318,8 @@ components:
           properties:
             temp: { $ref: '#/components/schemas/TempFactorSettings' }
             rain: { $ref: '#/components/schemas/RainFactorSettings' }
+            manual_mode: { type: boolean, description: "When true, the manual adjustment overrides the automatic factor." }
+            manual_pct:  { type: integer, nullable: true, description: "Manual adjustment percentage (clamped to the temperature factor's min/max)." }
         token_lifetime_days:  { type: integer }
         auto_login_enabled:   { type: boolean }
 
