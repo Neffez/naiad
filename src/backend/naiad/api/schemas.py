@@ -394,6 +394,7 @@ class ConfigResponse(BaseModel):
     factors: FactorsConfig
     notifications: NotificationsConfig
     timezone: str
+    sequence_colors_enabled: bool = True
     # True after an update that changed ha.url/token: the live HA socket is not
     # reconnected automatically, so a restart is needed for the connection change.
     restart_required: bool = False
@@ -409,6 +410,7 @@ class ConfigUpdateRequest(BaseModel):
     factors: FactorsConfig
     notifications: NotificationsConfig = NotificationsConfig()
     timezone: str = "Europe/Berlin"
+    sequence_colors_enabled: bool = True
 
 
 class EntityInfo(BaseModel):

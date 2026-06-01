@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { deleteHistory, getHistory, type HistoryEntry } from '../api/client'
+import { deleteHistory, getConfig, getHistory, type HistoryEntry } from '../api/client'
 import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
 import { IClock, IPlay } from '../components/icons'
-import { seqColor } from '../theme/sequenceColors'
+import { resolveSeqColor } from '../theme/sequenceColors'
 
 const OLDER_THAN_DAYS = 30
 
@@ -195,8 +195,10 @@ function SummaryBlock({ label, value }: { label: string; value: string }) {
 
 function HistoryRow({ row }: { row: HistoryEntry }) {
   const { t, i18n } = useTranslation()
+  const { data: config } = useQuery({ queryKey: ['config'], queryFn: getConfig })
   const isManual = row.triggered_by === 'manual'
   const triggerLabel = isManual ? t('history.manual') : t('history.scheduled')
+  const barColor = resolveSeqColor(config, row.sequence_id) ?? 'var(--n-fg-dim)'
 
   return (
     <div
@@ -213,7 +215,7 @@ function HistoryRow({ row }: { row: HistoryEntry }) {
       }}>
         <span style={{
           width: 4, height: 22, borderRadius: 2,
-          background: seqColor(row.sequence_id, 'var(--n-fg-dim)'),
+          background: barColor,
         }} />
         {row.zone_label}
       </span>
