@@ -64,7 +64,7 @@ export default function Planner() {
     <div style={{ maxWidth: 900, display: 'flex', flexDirection: 'column', gap: 22 }}>
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Target toggle: a whole sequence or a single zone */}
-        <div style={{
+        <div role="group" aria-label={t('a11y.targetSelect')} style={{
           display: 'grid', gridTemplateColumns: '1fr 1fr',
           background: 'var(--n-card)',
           border: '1px solid var(--n-line-strong)',
@@ -78,6 +78,7 @@ export default function Planner() {
             <button
               key={opt.id}
               type="button"
+              aria-pressed={target === opt.id}
               onClick={() => { setTarget(opt.id); setError('') }}
               style={{
                 background: target === opt.id
@@ -105,6 +106,7 @@ export default function Planner() {
             <select
               value={seqId}
               onChange={(e) => setSeqId(e.target.value)}
+              aria-label={t('planner.targetSequence')}
               style={{
                 width: '100%', height: 52, padding: '0 18px',
                 background: 'var(--n-card)',
@@ -124,6 +126,7 @@ export default function Planner() {
             <select
               value={zoneId}
               onChange={(e) => setZoneId(e.target.value)}
+              aria-label={t('planner.targetZone')}
               style={{
                 width: '100%', height: 52, padding: '0 18px',
                 background: 'var(--n-card)',
@@ -149,7 +152,7 @@ export default function Planner() {
         </div>
 
         {/* Mode toggle */}
-        <div style={{
+        <div role="group" aria-label={t('a11y.modeSelect')} style={{
           display: 'grid', gridTemplateColumns: '1fr 1fr',
           background: 'var(--n-card)',
           border: '1px solid var(--n-line-strong)',
@@ -163,6 +166,7 @@ export default function Planner() {
             <button
               key={opt.id}
               type="button"
+              aria-pressed={mode === opt.id}
               onClick={() => setMode(opt.id)}
               style={{
                 background: mode === opt.id
@@ -195,6 +199,7 @@ export default function Planner() {
             size="lg"
             fullWidth
             placeholder={t('planner.hoursPlaceholder')}
+            aria-label={t('planner.hoursPlaceholder')}
           />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -202,6 +207,7 @@ export default function Planner() {
               type="date"
               value={dateValue}
               onChange={(e) => setDateValue(e.target.value)}
+              aria-label={t('a11y.date')}
               style={{
                 height: 52, padding: '0 18px',
                 background: 'var(--n-card)',
@@ -216,6 +222,7 @@ export default function Planner() {
               type="time"
               value={timeValue}
               onChange={(e) => setTimeValue(e.target.value)}
+              aria-label={t('a11y.time')}
               style={{
                 height: 52, padding: '0 18px',
                 background: 'var(--n-card)',
@@ -241,9 +248,12 @@ export default function Planner() {
           placeholder={target === 'zone'
             ? t('planner.durationPlaceholderZone')
             : t('planner.durationPlaceholder')}
+          aria-label={target === 'zone'
+            ? t('planner.durationPlaceholderZone')
+            : t('planner.durationPlaceholder')}
         />
 
-        {error && <p style={{ color: 'var(--n-danger)', fontSize: 13 }}>{error}</p>}
+        {error && <p role="alert" style={{ color: 'var(--n-danger)', fontSize: 13 }}>{error}</p>}
 
         {/* Submit */}
         <button
@@ -272,7 +282,7 @@ export default function Planner() {
               gap: 14,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{
+                <span aria-hidden="true" style={{
                   width: 4, height: 28, borderRadius: 2,
                   background: resolveSeqColor(config, p.sequence_id ?? '') ?? 'var(--n-fg-dim)',
                 }} />
