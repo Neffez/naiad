@@ -454,6 +454,29 @@ class AppConfig(BaseModel):
                     raise ValueError(f"Sequence '{seq_id}' references unknown zone '{zone_id}'")
         return self
 
+    @model_validator(mode="after")
+    def validate_unique_switches(self) -> "AppConfig":
+        """Each switch entity must belong to exactly one zone.
+
+        Zone reservation and valve ownership are tracked by switch entity, so two
+        zones sharing a switch could run in parallel and physically fight over the
+        same valve. Forbid the ambiguity at config time.
+        """
+        seen: dict[str, str] = {}
+        for zone_id, zone in self.zones.items():
+            # An empty switch means "not yet configured" — these are allowed in any
+            # number (a run on such a zone is rejected separately at start time) and
+            # are not a physical entity, so they never collide.
+            if not zone.switch:
+                continue
+            if zone.switch in seen:
+                raise ValueError(
+                    f"Zones '{seen[zone.switch]}' and '{zone_id}' share switch "
+                    f"'{zone.switch}'; each switch must map to exactly one zone"
+                )
+            seen[zone.switch] = zone_id
+        return self
+
 
 # ── Home Assistant add-on context ─────────────────────────────────────────────
 

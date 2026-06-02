@@ -8,12 +8,19 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from naiad.config import AppConfig
 from naiad.domain.models import RunHistory, SequenceOverride
-from naiad.domain.resume import load_active_runs, load_snapshot, save_active_run
+from naiad.domain.resume import (
+    load_active_runs,
+    load_pending_closes,
+    load_snapshot,
+    save_active_run,
+    save_pending_close,
+)
 from naiad.domain.sequences import (
     MutexConflict,
     NotRunning,
     SequenceRunner,
     SequenceState,
+    ValveCleanupInProgress,
     ZoneBusy,
     ZoneNotFound,
     zone_run_id,
@@ -241,7 +248,9 @@ async def test_safe_turn_off_success(fast_config: AppConfig, driver: FakeDriver,
 
 
 async def test_run_records_history_even_if_turn_off_fails(fast_config: AppConfig, engine) -> None:
-    """A failing turn_off must not abort the loop before history is written."""
+    """A failing turn_off must not abort the loop before history is written. The
+    unconfirmed close is the safety-critical outcome, so it takes precedence over
+    the stop reason in history (close_failed, not ha_disconnect)."""
     driver = FailingOffDriver()
     runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
     await runner.start("seq_1")
@@ -251,7 +260,7 @@ async def test_run_records_history_even_if_turn_off_fails(fast_config: AppConfig
     with Session(engine) as session:
         history = list(session.exec(select(RunHistory)).all())
     assert len(history) == 1
-    assert history[0].abort_reason == "ha_disconnect"
+    assert history[0].abort_reason == "close_failed"  # safety precedence
     assert not runner.any_running()
 
 
@@ -311,6 +320,48 @@ async def test_recover_resumes_fresh_run(
     await runner.stop("seq_1")
 
 
+async def test_recovery_retry_reuses_already_resumed_task(
+    minimal_config: AppConfig, driver: FakeDriver, engine
+) -> None:
+    """A failed reconciliation retry must not start a second recovery task."""
+    data = minimal_config.model_dump()
+    data["sequences"]["seq_1"]["basis_min_per_zone"] = 30.0
+    data["sequences"]["seq_1"]["range"] = [0.0, 60.0]
+    data["sequences"]["seq_1"]["watchdog_min"] = 60
+    config = AppConfig.model_validate(data)
+    with Session(engine) as session:
+        save_active_run(
+            session,
+            sequence_id="seq_1",
+            zone_index=0,
+            zone_started_at=datetime.now(UTC) - timedelta(minutes=1),
+            zone_planned_min=30.0,
+            run_duration_min=30.0,
+            triggered_by="cron",
+            switch="switch.zone_a",
+        )
+
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    original_reconcile = runner.reconcile_valves
+    reconcile_calls = 0
+
+    async def _fail_once(exclude=None) -> None:
+        nonlocal reconcile_calls
+        reconcile_calls += 1
+        if reconcile_calls == 1:
+            raise RuntimeError("database unavailable")
+        await original_reconcile(exclude)
+
+    runner.reconcile_valves = _fail_once  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        await runner.recover_runs()
+    first_task = _task(runner, "seq_1")
+
+    assert await runner.recover_runs() == ["already_resumed"]
+    assert _task(runner, "seq_1") is first_task
+    await runner.stop("seq_1")
+
+
 async def test_recover_closes_stale_run(
     minimal_config: AppConfig, driver: FakeDriver, engine
 ) -> None:
@@ -365,6 +416,38 @@ async def test_recover_discards_unknown_sequence(
     assert actions == ["discarded"]
     with Session(engine) as session:
         assert not load_active_runs(session)
+
+
+async def test_recover_reconfigured_switch_is_closed_without_resuming(
+    minimal_config: AppConfig, driver: FakeDriver, engine
+) -> None:
+    """Recovery closes the stored physical switch if config now points elsewhere."""
+    data = minimal_config.model_dump()
+    data["zones"]["zone_a"]["switch"] = "switch.new_valve"
+    config = AppConfig.model_validate(data)
+    with Session(engine) as session:
+        save_active_run(
+            session,
+            sequence_id="seq_1",
+            zone_index=0,
+            zone_started_at=datetime.now(UTC),
+            zone_planned_min=30.0,
+            run_duration_min=30.0,
+            triggered_by="cron",
+            switch="switch.old_valve",
+        )
+
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    actions = await runner.recover_runs()
+
+    assert actions == ["discarded_reconfigured"]
+    assert not runner.any_running()
+    with Session(engine) as session:
+        assert not load_active_runs(session)
+        assert {p.switch for p in load_pending_closes(session)} == {"switch.old_valve"}
+
+    await runner.retry_pending_closes()
+    assert "switch.old_valve" in driver.off_calls
 
 
 async def test_recover_resumes_multiple_runs(
@@ -672,9 +755,9 @@ class GatedOffDriver(FakeDriver):
         self.off_calls.append(zone.switch)
 
 
-async def test_active_run_kept_when_turn_off_unconfirmed(fast_config: AppConfig, engine) -> None:
+async def test_pending_close_kept_when_turn_off_unconfirmed(fast_config: AppConfig, engine) -> None:
     """A normally-completed run whose final turn_off could not be confirmed keeps
-    its ActiveRun record, so the open valve is not silently abandoned."""
+    a switch-specific PendingClose, but no ActiveRun that crash recovery could resume."""
     driver = FailingOffDriver()
     runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
     await runner.start("seq_1")
@@ -682,7 +765,27 @@ async def test_active_run_kept_when_turn_off_unconfirmed(fast_config: AppConfig,
 
     assert not runner.any_running()
     with Session(engine) as session:
-        assert load_active_runs(session)  # kept for retry, not cleared
+        assert not load_active_runs(session)
+        assert {p.switch for p in load_pending_closes(session)} == {"switch.zone_a"}
+
+
+async def test_controlled_close_failure_is_not_resumed_after_restart(
+    fast_config: AppConfig, engine
+) -> None:
+    """A controlled end with an unconfirmed close is retried as a PendingClose,
+    never resumed as though the process crashed mid-run."""
+    driver = FailingOffDriver()
+    runner1 = SequenceRunner(fast_config, driver, lambda: Session(engine))
+    await runner1.start("seq_1")
+    await asyncio.wait_for(_task(runner1, "seq_1"), timeout=5.0)
+
+    driver.on_calls.clear()
+    runner2 = SequenceRunner(fast_config, driver, lambda: Session(engine))
+    actions = await runner2.recover_runs()
+
+    assert actions == ["reconciled"]
+    assert driver.on_calls == []
+    assert not runner2.any_running()
 
 
 async def test_retry_pending_closes_closes_and_clears(fast_config: AppConfig, engine) -> None:
@@ -695,7 +798,8 @@ async def test_retry_pending_closes_closes_and_clears(fast_config: AppConfig, en
     await runner.start("seq_1")
     await asyncio.wait_for(_task(runner, "seq_1"), timeout=5.0)
     with Session(engine) as session:
-        assert load_active_runs(session)  # close failed during the run
+        assert not load_active_runs(session)
+        assert {p.switch for p in load_pending_closes(session)} == {"switch.zone_a"}
 
     # HA recovers — the retry should now close the valve and clear the record.
     driver.allow_off = True
@@ -704,6 +808,7 @@ async def test_retry_pending_closes_closes_and_clears(fast_config: AppConfig, en
     assert "switch.zone_a" in driver.off_calls
     with Session(engine) as session:
         assert not load_active_runs(session)
+        assert not load_pending_closes(session)
 
 
 async def test_retry_pending_closes_noop_before_recovery(fast_config: AppConfig, engine) -> None:
@@ -730,6 +835,24 @@ async def test_retry_pending_closes_noop_before_recovery(fast_config: AppConfig,
         assert load_active_runs(session)  # record untouched
 
 
+async def test_initial_recovery_gate_rejects_fresh_starts(
+    fast_config: AppConfig, driver: FakeDriver, engine
+) -> None:
+    runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
+    runner.require_initial_recovery()
+
+    # Fresh starts are blocked until recovery runs, but config reload stays allowed
+    # while idle — otherwise an HA outage at boot would lock the user out of fixing
+    # configuration indefinitely (recovery never runs while HA is unreachable).
+    assert runner.can_reload_config()
+    with pytest.raises(MutexConflict, match="initial valve recovery"):
+        await runner.start("seq_1")
+
+    await runner.recover_runs()
+    await runner.start("seq_1")
+    await runner.stop("seq_1")
+
+
 async def test_retry_pending_closes_skips_live_run(runner: SequenceRunner, engine) -> None:
     """A live run's ActiveRun must not be closed/cleared by the retry."""
     runner._recovery_complete = True
@@ -741,3 +864,366 @@ async def test_retry_pending_closes_skips_live_run(runner: SequenceRunner, engin
     with Session(engine) as session:
         assert load_active_runs(session)  # not cleared
     await runner.stop("seq_1")
+
+
+# ── Per-zone pending closes (multi-zone & reconciliation durability) ───────────
+
+
+class PerZoneFailingOffDriver(FakeDriver):
+    """turn_off raises for switches in ``fail_switches``, succeeds otherwise."""
+
+    def __init__(self, fail_switches: set[str]) -> None:
+        super().__init__()
+        self.fail_switches = fail_switches
+
+    async def turn_off(self, zone: Any) -> None:
+        if zone.switch in self.fail_switches:
+            raise RuntimeError("HA unreachable")
+        self.off_calls.append(zone.switch)
+
+
+def _multi_zone_config(minimal_config: AppConfig) -> AppConfig:
+    data = minimal_config.model_dump()
+    data["sequences"]["multi"] = {
+        "label": "Multi",
+        "zones": ["zone_a", "zone_b"],
+        "basis_min_per_zone": 0.001,
+        "range": [0.0, 0.01],
+        "watchdog_min": 60,
+        "schedule": {"cron": "0 6 * * *"},
+    }
+    return AppConfig.model_validate(data)
+
+
+async def test_unconfirmed_close_aborts_sequence_and_persists_per_zone(
+    minimal_config: AppConfig, engine
+) -> None:
+    """When a zone's close cannot be confirmed, the sequence aborts instead of
+    advancing (which would leave two valves open), and the open valve is durably
+    recorded per-zone with its switch entity so the retry can close it later."""
+    config = _multi_zone_config(minimal_config)
+    driver = PerZoneFailingOffDriver(fail_switches={"switch.zone_a"})
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    runner._recovery_complete = True
+
+    await runner.start("multi")
+    await asyncio.wait_for(_task(runner, "multi"), timeout=5.0)
+
+    # The sequence stopped after zone_a — zone_b was never opened.
+    assert "switch.zone_b" not in driver.on_calls
+    # zone_a's unconfirmed close is preserved as a per-zone PendingClose (with switch).
+    with Session(engine) as session:
+        rows = load_pending_closes(session)
+    assert {p.zone_id for p in rows} == {"zone_a"}
+    assert rows[0].switch == "switch.zone_a"
+
+    # The retry (run no longer live → zone not managed) closes it and clears it.
+    driver.fail_switches = set()
+    await runner.retry_pending_closes()
+    assert "switch.zone_a" in driver.off_calls
+    with Session(engine) as session:
+        assert not load_pending_closes(session)
+
+
+async def test_retry_closes_stored_switch_after_zone_removed(
+    minimal_config: AppConfig, engine
+) -> None:
+    """If a config reload removes the zone (or changes its switch), the retry still
+    closes the exact entity that was left open, using the switch stored on the
+    PendingClose rather than re-resolving the (now stale) zone_id."""
+    driver = FakeDriver()
+    runner = SequenceRunner(minimal_config, driver, lambda: Session(engine))
+    runner._recovery_complete = True
+    with Session(engine) as session:
+        save_pending_close(session, "switch.old_valve", "ghost_zone")
+
+    await runner.retry_pending_closes()
+
+    assert "switch.old_valve" in driver.off_calls  # exact stale entity closed
+    with Session(engine) as session:
+        assert not load_pending_closes(session)
+
+
+async def test_pending_close_reserves_zone(minimal_config: AppConfig, engine) -> None:
+    """A zone with an unconfirmed-open valve is reserved: a new run that needs it
+    is rejected, so the retry can never close the new run's valve."""
+    config = _multi_zone_config(minimal_config)
+    driver = FakeDriver()
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    with Session(engine) as session:
+        save_pending_close(session, "switch.zone_a", "zone_a")
+
+    with pytest.raises(ZoneBusy):
+        await runner.start("seq_1")  # seq_1 uses zone_a → switch.zone_a
+
+
+async def test_active_run_reserves_stored_switch(minimal_config: AppConfig, engine) -> None:
+    """A crash record blocks a fresh run until its physical switch is closed."""
+    runner = SequenceRunner(minimal_config, FakeDriver(), lambda: Session(engine))
+    with Session(engine) as session:
+        save_active_run(
+            session,
+            sequence_id="crashed",
+            zone_index=0,
+            zone_started_at=datetime.now(UTC),
+            zone_planned_min=30.0,
+            run_duration_min=30.0,
+            triggered_by="cron",
+            switch="switch.zone_a",
+        )
+
+    with pytest.raises(ZoneBusy):
+        await runner.start("seq_1")
+
+
+async def test_retry_active_run_closes_stored_switch_after_repoint(
+    minimal_config: AppConfig, engine
+) -> None:
+    """The ActiveRun fallback closes its stored switch, never a re-pointed config switch."""
+    driver = FakeDriver()
+    runner = SequenceRunner(minimal_config, driver, lambda: Session(engine))
+    runner._recovery_complete = True
+    with Session(engine) as session:
+        save_active_run(
+            session,
+            sequence_id="seq_1",
+            zone_index=0,
+            zone_started_at=datetime.now(UTC),
+            zone_planned_min=30.0,
+            run_duration_min=30.0,
+            triggered_by="cron",
+            switch="switch.old_valve",
+        )
+
+    await runner.retry_pending_closes()
+
+    assert driver.off_calls == ["switch.old_valve"]
+    with Session(engine) as session:
+        assert not load_active_runs(session)
+
+
+async def test_retry_skips_zone_owned_by_live_run(minimal_config: AppConfig, engine) -> None:
+    """While a sequence still owns a zone, a pending close for that zone is not
+    retried (is_managed guard) — the valve is legitimately open."""
+    config = _multi_zone_config(minimal_config)
+    driver = FakeDriver()
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    runner._recovery_complete = True
+
+    await runner.start("multi")
+    await asyncio.sleep(0)  # open the first zone
+    with Session(engine) as session:
+        save_pending_close(session, "switch.zone_a", "zone_a")  # unconfirmed intermediate close
+
+    await runner.retry_pending_closes()
+    # zone_a is in the live run's seq.zones → is_managed → not closed, not cleared.
+    assert "switch.zone_a" not in driver.off_calls
+    with Session(engine) as session:
+        assert {p.zone_id for p in load_pending_closes(session)} == {"zone_a"}
+    await runner.stop("multi")
+
+
+async def test_reconcile_failure_records_pending_close(fast_config: AppConfig, engine) -> None:
+    """A turn_off that fails during reconciliation is recorded as a pending close,
+    so a lingering open valve is retried instead of being lost (no run owns it)."""
+    driver = FailingOffDriver()
+    runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
+
+    await runner.reconcile_valves()
+
+    with Session(engine) as session:
+        pending = {p.zone_id for p in load_pending_closes(session)}
+    # Every configured zone failed to close and is now tracked for retry.
+    assert "zone_a" in pending
+
+
+class BlockingOffDriver(FakeDriver):
+    """Pause reconciliation inside turn_off so its start gate can be asserted."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def turn_off(self, zone: Any) -> None:
+        self.entered.set()
+        await self.release.wait()
+        self.off_calls.append(zone.switch)
+
+
+async def test_reconcile_blocks_new_starts(fast_config: AppConfig, engine) -> None:
+    driver = BlockingOffDriver()
+    runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
+    reconcile_task = asyncio.create_task(runner.reconcile_valves())
+    await driver.entered.wait()
+
+    assert not runner.can_reload_config()
+    with pytest.raises(ValveCleanupInProgress, match="safety cleanup"):
+        await runner.start("seq_1")
+
+    driver.release.set()
+    await reconcile_task
+
+
+async def test_legacy_active_run_retry_blocks_fresh_start(fast_config: AppConfig, engine) -> None:
+    """Migrated switch-less ActiveRun rows are closed under the cleanup start gate."""
+    driver = BlockingOffDriver()
+    runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
+    runner._recovery_complete = True
+    with Session(engine) as session:
+        save_active_run(
+            session,
+            sequence_id="seq_1",
+            zone_index=0,
+            zone_started_at=datetime.now(UTC),
+            zone_planned_min=30.0,
+            run_duration_min=30.0,
+            triggered_by="cron",
+        )
+
+    retry_task = asyncio.create_task(runner.retry_pending_closes())
+    await driver.entered.wait()
+    with pytest.raises(ValveCleanupInProgress, match="safety cleanup"):
+        await runner.start("seq_1")
+
+    driver.release.set()
+    await retry_task
+
+
+class FailingOnDriver(FakeDriver):
+    """turn_on always raises — simulates HA erroring after possibly opening the valve."""
+
+    async def turn_on(self, zone: Any) -> None:
+        raise RuntimeError("HA unreachable")
+
+
+class FailingOnOffDriver(FakeDriver):
+    """Both turn_on and turn_off raise — HA fully unreachable."""
+
+    async def turn_on(self, zone: Any) -> None:
+        raise RuntimeError("HA unreachable")
+
+    async def turn_off(self, zone: Any) -> None:
+        raise RuntimeError("HA unreachable")
+
+
+async def test_turn_on_failure_closes_immediately_and_aborts(
+    fast_config: AppConfig, engine
+) -> None:
+    """A turn_on failure (valve may be open) is closed *immediately* — not deferred
+    to the next plan tick. When that close succeeds, no pending close lingers; the
+    run is still recorded as aborted (start_failed)."""
+    driver = FailingOnDriver()  # turn_off still works
+    runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
+    runner._recovery_complete = True
+    started: list[str] = []
+
+    async def _on_started(run_id: str, triggered_by: str, notification: str | None) -> None:
+        started.append(run_id)
+
+    runner.on_started = _on_started
+
+    await runner.start("seq_1")
+    await asyncio.wait_for(_task(runner, "seq_1"), timeout=5.0)
+
+    assert not runner.any_running()
+    assert "switch.zone_a" in driver.off_calls  # closed right away, no 60s wait
+    with Session(engine) as session:
+        rows = load_pending_closes(session)
+        history = list(session.exec(select(RunHistory)).all())
+    assert rows == []  # immediate close confirmed → nothing left pending
+    assert len(history) == 1
+    assert history[0].aborted is True
+    assert history[0].abort_reason == "start_failed"
+    assert started == []
+
+
+async def test_slow_started_callback_does_not_delay_watchdog_path(
+    fast_config: AppConfig, engine
+) -> None:
+    """Status delivery is best-effort and never holds an opened valve timer."""
+    runner = SequenceRunner(fast_config, FakeDriver(), lambda: Session(engine))
+    callback_entered = asyncio.Event()
+    callback_release = asyncio.Event()
+
+    async def _slow_started(run_id: str, triggered_by: str, notification: str | None) -> None:
+        callback_entered.set()
+        await callback_release.wait()
+
+    runner.on_started = _slow_started
+    await runner.start("seq_1")
+    await callback_entered.wait()
+    await asyncio.wait_for(_task(runner, "seq_1"), timeout=2.0)
+    assert not runner.any_running()
+
+    callback_release.set()
+    await asyncio.gather(*runner._background_tasks, return_exceptions=True)
+
+
+async def test_turn_on_failure_persists_pending_close_when_close_also_fails(
+    fast_config: AppConfig, engine
+) -> None:
+    """If the immediate close after a turn_on failure also fails, the exact switch
+    is persisted as a pending close for retry."""
+    driver = FailingOnOffDriver()
+    runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
+    runner._recovery_complete = True
+
+    await runner.start("seq_1")
+    await asyncio.wait_for(_task(runner, "seq_1"), timeout=5.0)
+
+    with Session(engine) as session:
+        rows = load_pending_closes(session)
+        history = list(session.exec(select(RunHistory)).all())
+    assert {p.switch for p in rows} == {"switch.zone_a"}  # exact entity tracked for retry
+    assert not load_active_runs(session)  # controlled abort must never be crash-resumed
+    assert history[0].abort_reason == "close_failed"
+
+
+async def test_unconfirmed_close_marks_history_aborted(fast_config: AppConfig, engine) -> None:
+    """A run whose final close is unconfirmed is recorded as aborted (close_failed),
+    not as a successful run."""
+    driver = FailingOffDriver()
+    runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
+    runner._recovery_complete = True
+
+    await runner.start("seq_1")
+    await asyncio.wait_for(_task(runner, "seq_1"), timeout=5.0)
+
+    with Session(engine) as session:
+        history = list(session.exec(select(RunHistory)).all())
+    assert len(history) == 1
+    assert history[0].aborted is True
+    assert history[0].abort_reason == "close_failed"
+
+
+async def test_pending_close_reserves_switch_despite_stale_zone_id(
+    minimal_config: AppConfig, engine
+) -> None:
+    """Reservation is by physical switch, not zone id: a pending close left under an
+    old/renamed zone id still blocks a new run that drives the same switch — so the
+    retry can never close a switch a fresh run legitimately holds open."""
+    driver = FakeDriver()
+    runner = SequenceRunner(minimal_config, driver, lambda: Session(engine))
+
+    # Stale record: zone id no longer matches any config zone, but switch.zone_a is
+    # the entity that may still be open.
+    with Session(engine) as session:
+        save_pending_close(session, "switch.zone_a", "old_zone_name")
+
+    # seq_1 (zone_a → switch.zone_a) must be rejected even though its zone id differs.
+    with pytest.raises(ZoneBusy):
+        await runner.start("seq_1")
+
+
+async def test_pending_closes_keyed_by_switch_do_not_overwrite(engine) -> None:
+    """Two different switches each keep their own pending close — a new close never
+    overwrites another switch's record, and clearing one leaves the other."""
+    from naiad.domain.resume import clear_pending_close
+
+    with Session(engine) as session:
+        save_pending_close(session, "switch.old", "zone_a")
+        save_pending_close(session, "switch.new", "zone_a")
+        assert {p.switch for p in load_pending_closes(session)} == {"switch.old", "switch.new"}
+        clear_pending_close(session, "switch.new")
+        assert {p.switch for p in load_pending_closes(session)} == {"switch.old"}

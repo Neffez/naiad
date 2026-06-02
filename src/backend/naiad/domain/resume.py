@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from sqlmodel import Session, select
 
-from naiad.domain.models import ActiveRun, ResumeSnapshot
+from naiad.domain.models import ActiveRun, PendingClose, ResumeSnapshot
 
 
 def save_pause_snapshot(
@@ -68,6 +68,7 @@ def save_active_run(
     zone_planned_min: float,
     run_duration_min: float,
     triggered_by: str,
+    switch: str | None = None,
 ) -> None:
     existing = session.get(ActiveRun, sequence_id)
     if existing:
@@ -76,6 +77,7 @@ def save_active_run(
         existing.zone_planned_min = zone_planned_min
         existing.run_duration_min = run_duration_min
         existing.triggered_by = triggered_by
+        existing.switch = switch
         session.add(existing)
     else:
         session.add(
@@ -86,6 +88,7 @@ def save_active_run(
                 zone_planned_min=zone_planned_min,
                 run_duration_min=run_duration_min,
                 triggered_by=triggered_by,
+                switch=switch,
             )
         )
     session.commit()
@@ -97,6 +100,33 @@ def load_active_runs(session: Session) -> list[ActiveRun]:
 
 def clear_active_run(session: Session, sequence_id: str) -> None:
     rec = session.get(ActiveRun, sequence_id)
+    if rec:
+        session.delete(rec)
+        session.commit()
+
+
+# ── Pending valve closes (per-switch durable close retry) ─────────────────────
+
+
+def save_pending_close(session: Session, switch: str, zone_id: str | None = None) -> None:
+    """Record that the valve entity ``switch`` may still be open.
+
+    Keyed by ``switch``: a failure for a different switch never overwrites this
+    record, and ``created_at`` is preserved across repeated failures for the same
+    switch. ``zone_id`` is informational only.
+    """
+    if session.get(PendingClose, switch) is None:
+        session.add(PendingClose(switch=switch, zone_id=zone_id))
+        session.commit()
+
+
+def load_pending_closes(session: Session) -> list[PendingClose]:
+    return list(session.exec(select(PendingClose)).all())
+
+
+def clear_pending_close(session: Session, switch: str) -> None:
+    """Clear the pending close for exactly this switch entity (never another)."""
+    rec = session.get(PendingClose, switch)
     if rec:
         session.delete(rec)
         session.commit()

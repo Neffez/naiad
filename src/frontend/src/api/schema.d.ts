@@ -145,6 +145,26 @@ export interface paths {
         patch: operations["setMaster"];
         trace?: never;
     };
+    "/status/skip-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Skip a single upcoming run
+         * @description Suppresses one scheduled occurrence. A one-off plan is deleted; a recurring cron occurrence is recorded as skipped so only that fire is suppressed and the next scheduled run happens as usual.
+         */
+        post: operations["skipRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sequences": {
         parameters: {
             query?: never;
@@ -230,6 +250,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/zones/{zone_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a single zone immediately (in isolation, factor not applied) */
+        post: operations["startZone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/zones/{zone_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop a standalone single-zone run */
+        post: operations["stopZone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/valves": {
         parameters: {
             query?: never;
@@ -293,7 +347,8 @@ export interface paths {
         get: operations["getHistory"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete run history (settings and plans are never affected) */
+        delete: operations["deleteHistory"];
         options?: never;
         head?: never;
         patch?: never;
@@ -315,6 +370,40 @@ export interface paths {
         head?: never;
         /** Update settings (partial — only provided fields are overwritten) */
         patch: operations["updateSettings"];
+        trace?: never;
+    };
+    "/settings/sequences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove all sequence overrides (restore YAML defaults for every sequence) */
+        delete: operations["clearAllSequenceOverrides"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/settings/sequences/{sequence_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove the override for a single sequence (restore its YAML defaults) */
+        delete: operations["clearSequenceOverride"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/preferences": {
@@ -344,7 +433,7 @@ export interface components {
         /** @enum {string} */
         TriggerSource: "cron" | "manual" | "plan" | "resume";
         /** @enum {string} */
-        AbortReason: "rain" | "watchdog" | "manual_stop" | "ha_disconnect";
+        AbortReason: "rain" | "watchdog" | "manual_stop" | "ha_disconnect" | "staircase_retrigger_failed" | "close_failed" | "start_failed";
         /** @enum {string} */
         ValveStateEnum: "on" | "off" | "unknown";
         ValveState: {
@@ -355,6 +444,10 @@ export interface components {
             /** Format: date-time */
             on_since?: string | null;
             runtime_min?: number | null;
+            /** @description Planned total duration of a single-zone run, for remaining-time display. Null unless single_run is true. */
+            total_min?: number | null;
+            /** @description True when this zone is running as a standalone single-zone run (stoppable directly). */
+            single_run?: boolean;
         };
         ZoneSummary: {
             id: string;
@@ -398,22 +491,34 @@ export interface components {
             /** @description Override in minutes. null = use config default with factor applied. */
             duration_min?: number | null;
         };
+        StartZoneRequest: {
+            /** @description Run duration in minutes for this single zone (factor not applied). */
+            duration_min: number;
+        };
         WeatherSummary: {
-            temp_c: number;
+            temp_c: number | null;
             rain_24h_mm: number;
             wind_label: string;
             season_active: boolean;
         };
+        /** @description Structured (machine-readable) reasons behind a sequence's factor; the frontend localizes them. */
         FactorNotes: {
             season_off: boolean;
             wind_blocked: boolean;
+            /** @description Rain multiplier in % (100 = neutral); set only when rain reduces watering. */
             rain_factor_pct?: number | null;
+            /** @description Signed temperature delta in %; set only when |delta| >= 5. */
             temp_delta_pct?: number | null;
         };
         FactorBreakdown: {
+            /** @description Signed temperature delta in % (0 = neutral). */
             temp_pct: number;
+            /** @description Signed rain delta in % (0 = neutral). */
             rain_pct: number;
+            /** @description Overall factor in % (100 = neutral). */
             combined_pct: number;
+            /** @description True when combined_pct is a manual override (temp/rain deltas are neutral). */
+            manual?: boolean;
             wind_blocking_sequences: string[];
         };
         NextRunSummary: {
@@ -422,6 +527,10 @@ export interface components {
             /** Format: date-time */
             scheduled_at: string;
             duration_min: number;
+            /** @description Set for one-off planned runs; null for recurring cron runs. */
+            plan_id?: string | null;
+            /** @description True when this is the run currently executing (live, not skippable). */
+            in_progress?: boolean;
         };
         SystemStatus: {
             master_on: boolean;
@@ -430,14 +539,24 @@ export interface components {
             today_factor: components["schemas"]["FactorBreakdown"];
             next_run?: (components["schemas"]["NextRunSummary"] | null) | null;
             after_next?: (components["schemas"]["NextRunSummary"] | null) | null;
+            /** @description All upcoming runs of the next day that has any — today if runs remain today, otherwise the next day with scheduled runs. */
+            upcoming_runs: components["schemas"]["NextRunSummary"][];
             liters_today: number;
             liters_week: number;
+            /** @description Liters per local weekday Mon..Sun of the current week */
+            week_series: number[];
         };
         Plan: {
             /** Format: uuid */
             id: string;
-            sequence_id: string;
-            sequence_label: string;
+            /** @enum {string} */
+            target_type: "sequence" | "zone";
+            sequence_id?: string | null;
+            sequence_label?: string | null;
+            zone_id?: string | null;
+            zone_label?: string | null;
+            /** @description Unified display label (sequence or zone). */
+            label: string;
             /** Format: date-time */
             scheduled_at: string;
             duration_min?: number | null;
@@ -445,13 +564,15 @@ export interface components {
             /** Format: date-time */
             created_at: string;
         };
+        /** @description Provide exactly one of sequence_id or zone_id. A zone plan additionally requires duration_min (there is no per-zone default). */
         CreatePlanRequest: {
-            sequence_id: string;
+            sequence_id?: string | null;
+            zone_id?: string | null;
             /** @enum {string} */
             mode: "in_hours" | "at_datetime";
             /** @description Hours from now (in_hours) or ISO 8601 datetime string (at_datetime) */
             value: number | string;
-            /** @description null = use config default */
+            /** @description Sequence plan: null = use config default. Zone plan: required. */
             duration_min?: number | null;
         };
         HistoryEntry: {
@@ -475,6 +596,9 @@ export interface components {
             total: number;
             page: number;
             per_page: number;
+        };
+        DeleteHistoryResult: {
+            deleted: number;
         };
         TempFactorSettings: {
             basis_c?: number;
@@ -501,8 +625,11 @@ export interface components {
             factors?: {
                 temp?: components["schemas"]["TempFactorSettings"];
                 rain?: components["schemas"]["RainFactorSettings"];
+                /** @description When true, the manual adjustment overrides the automatic factor. */
+                manual_mode?: boolean;
+                /** @description Manual adjustment percentage (clamped to the temperature factor's min/max). */
+                manual_pct?: number | null;
             };
-            notify_targets?: string[];
             token_lifetime_days?: number;
             auto_login_enabled?: boolean;
         };
@@ -511,6 +638,10 @@ export interface components {
             theme?: "dark" | "light";
             /** @enum {string} */
             language?: "de" | "en";
+            /** @description Sequence IDs in the user's preferred dashboard order. IDs not present are appended in their natural order. */
+            sequence_order?: string[];
+            /** @description Zone (valve) IDs in the user's preferred dashboard order. IDs not present are appended in their natural order. */
+            zone_order?: string[];
         };
         LoginRequest: {
             password: string;
@@ -753,6 +884,44 @@ export interface operations {
             };
         };
     };
+    skipRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    sequence_id: string;
+                    /** Format: date-time */
+                    scheduled_at: string;
+                    plan_id?: string | null;
+                };
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        skipped?: string;
+                    };
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listSequences: {
         parameters: {
             query?: never;
@@ -901,6 +1070,86 @@ export interface operations {
             };
         };
     };
+    startZone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zone_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartZoneRequest"];
+            };
+        };
+        responses: {
+            /** @description Start accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Zone not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Mutex conflict — a sequence or zone is already running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Zone has no switch entity or master switch is off */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    stopZone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zone_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stop accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Zone is not running as a standalone run */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listValves: {
         parameters: {
             query?: never;
@@ -1024,6 +1273,28 @@ export interface operations {
             };
         };
     };
+    deleteHistory: {
+        parameters: {
+            query?: {
+                /** @description When set, only entries older than this many days are deleted; otherwise all history is cleared. */
+                older_than_days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteHistoryResult"];
+                };
+            };
+        };
+    };
     getSettings: {
         parameters: {
             query?: never;
@@ -1063,6 +1334,53 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AppSettings"];
                 };
+            };
+        };
+    };
+    clearAllSequenceOverrides: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppSettings"];
+                };
+            };
+        };
+    };
+    clearSequenceOverride: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sequence_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppSettings"];
+                };
+            };
+            /** @description Unknown sequence */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
