@@ -31,6 +31,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "abort.paused_rain": "🌧 Paused run discarded: rain ({label})",
         "abort.rain": "🌧 Watering stopped: rain ({label})",
         "abort.watchdog": "🚨 Watchdog: {label} — zone {zone} ran too long, stopped.",
+        "abort.staircase_failed": (
+            "⚠️ {label} ended early — zone {zone}: the actuator stopped responding "
+            "(staircase re-trigger failed)."
+        ),
         "reminder.header": "💦🌱 Tomorrow:",
         "reminder.line": "• {time} {label}",
         "reminder.planned": "{label} (planned)",
@@ -57,6 +61,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "abort.paused_rain": "🌧 Pausierte Bewässerung verworfen: Regen ({label})",
         "abort.rain": "🌧 Bewässerung gestoppt: Regen ({label})",
         "abort.watchdog": "🚨 Watchdog: {label} — Zone {zone} lief zu lange, gestoppt.",
+        "abort.staircase_failed": (
+            "⚠️ {label} vorzeitig beendet — Zone {zone}: Aktor reagierte nicht "
+            "(Treppenlicht-Re-Trigger fehlgeschlagen)."
+        ),
         # Nightly reminder
         "reminder.header": "💦🌱 Morgen:",
         "reminder.line": "• {time} {label}",

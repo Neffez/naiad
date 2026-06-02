@@ -52,7 +52,7 @@ export function CardRow({ children, last }: { children: ReactNode; last: boolean
   )
 }
 
-export function Labeled({ label, children, align = 'center' }: { label: string; children: ReactNode; align?: 'center' | 'start' }) {
+export function Labeled({ label, children, align = 'center' }: { label: ReactNode; children: ReactNode; align?: 'center' | 'start' }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: align === 'start' ? 'flex-start' : undefined }}>
       <span style={{ fontSize: 11, color: 'var(--n-fg-muted)', letterSpacing: '0.02em' }}>{label}</span>

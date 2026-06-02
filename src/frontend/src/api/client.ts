@@ -341,6 +341,8 @@ export interface ZoneConfig {
   label: string
   switch: string
   flow_lph: number
+  staircase_enabled: boolean
+  staircase_min: number
 }
 
 export type SequenceColorKey = 'green' | 'sand' | 'purple' | 'slate' | 'blue' | 'rose'

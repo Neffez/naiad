@@ -208,7 +208,7 @@ export default function Config() {
           <AddButton
             label={t('config.addZone')}
             existing={zoneIds}
-            onAdd={(id, name) => patch((d) => { d.zones[id] = { label: name, switch: '', flow_lph: 0 } })}
+            onAdd={(id, name) => patch((d) => { d.zones[id] = { label: name, switch: '', flow_lph: 0, staircase_enabled: false, staircase_min: 0 } })}
           />
         }
       >
@@ -235,6 +235,24 @@ export default function Config() {
                 <NumberField value={z.flow_lph} width={90}
                   onChange={(v) => patch((d) => { d.zones[id].flow_lph = v })} />
               </Labeled>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 11, color: 'var(--n-fg-muted)', letterSpacing: '0.02em' }}>
+                  {t('config.staircase')}
+                  <InfoTip text={t('config.staircaseHelp')} />
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 34 }}>
+                  <Check
+                    label={t('config.staircaseHint')}
+                    checked={z.staircase_enabled}
+                    onChange={(v) => patch((d) => { d.zones[id].staircase_enabled = v })}
+                  />
+                  {z.staircase_enabled && (
+                    <NumberField value={z.staircase_min} width={90} step={0.5} min={0}
+                      aria-label={t('config.staircaseMin')}
+                      onChange={(v) => patch((d) => { d.zones[id].staircase_min = v })} />
+                  )}
+                </div>
+              </div>
               <DeleteButton onClick={() => setPendingDelete({ type: 'zone', id })} />
             </CardRow>
           )
