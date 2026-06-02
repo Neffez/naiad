@@ -377,7 +377,10 @@
     "rain": "Rain",
     "watchdog": "Watchdog",
     "manual_stop": "Manual stop",
-    "ha_disconnect": "HA disconnected"
+    "ha_disconnect": "HA disconnected",
+    "staircase_retrigger_failed": "Staircase timer failed",
+    "close_failed": "Valve not closed",
+    "start_failed": "Start failed"
   },
   "weekdaysShort": [
     "Mon",

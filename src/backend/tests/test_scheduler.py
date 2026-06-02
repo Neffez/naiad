@@ -7,13 +7,21 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from naiad.config import AppConfig
-from naiad.domain.models import Plan, QueuedNotification, SkippedRun, UserPreference
+from naiad.domain.models import (
+    DeferredCronRun,
+    Plan,
+    QueuedNotification,
+    SkippedRun,
+    UserPreference,
+)
 from naiad.domain.sequences import SequenceRunner, zone_run_id
 from naiad.scheduler import (
     _consume_skip,
     _notification_queue,
     _on_rain,
     _plan_tick,
+    _retry_deferred_cron_runs,
+    _run_cron_sequence_job,
     _run_sequence_job,
     flush_notification_queue,
     push_notification,
@@ -89,6 +97,42 @@ async def test_run_sequence_job_status_transitions(fast_config: AppConfig, engin
     # Second start while running → transient conflict.
     assert await _run_sequence_job("seq_1", runner, ha, fast_config, sf) == "conflict"
     await runner.stop("seq_1")
+
+
+async def test_cron_busy_is_deduplicated_as_short_lived_retry(
+    fast_config: AppConfig, engine
+) -> None:
+    """Safety cleanup retains at most one short-lived retry per sequence."""
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(fast_config, FakeDriver(), sf)
+    runner.require_initial_recovery()
+
+    assert await _run_cron_sequence_job("seq_1", runner, FakeHA(), fast_config, sf) == "busy"
+    assert await _run_cron_sequence_job("seq_1", runner, FakeHA(), fast_config, sf) == "busy"
+    with Session(engine) as session:
+        deferred = list(session.exec(select(DeferredCronRun)).all())
+        plans = list(session.exec(select(Plan)).all())
+    assert len(deferred) == 1
+    assert deferred[0].sequence_id == "seq_1"
+    assert plans == []  # internal retries never leak into user-visible plans
+
+
+async def test_expired_deferred_cron_retry_is_dropped(fast_config: AppConfig, engine) -> None:
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(fast_config, FakeDriver(), sf)
+    with Session(engine) as session:
+        session.add(
+            DeferredCronRun(
+                sequence_id="seq_1",
+                expires_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1),
+            )
+        )
+        session.commit()
+
+    await _retry_deferred_cron_runs(runner, FakeHA(), fast_config, sf)
+
+    with Session(engine) as session:
+        assert list(session.exec(select(DeferredCronRun)).all()) == []
 
 
 async def test_run_sequence_job_skips_when_master_off(fast_config: AppConfig, engine) -> None:

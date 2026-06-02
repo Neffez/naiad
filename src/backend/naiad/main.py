@@ -151,6 +151,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     driver = HAEntityDriver(ha)
     runner = SequenceRunner(config, driver, _session_factory)
+    runner.require_initial_recovery()
     _tracker = LiterTracker(ha, config, _session_factory, runner.is_managed)
 
     # Mirror tracked liters/durations into Home Assistant over MQTT (best-effort,
@@ -173,8 +174,26 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     from naiad.api.ws import manager as ws_manager
     from naiad.scheduler import flush_notification_queue, push_notification
 
-    async def _on_run_started(sequence_id: str, triggered_by: str) -> None:
+    start_notification_tasks: set[asyncio.Task[None]] = set()
+
+    async def _on_run_started(
+        sequence_id: str, triggered_by: str, notification: str | None
+    ) -> None:
         await broadcast_sequence_changed(sequence_id, "running", triggered_by)
+        if notification is not None:
+            async def _deliver_start_notification() -> None:
+                try:
+                    await push_notification(ha, config, notification, category="start")
+                    await broadcast_notification(notification)
+                except Exception:
+                    logger.exception("Start notification delivery failed")
+
+            task = asyncio.create_task(
+                _deliver_start_notification(),
+                name=f"start-notification-{sequence_id}",
+            )
+            start_notification_tasks.add(task)
+            task.add_done_callback(start_notification_tasks.discard)
 
     runner.on_started = _on_run_started
 
@@ -199,34 +218,55 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     ha.subscribe_state_changes(_valve_state_cb)
 
     recovery_done = False
+    recovery_lock = asyncio.Lock()
 
     async def _ha_connected_cb(connected: bool) -> None:
         nonlocal recovery_done
         await broadcast_ha_state(connected)
         if connected:
-            # Deliver anything buffered while HA was unreachable, before any other
-            # reconnect work (recovery/reconciliation may itself push notifications).
-            await flush_notification_queue(ha, config)
-            if runner.any_running():
-                # A run is live (reconnect mid-run) — don't interfere with it, but
-                # still refresh the fallback max temperature in the background.
+            async with recovery_lock:
+                # Deliver anything buffered while HA was unreachable, before any other
+                # reconnect work (recovery/reconciliation may itself push notifications).
+                try:
+                    await flush_notification_queue(ha, config)
+                except Exception:
+                    logger.exception("Notification queue flush failed")
+                if not recovery_done:
+                    # First time HA is reachable: recover interrupted runs whose zone
+                    # window is still open, otherwise close orphaned valves. Mark this
+                    # complete only after recovery returns successfully so a failed
+                    # attempt is retried while HA remains connected.
+                    while not recovery_done and ha.is_connected:
+                        try:
+                            actions = await runner.recover_runs()
+                        except Exception:
+                            logger.exception("Crash recovery failed; retrying in 5 seconds")
+                            await asyncio.sleep(5)
+                        else:
+                            recovery_done = True
+                            logger.info("Crash recovery: %s", ", ".join(actions))
+                    if not recovery_done:
+                        return
+                elif runner.any_running():
+                    # A run is live (reconnect mid-run) — don't interfere with it, but
+                    # close any unrelated switch-specific leftovers immediately. The
+                    # retry skips switches owned by live runs.
+                    await runner.retry_pending_closes()
+                    # Still refresh the fallback max temperature in the background.
+                    await refresh_fallback_temp_max(config, ha)
+                    return
+                else:
+                    # Later reconnects while idle: close any orphaned valves. A
+                    # manually/externally opened valve is also closed here, since
+                    # Naiad treats itself as the authoritative valve controller.
+                    await runner.reconcile_valves()
+                    logger.info("Valve reconciliation complete")
+                # Reconciliation only sees switches in the live config. Drain durable
+                # switch-specific leftovers too, including removed or re-pointed zones.
+                await runner.retry_pending_closes()
+                # Recovery/reconciliation done — now populate the fallback max
+                # temperature (yesterday's recorded max); the hourly job keeps it fresh.
                 await refresh_fallback_temp_max(config, ha)
-                return
-            if not recovery_done:
-                # First time HA is reachable: recover interrupted runs whose zone
-                # window is still open, otherwise close orphaned valves.
-                recovery_done = True
-                actions = await runner.recover_runs()
-                logger.info("Crash recovery: %s", ", ".join(actions))
-            else:
-                # Later reconnects while idle: close any orphaned valves. A
-                # manually/externally opened valve is also closed here, since
-                # Naiad treats itself as the authoritative valve controller.
-                await runner.reconcile_valves()
-                logger.info("Valve reconciliation complete")
-            # Recovery/reconciliation done — now populate the fallback max
-            # temperature (yesterday's recorded max); the hourly job keeps it fresh.
-            await refresh_fallback_temp_max(config, ha)
         else:
             # Do NOT abort a live run on disconnect: the run task does not depend
             # on HA, and aborting cannot physically close the valve anyway (HA is
@@ -265,6 +305,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     scheduler.shutdown(wait=False)
+    for task in start_notification_tasks:
+        task.cancel()
+    await asyncio.gather(*start_notification_tasks, return_exceptions=True)
     await stats_publisher.stop()
     await ha.stop()
     logger.info("Naiad stopped")
