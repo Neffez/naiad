@@ -175,7 +175,7 @@ export function NumberField(props: NumberFieldProps) {
           color: 'var(--n-fg-muted)', fontSize: lg ? 13 : 12,
           borderLeft: '1px solid var(--n-line)',
           display: 'flex', alignItems: 'center',
-          background: 'rgba(255,255,255,0.015)',
+          background: 'var(--n-surface-overlay)',
           whiteSpace: 'nowrap',
         }}>
           {unit}

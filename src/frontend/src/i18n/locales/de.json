@@ -1,4 +1,7 @@
 {
+  "common": {
+    "loadError": "Konnte nicht geladen werden — Verbindung prüfen und erneut versuchen."
+  },
   "toast": {
     "started": "{{name}} gestartet",
     "resumed": "{{name}} fortgesetzt",

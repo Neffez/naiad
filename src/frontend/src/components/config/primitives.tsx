@@ -14,7 +14,7 @@ export function Section({ title, action, children }: { title: string; action?: R
       border: '1px solid var(--n-line)', borderRadius: 'var(--n-r-lg)', overflow: 'hidden',
     }}>
       <div style={{
-        padding: '14px 20px', background: 'rgba(255,255,255,0.015)',
+        padding: '14px 20px', background: 'var(--n-surface-overlay)',
         borderBottom: '1px solid var(--n-line)',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
       }}>
@@ -65,7 +65,7 @@ export function IdTag({ id }: { id: string }) {
   return (
     <span className="mono" style={{
       fontSize: 12, color: 'var(--n-teal-200)',
-      background: 'var(--n-teal-glow)', border: '1px solid rgba(94,200,216,0.25)',
+      background: 'var(--n-teal-glow)', border: '1px solid var(--n-glow-border)',
       padding: '4px 8px', borderRadius: 'var(--n-r-sm)',
       marginTop: 18,
     }}>{id}</span>
@@ -350,7 +350,7 @@ export function Pill({ tone, children }: { tone: 'teal' | 'muted'; children: Rea
       display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999,
       fontSize: 12.5, fontWeight: 500,
       background: teal ? 'var(--n-teal-glow)' : 'transparent',
-      border: `1px solid ${teal ? 'rgba(94,200,216,0.25)' : 'var(--n-line-strong)'}`,
+      border: `1px solid ${teal ? 'var(--n-glow-border)' : 'var(--n-line-strong)'}`,
       color: teal ? 'var(--n-teal-200)' : 'var(--n-fg-muted)',
     }}>{children}</span>
   )
