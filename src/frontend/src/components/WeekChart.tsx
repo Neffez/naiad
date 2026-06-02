@@ -7,15 +7,21 @@ interface DayData {
 interface WeekChartProps {
   data: DayData[]
   height?: number
+  /** Accessible name prefix for the chart, e.g. the surrounding card's heading. */
+  label?: string
 }
 
-export function WeekChart({ data, height = 130 }: WeekChartProps) {
+export function WeekChart({ data, height = 130, label }: WeekChartProps) {
   const maxTotal = Math.max(...data.map((d) => d.liters), 1)
   const niceMax = Math.ceil(maxTotal / 100) * 100 || 100
 
+  // Text alternative for screen readers: the chart is otherwise purely visual.
+  const summary = data.map((d) => `${d.day}: ${d.liters} L`).join(', ')
+  const ariaLabel = label ? `${label} — ${summary}` : summary
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height, paddingTop: 6 }}>
+      <div role="img" aria-label={ariaLabel} style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height, paddingTop: 6 }}>
         {data.map((d, i) => {
           const barH = (d.liters / niceMax) * (height - 18)
           return (
