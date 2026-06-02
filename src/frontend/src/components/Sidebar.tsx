@@ -20,8 +20,9 @@ export function Sidebar() {
   }
 
   return (
-    <div
+    <nav
       className="n-side"
+      aria-label={t('a11y.primaryNav')}
       style={{
         width: 80,
         display: 'flex',
@@ -52,6 +53,6 @@ export function Sidebar() {
       <button className="n-iconbtn" style={{ width: 56, height: 56 }} title={t('nav.theme')} aria-label={t('nav.theme')} onClick={toggleTheme}>
         <IMoon size={20} />
       </button>
-    </div>
+    </nav>
   )
 }

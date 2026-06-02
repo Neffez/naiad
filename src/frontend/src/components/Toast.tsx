@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 // Lightweight, app-wide toast notifications. Fire from anywhere with `toast(...)`
 // (event-based, like the existing `naiad:unauthorized` pattern); <Toaster/> is
@@ -30,6 +31,7 @@ const ACCENT: Record<ToastLevel, string> = {
 const TTL_MS = 6000
 
 export function Toaster() {
+  const { t } = useTranslation()
   const [items, setItems] = useState<ToastItem[]>([])
 
   useEffect(() => {
@@ -53,6 +55,8 @@ export function Toaster() {
 
   return (
     <div
+      role="region"
+      aria-label={t('a11y.notificationsRegion')}
       style={{
         position: 'fixed',
         left: '50%',
@@ -66,28 +70,45 @@ export function Toaster() {
         pointerEvents: 'none',
       }}
     >
-      {items.map((t) => (
+      {items.map((item) => (
         <div
-          key={t.id}
-          role="status"
-          onClick={() => dismiss(t.id)}
+          key={item.id}
+          // Errors interrupt; success/info wait for a pause in speech.
+          role={item.level === 'error' ? 'alert' : 'status'}
+          aria-live={item.level === 'error' ? 'assertive' : 'polite'}
           className="n-card"
           style={{
             pointerEvents: 'auto',
-            cursor: 'pointer',
             display: 'flex',
             alignItems: 'flex-start',
             gap: 10,
             padding: '12px 14px',
-            borderLeft: `3px solid ${ACCENT[t.level]}`,
+            borderLeft: `3px solid ${ACCENT[item.level]}`,
             boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
             animation: 'n-fade-in 160ms var(--n-ease)',
           }}
         >
           <span style={{ flex: 1, fontSize: 13.5, lineHeight: 1.45, color: 'var(--n-fg)' }}>
-            {t.message}
+            {item.message}
           </span>
-          <span style={{ color: 'var(--n-fg-muted)', fontSize: 16, lineHeight: 1 }}>×</span>
+          <button
+            type="button"
+            onClick={() => dismiss(item.id)}
+            aria-label={t('a11y.dismissNotification')}
+            style={{
+              background: 'transparent',
+              border: 0,
+              padding: 0,
+              cursor: 'pointer',
+              color: 'var(--n-fg-muted)',
+              fontSize: 16,
+              lineHeight: 1,
+              display: 'inline-flex',
+              alignItems: 'center',
+            }}
+          >
+            ×
+          </button>
         </div>
       ))}
     </div>

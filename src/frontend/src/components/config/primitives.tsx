@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { type EntityInfo } from '../../api/client'
@@ -72,8 +72,8 @@ export function IdTag({ id }: { id: string }) {
   )
 }
 
-export function Num({ value, step = 1, onChange }: { value: number; step?: number; onChange: (v: number) => void }) {
-  return <NumberField value={value} step={step} width={90} onChange={onChange} />
+export function Num({ value, step = 1, onChange, ariaLabel }: { value: number; step?: number; onChange: (v: number) => void; ariaLabel?: string }) {
+  return <NumberField value={value} step={step} width={90} aria-label={ariaLabel} onChange={onChange} />
 }
 
 export function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (c: boolean) => void }) {
@@ -95,6 +95,7 @@ export function StringList({ values, placeholder, onChange }: {
       {values.map((v, i) => (
         <div key={i} style={{ display: 'flex', gap: 6 }}>
           <input style={{ ...inputStyle, flex: 1, minWidth: 0 }} value={v} placeholder={placeholder}
+            aria-label={placeholder}
             onChange={(e) => onChange(values.map((x, j) => (j === i ? e.target.value : x)))} />
           <DeleteButton onClick={() => onChange(values.filter((_, j) => j !== i))} />
         </div>
@@ -152,6 +153,7 @@ export function AddButton({ label, existing, onAdd }: {
     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
       <input autoFocus style={{ ...inputStyle, width: 180, height: 32 }} value={name}
         placeholder={t('config.namePlaceholder')}
+        aria-label={t('config.namePlaceholder')}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />
       <button className="n-btn primary" disabled={!valid} style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
@@ -190,7 +192,7 @@ function entityOptions(entities?: EntityInfo[]): ComboOption[] {
 
 // Searchable picker. Pass either `entities` (HA entities, with a type hint from
 // `domain`) or a ready-made `options` list (e.g. notify services) plus a `hint`.
-export function EntityCombobox({ value, onChange, entities, options, domain, hint, width = 320 }: {
+export function EntityCombobox({ value, onChange, entities, options, domain, hint, width = 320, ariaLabel }: {
   value: string
   onChange: (v: string) => void
   entities?: EntityInfo[]
@@ -198,10 +200,12 @@ export function EntityCombobox({ value, onChange, entities, options, domain, hin
   domain?: string
   hint?: string
   width?: number
+  ariaLabel?: string
 }) {
   const { t } = useTranslation()
   const wrapRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const listboxId = useId()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -263,6 +267,12 @@ export function EntityCombobox({ value, onChange, entities, options, domain, hin
     <div ref={wrapRef} style={{ width, maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: 3 }}>
       <input
         ref={inputRef}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={listboxId}
+        aria-autocomplete="list"
+        aria-activedescendant={open && matches[active] ? `${listboxId}-opt-${active}` : undefined}
+        aria-label={ariaLabel}
         style={{ ...inputStyle, width: '100%' }}
         value={open ? query : value}
         placeholder={
@@ -287,7 +297,8 @@ export function EntityCombobox({ value, onChange, entities, options, domain, hin
       )}
       {open && rect && createPortal(
         <div
-          id="entity-combobox-pop"
+          id={listboxId}
+          role="listbox"
           className="n-card"
           style={{
             position: 'fixed', top: rect.bottom + 4, left: rect.left, width: rect.width,
@@ -302,6 +313,9 @@ export function EntityCombobox({ value, onChange, entities, options, domain, hin
             matches.map((o, i) => (
               <button
                 key={o.value}
+                id={`${listboxId}-opt-${i}`}
+                role="option"
+                aria-selected={i === active}
                 type="button"
                 onMouseEnter={() => setActive(i)}
                 onMouseDown={(ev) => { ev.preventDefault(); choose(o) }}

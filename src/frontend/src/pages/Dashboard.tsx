@@ -245,7 +245,7 @@ export default function Dashboard() {
         </div>
 
         {/* col 2: Sequences */}
-        <section style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+        <section aria-label={t('dashboard.sequences')} style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '0 2px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span className="n-eyebrow">{t('dashboard.sequences')}</span>
@@ -253,12 +253,12 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12.5 }}>
               {running > 0 && (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--n-teal-200)' }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
+                  <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
                   {running} {t('dashboard.running')}
                 </span>
               )}
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--n-fg-muted)' }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-fg-dim)' }} />
+                <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-fg-dim)' }} />
                 {idle} {t('dashboard.ready')}
               </span>
             </div>
@@ -297,12 +297,12 @@ export default function Dashboard() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12.5 }}>
                   {zonesRunning > 0 && (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--n-teal-200)' }}>
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
+                      <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
                       {zonesRunning} {t('dashboard.running')}
                     </span>
                   )}
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--n-fg-muted)' }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-fg-dim)' }} />
+                    <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-fg-dim)' }} />
                     {zonesIdle} {t('dashboard.ready')}
                   </span>
                 </div>
@@ -320,7 +320,7 @@ export default function Dashboard() {
                 </span>
               </div>
             </div>
-            <WeekChart data={weekData} height={150} />
+            <WeekChart data={weekData} height={150} label={t('a11y.weeklyUsageChart')} />
           </div>
         </section>
       </main>
@@ -339,7 +339,7 @@ export default function Dashboard() {
       >
         {status && <TodayBlock sys={status} dense />}
 
-        <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <section aria-label={t('dashboard.sequences')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '0 2px' }}>
             <span className="n-eyebrow">{t('dashboard.sequences')}</span>
             <span className="n-label" style={{ fontSize: 11 }}>
@@ -366,7 +366,7 @@ export default function Dashboard() {
         </section>
 
         {valves.length > 0 && (
-          <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <section aria-label={t('dashboard.zones')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '0 2px' }}>
               <span className="n-eyebrow">{t('dashboard.zones')}</span>
               <span className="n-label" style={{ fontSize: 11 }}>
@@ -394,7 +394,7 @@ export default function Dashboard() {
               <div className="n-label" style={{ fontSize: 11 }}>{t('dashboard.today')}</div>
             </div>
           </div>
-          <WeekChart data={weekData} height={100} />
+          <WeekChart data={weekData} height={100} label={t('a11y.weeklyUsageChart')} />
         </div>
       </main>
 
