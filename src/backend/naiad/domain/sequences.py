@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import math
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -308,9 +308,9 @@ class SequenceRunner:
         except Exception:
             logger.exception("on_notification callback failed")
 
-    def _spawn_background(self, coro: Awaitable[None], *, name: str) -> None:
+    def _spawn_background(self, coro: Coroutine[Any, Any, None], *, name: str) -> None:
         """Run best-effort callbacks without delaying valve safety timers."""
-        task = asyncio.create_task(coro, name=name)
+        task: asyncio.Task[None] = asyncio.create_task(coro, name=name)
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
@@ -824,7 +824,7 @@ class SequenceRunner:
             if record.sequence_id in self._runs:
                 continue  # still live — its valve is legitimately open
             if record.switch is not None:
-                zone_id = None
+                zone_id: str | None = None
                 seq = self._config.sequences.get(record.sequence_id)
                 if seq is not None and 0 <= record.zone_index < len(seq.zones):
                     zone_id = seq.zones[record.zone_index]
@@ -843,7 +843,7 @@ class SequenceRunner:
             # Legacy rows created before ActiveRun stored the physical switch.
             seq = self._config.sequences.get(record.sequence_id)
             if seq is not None and 0 <= record.zone_index < len(seq.zones):
-                zone_id: str | None = seq.zones[record.zone_index]
+                zone_id = seq.zones[record.zone_index]
             else:
                 zone_id = zone_id_of_run(record.sequence_id)
             zone_cfg = self._config.zones.get(zone_id) if zone_id is not None else None
