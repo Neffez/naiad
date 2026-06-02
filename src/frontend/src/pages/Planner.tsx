@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { createPlan, deletePlan, getConfig, getPlans, getSequences, getValves, type CreatePlanRequest } from '../api/client'
 import { IChevDown, IX } from '../components/icons'
+import { LoadError } from '../components/LoadError'
 import { NumberField } from '../components/NumberField'
 import { resolveSeqColor } from '../theme/sequenceColors'
 
@@ -13,7 +14,7 @@ type Target = 'sequence' | 'zone'
 export default function Planner() {
   const { t, i18n } = useTranslation()
   const qc = useQueryClient()
-  const { data: plans = [] } = useQuery({ queryKey: queryKeys.plans, queryFn: getPlans })
+  const { data: plans = [], isError: plansError } = useQuery({ queryKey: queryKeys.plans, queryFn: getPlans })
   const { data: sequences = [] } = useQuery({ queryKey: queryKeys.sequences, queryFn: getSequences })
   const { data: valves = [] } = useQuery({ queryKey: queryKeys.valves, queryFn: getValves })
   const { data: config } = useQuery({ queryKey: queryKeys.config, queryFn: getConfig })
@@ -62,6 +63,7 @@ export default function Planner() {
 
   return (
     <div style={{ maxWidth: 900, display: 'flex', flexDirection: 'column', gap: 22 }}>
+      {plansError && <LoadError />}
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Target toggle: a whole sequence or a single zone */}
         <div role="group" aria-label={t('a11y.targetSelect')} style={{
