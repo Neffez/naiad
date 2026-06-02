@@ -528,6 +528,13 @@ async def _retry_deferred_cron_runs(
         if row.expires_at <= now:
             logger.warning("Dropping expired deferred cron occurrence for '%s'", row.sequence_id)
             result = "expired"
+            # A scheduled run is being silently lost — tell the user, since safety
+            # work (HA outage / valve cleanup at boot) blocked it past its TTL.
+            seq_cfg = config.sequences.get(row.sequence_id)
+            if seq_cfg is not None:
+                note = t("skip.expired", config.language, label=seq_cfg.label)
+                await push_notification(ha, config, note, category="skip")
+                await broadcast_notification(note, level="warning")
         else:
             result = await _run_sequence_job(
                 row.sequence_id,
