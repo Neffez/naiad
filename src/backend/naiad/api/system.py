@@ -23,8 +23,8 @@ from naiad.dependencies import (
     get_scheduler,
     require_auth,
 )
-from naiad.domain.factors import compute_factors
-from naiad.domain.models import Plan, RunHistory, SequenceOverride, SkippedRun
+from naiad.domain.factors import compute_factors, merge_factor_config, rain_factor_inputs
+from naiad.domain.models import FactorOverride, Plan, RunHistory, SequenceOverride, SkippedRun
 from naiad.domain.preferences import read_master_on, set_master_on
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.domain.sequences import SequenceRunner, zone_run_id
@@ -235,6 +235,13 @@ async def get_status(
     snapshot = read_sensor_snapshot(ha, config)
     factors = compute_factors(snapshot, config, session)
 
+    # Mirror the rain inputs compute_factors actually used (today peak, tomorrow per
+    # peak_tomorrow) so the displayed rain figures match the applied adjustment.
+    _eff_temp, eff_rain = merge_factor_config(config, session.get(FactorOverride, 1))
+    _pt, rain_prob_tomorrow, _mt, rain_mm_tomorrow = rain_factor_inputs(
+        snapshot, eff_rain.peak_tomorrow
+    )
+
     wind_blocking = [
         seq_id for seq_id, seq in config.sequences.items() if seq.wind_blocks and snapshot.wind_on
     ]
@@ -273,11 +280,11 @@ async def get_status(
             ),
             rain_prob_pct=max(
                 snapshot.precipitation_prob_today,
-                snapshot.precipitation_prob_tomorrow,
+                rain_prob_tomorrow,
             ),
             rain_mm=max(
                 snapshot.precipitation_today_mm,
-                snapshot.precipitation_tomorrow_mm * config.factors.rain.forecast_decay,
+                rain_mm_tomorrow * eff_rain.forecast_decay,
             ),
         ),
         next_run=next_runs[0] if len(next_runs) > 0 else None,

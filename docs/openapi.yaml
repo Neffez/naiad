@@ -306,6 +306,7 @@ components:
         reduce_above_mm:   { type: number }
         zero_above_mm:     { type: number }
         forecast_decay:    { type: number }
+        peak_tomorrow:     { type: boolean, description: "When true the rain factor also uses tomorrow's daily peak forecast, not just the latest reading. Today always uses the peak." }
 
     SequenceOverride:
       type: object

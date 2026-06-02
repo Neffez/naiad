@@ -378,6 +378,11 @@ class RainFactorConfig(BaseModel):
     reduce_above_mm: float = 5.0
     zero_above_mm: float = 20.0
     forecast_decay: float = Field(default=0.5, ge=0.0, le=1.0)
+    # When True the rain factor also uses the day's *peak* forecast for tomorrow
+    # (the highest value seen since local midnight), not just the latest reading —
+    # mirroring how today is handled. Today always uses the peak; tomorrow's
+    # forecast is more volatile, so peaking it is opt-in. False = today only.
+    peak_tomorrow: bool = False
 
     @model_validator(mode="after")
     def validate_mm_thresholds(self) -> "RainFactorConfig":
