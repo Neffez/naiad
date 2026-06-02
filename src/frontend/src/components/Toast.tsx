@@ -41,14 +41,14 @@ export function Toaster() {
       if (!detail?.message) return
       const id = nextId++
       setItems((prev) => [...prev, { id, message: detail.message, level: detail.level }])
-      window.setTimeout(() => setItems((prev) => prev.filter((t) => t.id !== id)), TTL_MS)
+      window.setTimeout(() => setItems((prev) => prev.filter((item) => item.id !== id)), TTL_MS)
     }
     window.addEventListener(EVENT, onToast)
     return () => window.removeEventListener(EVENT, onToast)
   }, [])
 
   function dismiss(id: number) {
-    setItems((prev) => prev.filter((t) => t.id !== id))
+    setItems((prev) => prev.filter((item) => item.id !== id))
   }
 
   if (items.length === 0) return null
@@ -98,7 +98,10 @@ export function Toaster() {
             style={{
               background: 'transparent',
               border: 0,
-              padding: 0,
+              // Roomy hit target (the whole-card tap-to-dismiss is gone); the
+              // negative margin keeps the glyph visually aligned with the text.
+              padding: '4px 8px',
+              margin: '-4px -8px -4px 0',
               cursor: 'pointer',
               color: 'var(--n-fg-muted)',
               fontSize: 16,
