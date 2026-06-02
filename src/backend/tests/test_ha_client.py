@@ -104,3 +104,43 @@ def test_refresh_daily_max_swallows_errors() -> None:
         )
     )
     assert client.get_cached_daily_max("sensor.temp") is None
+
+
+def test_mark_disconnected_cancels_pending_and_fires_offline() -> None:
+    """Both close paths route through _mark_disconnected: a clean close (the
+    ``async for`` ending normally) must fail pending requests fast and broadcast
+    offline, exactly like an abnormal drop — not leave futures hanging."""
+
+    async def run() -> None:
+        client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+        client._connected.set()
+        client._ws = object()  # type: ignore[assignment]
+
+        offline_calls: list[bool] = []
+
+        async def on_change(connected: bool) -> None:
+            offline_calls.append(connected)
+
+        client.on_connection_change = on_change
+
+        fut: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+        client._pending[1] = fut
+
+        client._mark_disconnected()
+
+        assert not client.is_connected
+        assert client._ws is None
+        assert fut.cancelled()
+        assert client._pending == {}
+
+        # Let the spawned offline callback run.
+        await asyncio.sleep(0)
+        assert offline_calls == [False]
+
+        # Idempotent: a second call (e.g. _connect's finally then _connect_loop's
+        # except for the same drop) must not re-fire the offline callback.
+        client._mark_disconnected()
+        await asyncio.sleep(0)
+        assert offline_calls == [False]
+
+    asyncio.run(run())
