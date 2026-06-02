@@ -182,6 +182,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     ) -> None:
         await broadcast_sequence_changed(sequence_id, "running", triggered_by)
         if notification is not None:
+
             async def _deliver_start_notification() -> None:
                 try:
                     await push_notification(ha, config, notification, category="start")
