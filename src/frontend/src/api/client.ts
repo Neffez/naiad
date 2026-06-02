@@ -306,7 +306,7 @@ export interface AppSettings {
   sequences: Record<string, { basis_min_per_zone: number | null; watchdog_min: number | null; paused: boolean }>
   factors: {
     temp: { basis_c: number; pct_per_c: number; min_pct: number; max_pct: number }
-    rain: { forecast_days: number; threshold_prob: number; reduce_above_mm: number; zero_above_mm: number; forecast_decay: number }
+    rain: { forecast_days: number; threshold_prob: number; reduce_above_mm: number; zero_above_mm: number; forecast_decay: number; peak_tomorrow: boolean }
     manual_mode: boolean
     manual_pct: number | null
   }
@@ -379,6 +379,7 @@ export interface FactorsConfig {
     reduce_above_mm: number
     zero_above_mm: number
     forecast_decay: number
+    peak_tomorrow: boolean
   }
 }
 
