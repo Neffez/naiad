@@ -11,4 +11,12 @@ i18n.use(initReactI18next).init({
   interpolation: { escapeValue: false },
 })
 
+// Keep the document language in sync so assistive tech announces content in the
+// right language (and `:lang()` styling works). Updated on every switch.
+function syncDocumentLang(lng: string): void {
+  document.documentElement.lang = lng.split('-')[0]
+}
+syncDocumentLang(i18n.language)
+i18n.on('languageChanged', syncDocumentLang)
+
 export default i18n

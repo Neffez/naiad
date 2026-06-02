@@ -389,5 +389,20 @@
   },
   "confirmZone": {
     "subtitle": "Einzelne Zone — Sofortstart"
+  },
+  "a11y": {
+    "close": "Schließen",
+    "skipToContent": "Zum Hauptinhalt springen",
+    "dismissNotification": "Benachrichtigung schließen",
+    "notificationsRegion": "Benachrichtigungen",
+    "primaryNav": "Hauptnavigation",
+    "systemToggle": "System ein- oder ausschalten",
+    "durationSlider": "Bewässerungsdauer pro Zone in Minuten",
+    "date": "Datum",
+    "time": "Uhrzeit",
+    "targetSelect": "Ziel auswählen",
+    "modeSelect": "Planungsmodus",
+    "weeklyUsageChart": "Wasserverbrauch der Woche",
+    "moreInfo": "Mehr Informationen"
   }
 }

@@ -171,6 +171,7 @@ export default function Config() {
           <input
             style={{ ...inputStyle, width: 360 }}
             value={draft.ha.url}
+            aria-label={t('config.haUrl')}
             onChange={(e) => patch((d) => { d.ha.url = e.target.value })}
           />
         </Row>
@@ -194,6 +195,7 @@ export default function Config() {
               onChange={(v) => patch((d) => { d.sensors[f.key] = v })}
               entities={entitiesByDomain[f.domain]}
               domain={f.domain}
+              ariaLabel={t(`config.sensor.${f.key}`, { defaultValue: f.fallback })}
             />
           </Row>
         ))}
@@ -295,16 +297,18 @@ export default function Config() {
               style={{ ...inputStyle, width: 280 }}
               value={draft.mqtt.host}
               placeholder="core-mosquitto"
+              aria-label={t('config.mqttHost')}
               onChange={(e) => patch((d) => { d.mqtt.host = e.target.value })}
           />
         </Row>
         <Row label={t('config.mqttPort')}>
-          <Num value={draft.mqtt.port} onChange={(v) => patch((d) => { d.mqtt.port = v })} />
+          <Num value={draft.mqtt.port} ariaLabel={t('config.mqttPort')} onChange={(v) => patch((d) => { d.mqtt.port = v })} />
         </Row>
         <Row label={t('config.mqttUsername')}>
           <input
               style={{ ...inputStyle, width: 200 }}
               value={draft.mqtt.username}
+              aria-label={t('config.mqttUsername')}
               onChange={(e) => patch((d) => { d.mqtt.username = e.target.value })}
           />
         </Row>
@@ -312,6 +316,7 @@ export default function Config() {
           <input
               style={{ ...inputStyle, width: 200, fontFamily: 'var(--n-mono, monospace)' }}
               value={draft.mqtt.base_topic}
+              aria-label={t('config.mqttBaseTopic')}
               onChange={(e) => patch((d) => { d.mqtt.base_topic = e.target.value })}
           />
         </Row>
@@ -336,6 +341,7 @@ export default function Config() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <input
                 type="number" min={0} step={1}
+                aria-label={t('config.notifyQueueMaxHours')}
                 style={{ ...inputStyle, width: 120, fontVariantNumeric: 'tabular-nums' }}
                 value={draft.notifications.queue_max_hours}
                 onChange={(e) => patch((d) => {
@@ -375,10 +381,12 @@ export default function Config() {
       <Section title={t('config.advanced')}>
         <Row label={t('config.timezone')}>
           <input style={{ ...inputStyle, width: 220 }} value={draft.timezone}
+            aria-label={t('config.timezone')}
             onChange={(e) => patch((d) => { d.timezone = e.target.value })} />
         </Row>
         <Row label={t('config.authMode')}>
           <select style={{ ...inputStyle, width: 200 }} value={draft.auth.mode}
+            aria-label={t('config.authMode')}
             onChange={(e) => patch((d) => { d.auth.mode = e.target.value as ConfigDoc['auth']['mode'] })}>
             <option value="password">password</option>
             <option value="forward_header">forward_header</option>
@@ -430,7 +438,7 @@ export default function Config() {
           onClick={() => fileRef.current?.click()}>
           {t('config.import')}
         </button>
-        <input ref={fileRef} type="file" accept=".yaml,.yml,.json" style={{ display: 'none' }} onChange={handleImportFile} />
+        <input ref={fileRef} type="file" accept=".yaml,.yml,.json" aria-hidden="true" tabIndex={-1} style={{ display: 'none' }} onChange={handleImportFile} />
 
         {dirty && <Pill tone="muted">{t('config.unsaved')}</Pill>}
         {saved && <Pill tone="teal">✓ {t('config.saved')}</Pill>}
