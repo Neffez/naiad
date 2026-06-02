@@ -25,7 +25,11 @@ from naiad.domain.sequences import SequenceRunner
 from naiad.domain.tracking import LiterTracker
 from naiad.drivers.ha_driver import HAEntityDriver
 from naiad.ha_client import HAClient
-from naiad.scheduler import refresh_fallback_temp_max, setup_scheduler
+from naiad.scheduler import (
+    refresh_fallback_temp_max,
+    refresh_rain_forecast_max,
+    setup_scheduler,
+)
 from naiad.stats_publisher import StatsPublisher
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -254,8 +258,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                     # close any unrelated switch-specific leftovers immediately. The
                     # retry skips switches owned by live runs.
                     await runner.retry_pending_closes()
-                    # Still refresh the fallback max temperature in the background.
+                    # Still refresh the weather forecast maxima in the background.
                     await refresh_fallback_temp_max(config, ha)
+                    await refresh_rain_forecast_max(config, ha)
                     return
                 else:
                     # Later reconnects while idle: close any orphaned valves. A
@@ -267,8 +272,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 # switch-specific leftovers too, including removed or re-pointed zones.
                 await runner.retry_pending_closes()
                 # Recovery/reconciliation done — now populate the fallback max
-                # temperature (yesterday's recorded max); the hourly job keeps it fresh.
+                # temperature (yesterday's recorded max) and the day's peak rain
+                # forecast; the hourly jobs keep them fresh.
                 await refresh_fallback_temp_max(config, ha)
+                await refresh_rain_forecast_max(config, ha)
         else:
             # Do NOT abort a live run on disconnect: the run task does not depend
             # on HA, and aborting cannot physically close the valve anyway (HA is
