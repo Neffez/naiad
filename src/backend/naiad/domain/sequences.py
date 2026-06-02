@@ -794,6 +794,15 @@ class SequenceRunner:
         if not self._recovery_complete:
             return
 
+        # Fast path: with nothing to close, skip taking the cleanup lock and raising
+        # _cleanup_in_progress — that flag briefly blocks fresh starts and config
+        # reloads, and the plan tick calls this every 60s. A pending close written
+        # just after this check is durable and picked up on the next tick (and the
+        # failing path also attempts an immediate close), so missing it here is safe.
+        with self._session_factory() as session:
+            if not load_pending_closes(session) and not load_active_runs(session):
+                return
+
         async with self._cleanup_lock:
             self._cleanup_in_progress = True
             try:
