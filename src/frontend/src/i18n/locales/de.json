@@ -377,7 +377,10 @@
     "rain": "Regen",
     "watchdog": "Watchdog",
     "manual_stop": "Manuell gestoppt",
-    "ha_disconnect": "HA getrennt"
+    "ha_disconnect": "HA getrennt",
+    "staircase_retrigger_failed": "Treppenlicht-Timer fehlgeschlagen",
+    "close_failed": "Ventil nicht geschlossen",
+    "start_failed": "Start fehlgeschlagen"
   },
   "weekdaysShort": [
     "Mo",

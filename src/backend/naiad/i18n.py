@@ -35,6 +35,13 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "⚠️ {label} ended early — zone {zone}: the actuator stopped responding "
             "(staircase re-trigger failed)."
         ),
+        "abort.close_failed": (
+            "🚨 {label} stopped — zone {zone}: the valve could not be confirmed closed. "
+            "Remaining zones were skipped; the close will be retried."
+        ),
+        "abort.start_failed": (
+            "⚠️ {label} could not start — zone {zone}: the valve was closed again safely."
+        ),
         "reminder.header": "💦🌱 Tomorrow:",
         "reminder.line": "• {time} {label}",
         "reminder.planned": "{label} (planned)",
@@ -64,6 +71,13 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "abort.staircase_failed": (
             "⚠️ {label} vorzeitig beendet — Zone {zone}: Aktor reagierte nicht "
             "(Treppenlicht-Re-Trigger fehlgeschlagen)."
+        ),
+        "abort.close_failed": (
+            "🚨 {label} gestoppt — Zone {zone}: Ventil konnte nicht bestätigt geschlossen "
+            "werden. Restliche Zonen übersprungen; das Schließen wird erneut versucht."
+        ),
+        "abort.start_failed": (
+            "⚠️ {label} konnte nicht starten — Zone {zone}: Ventil wurde wieder sicher geschlossen."
         ),
         # Nightly reminder
         "reminder.header": "💦🌱 Morgen:",

@@ -18,6 +18,7 @@ from naiad.config import (
 )
 from naiad.domain.factors import compute_factors
 from naiad.domain.models import (
+    DeferredCronRun,
     Plan,
     QueuedNotification,
     SequenceOverride,
@@ -25,13 +26,19 @@ from naiad.domain.models import (
 )
 from naiad.domain.preferences import read_master_on
 from naiad.domain.sensors import read_sensor_snapshot
-from naiad.domain.sequences import MutexConflict, SequenceRunner, zone_id_of_run
+from naiad.domain.sequences import (
+    MutexConflict,
+    RunnerBusy,
+    SequenceRunner,
+    zone_id_of_run,
+)
 from naiad.ha_client import HAClient
 from naiad.i18n import t
 
 logger = logging.getLogger(__name__)
 
 SessionFactory = Callable[[], Session]
+_DEFERRED_CRON_TTL = timedelta(minutes=15)
 
 
 def _master_on(session_factory: SessionFactory) -> bool:
@@ -288,11 +295,12 @@ async def _run_sequence_job(
     session_factory: SessionFactory,
     triggered_by: str = "cron",
     override_min: float | None = None,
+    consume_skip: bool = True,
 ) -> str:
-    """Attempt to start a sequence. Returns "started", "skipped" or "conflict".
+    """Attempt to start a sequence. Returns "started", "skipped", "busy" or "conflict".
 
-    A "conflict" is transient (another sequence is running) and the caller may
-    retry; "skipped" is a deterministic refusal (disabled/paused/master/wind/season).
+    "busy" means valve safety work is active; "conflict" means another sequence
+    reserves a valve. Both are transient. "skipped" is a deterministic refusal.
     """
     seq_cfg = config.sequences.get(sequence_id)
     if seq_cfg is None or not seq_cfg.enabled:
@@ -300,7 +308,11 @@ async def _run_sequence_job(
 
     # A user may skip a single scheduled occurrence; only the matching cron fire
     # consumes it (manual starts and plans don't go through this skip gate).
-    if triggered_by == "cron" and _consume_skip(session_factory, sequence_id, datetime.now(UTC)):
+    if (
+        triggered_by == "cron"
+        and consume_skip
+        and _consume_skip(session_factory, sequence_id, datetime.now(UTC))
+    ):
         logger.info("Skipped (%s): user skipped this scheduled run", sequence_id)
         return "skipped"
 
@@ -348,13 +360,25 @@ async def _run_sequence_job(
             factors.sensors_unavailable,
         )
 
+    label_pct = int(round(factors.factor_pct))
+    note = t(
+        "start.sequence",
+        config.language,
+        label=seq_cfg.label,
+        trigger=t(f"trigger.{triggered_by}", config.language),
+        pct=label_pct,
+    )
     try:
         await runner.start(
             sequence_id,
             factor_pct=factors.factor_pct,
             override_min=override_min,
             triggered_by=triggered_by,
+            started_notification=note,
         )
+    except RunnerBusy as e:
+        logger.info("Deferred '%s': %s", sequence_id, e)
+        return "busy"
     except MutexConflict as e:
         logger.warning("Conflict for '%s': %s", sequence_id, e)
         # Name the run that is actually blocking (the one reserving a shared zone),
@@ -368,19 +392,7 @@ async def _run_sequence_job(
         await broadcast_notification(conflict_note, level="warning")
         return "conflict"
 
-    label_pct = int(round(factors.factor_pct))
-    note = t(
-        "start.sequence",
-        config.language,
-        label=seq_cfg.label,
-        trigger=t(f"trigger.{triggered_by}", config.language),
-        pct=label_pct,
-    )
-    await push_notification(ha, config, note, category="start")
-    # The "running" status is broadcast by the runner's on_started callback once a
-    # valve actually opens, so clients never see a run that failed to start.
-    await broadcast_notification(note)
-    logger.info("Started '%s' via %s (factor=%d%%)", sequence_id, triggered_by, label_pct)
+    logger.info("Accepted '%s' via %s (factor=%d%%)", sequence_id, triggered_by, label_pct)
     return "started"
 
 
@@ -394,7 +406,7 @@ async def _run_zone_job(
     triggered_by: str = "plan",
 ) -> str:
     """Attempt to start a standalone single-zone run. Returns "started",
-    "skipped" or "conflict" (same contract as ``_run_sequence_job``).
+    "skipped", "busy" or "conflict" (same contract as ``_run_sequence_job``).
 
     A planned zone run waters exactly the requested duration: the weather factor
     is intentionally not applied (it targets one bed for a fixed time). Rain is
@@ -409,8 +421,23 @@ async def _run_zone_job(
         logger.info("Skipped zone '%s': master off", zone_id)
         return "skipped"
 
+    note = t(
+        "start.zone",
+        config.language,
+        label=zone_cfg.label,
+        trigger=t(f"trigger.{triggered_by}", config.language),
+        minutes=int(round(duration_min)),
+    )
     try:
-        await runner.start_zone(zone_id, duration_min, triggered_by=triggered_by)
+        await runner.start_zone(
+            zone_id,
+            duration_min,
+            triggered_by=triggered_by,
+            started_notification=note,
+        )
+    except RunnerBusy as e:
+        logger.info("Deferred zone '%s': %s", zone_id, e)
+        return "busy"
     except MutexConflict as e:
         logger.warning("Conflict for zone '%s': %s", zone_id, e)
         running_id = runner.conflicting_run([zone_id])
@@ -422,17 +449,80 @@ async def _run_zone_job(
         await broadcast_notification(conflict_note, level="warning")
         return "conflict"
 
-    note = t(
-        "start.zone",
-        config.language,
-        label=zone_cfg.label,
-        trigger=t(f"trigger.{triggered_by}", config.language),
-        minutes=int(round(duration_min)),
-    )
-    await push_notification(ha, config, note, category="start")
-    await broadcast_notification(note)
-    logger.info("Started zone '%s' via %s (%.0f min)", zone_id, triggered_by, duration_min)
+    logger.info("Accepted zone '%s' via %s (%.0f min)", zone_id, triggered_by, duration_min)
     return "started"
+
+
+async def _run_cron_sequence_job(
+    sequence_id: str,
+    runner: SequenceRunner,
+    ha: HAClient,
+    config: AppConfig,
+    session_factory: SessionFactory,
+) -> str:
+    """Run a cron occurrence, durably deferring it while safety work is active."""
+    result = await _run_sequence_job(
+        sequence_id,
+        runner,
+        ha,
+        config,
+        session_factory,
+        triggered_by="cron",
+    )
+    if result == "busy":
+        now = datetime.now(UTC).replace(tzinfo=None)
+        with session_factory() as session:
+            deferred = session.get(DeferredCronRun, sequence_id)
+            if deferred is None:
+                session.add(
+                    DeferredCronRun(
+                        sequence_id=sequence_id,
+                        created_at=now,
+                        expires_at=now + _DEFERRED_CRON_TTL,
+                    )
+                )
+                session.commit()
+            elif deferred.expires_at <= now:
+                deferred.created_at = now
+                deferred.expires_at = now + _DEFERRED_CRON_TTL
+                session.add(deferred)
+                session.commit()
+        logger.info("Deferred cron occurrence for '%s'", sequence_id)
+    return result
+
+
+async def _retry_deferred_cron_runs(
+    runner: SequenceRunner,
+    ha: HAClient,
+    config: AppConfig,
+    session_factory: SessionFactory,
+) -> None:
+    """Retry short-lived cron occurrences once valve safety work has finished."""
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with session_factory() as session:
+        deferred = list(session.exec(select(DeferredCronRun)).all())
+
+    for row in deferred:
+        if row.expires_at <= now:
+            logger.warning("Dropping expired deferred cron occurrence for '%s'", row.sequence_id)
+            result = "expired"
+        else:
+            result = await _run_sequence_job(
+                row.sequence_id,
+                runner,
+                ha,
+                config,
+                session_factory,
+                triggered_by="cron",
+                consume_skip=False,
+            )
+        if result in {"busy", "conflict"}:
+            continue
+        with session_factory() as session:
+            current = session.get(DeferredCronRun, row.sequence_id)
+            if current is not None:
+                session.delete(current)
+                session.commit()
 
 
 async def _plan_tick(
@@ -449,6 +539,8 @@ async def _plan_tick(
         await runner.retry_pending_closes()
     except Exception:
         logger.exception("retry_pending_closes failed")
+
+    await _retry_deferred_cron_runs(runner, ha, config, session_factory)
 
     with session_factory() as session:
         due: list[Plan] = list(
@@ -485,9 +577,9 @@ async def _plan_tick(
                 override_min=override_min,
             )
 
-        # Keep the plan on a transient conflict so the next tick retries it;
+        # Keep the plan on a transient busy/conflict so the next tick retries it;
         # drop it once it has started or was deterministically skipped.
-        if result == "conflict":
+        if result in {"busy", "conflict"}:
             continue
         with session_factory() as session:
             db_plan = session.get(Plan, plan.id)
@@ -677,10 +769,9 @@ def _register_sequence_jobs(
                 logger.warning("Sequence '%s': invalid cron '%s' — skipped", seq_id, cron)
                 continue
             scheduler.add_job(
-                _run_sequence_job,
+                _run_cron_sequence_job,
                 trigger=trigger,
                 args=[seq_id, runner, ha, config, session_factory],
-                kwargs={"triggered_by": "cron"},
                 id=f"cron-{seq_id}#{idx}",
                 name=f"Cron: {seq_cfg.label}",
                 misfire_grace_time=300,

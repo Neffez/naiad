@@ -62,6 +62,7 @@ def _add_missing_columns(engine: Engine) -> None:
     additions: dict[str, dict[str, str]] = {
         # table: {column: SQL type}
         "plans": {"zone_id": "VARCHAR"},
+        "active_run": {"switch": "VARCHAR"},
         "factor_overrides": {"manual_mode": "BOOLEAN", "manual_pct": "INTEGER"},
     }
     inspector = inspect(engine)
