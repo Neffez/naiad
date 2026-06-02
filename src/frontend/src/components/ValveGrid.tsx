@@ -41,7 +41,7 @@ function ValveCell({
       style={{ minHeight: dense ? 74 : 88, padding: dense ? '10px 11px' : '12px 12px 10px' }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <span className="led" />
+        <span className="led" aria-hidden="true" />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {state === 'on' && valve.runtime_min != null && (
             <span className="mono" style={{ fontSize: 11, color: 'var(--n-teal-200)' }}>

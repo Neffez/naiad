@@ -216,7 +216,7 @@ function HistoryRow({ row, config }: { row: HistoryEntry; config: ConfigDoc | un
         flex: COLS[0].flex, fontSize: 13.5, fontWeight: 500,
         display: 'flex', alignItems: 'center', gap: 10,
       }}>
-        <span style={{
+        <span aria-hidden="true" style={{
           width: 4, height: 22, borderRadius: 2,
           background: barColor,
         }} />

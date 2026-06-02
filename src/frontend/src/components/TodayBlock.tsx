@@ -144,7 +144,7 @@ function AdjustmentSection({ sys, breakdown, compact = false }: {
               display: 'inline-flex', alignItems: 'center', gap: 4,
             }}
           >
-            <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />
+            <span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />
             {manual ? t('today.manual') : t('today.auto')}
           </button>
         </div>

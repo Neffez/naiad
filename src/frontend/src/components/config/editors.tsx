@@ -79,7 +79,7 @@ export function SequenceEditor({ id, seq, zoneIds, zones, last, colorsEnabled, o
             {zoneIds.map((zid) => {
               const active = seq.zones.includes(zid)
               return (
-                <button key={zid} className={`n-chip${active ? ' active' : ''}`}
+                <button key={zid} type="button" aria-pressed={active} className={`n-chip${active ? ' active' : ''}`}
                   style={{ cursor: 'pointer', opacity: active ? 1 : 0.55 }}
                   onClick={() => onChange((s) => {
                     s.zones = active ? s.zones.filter((z) => z !== zid) : [...s.zones, zid]
@@ -159,7 +159,7 @@ export function SchedulePicker({ value, onChange }: {
         <span style={labelStyle}>{t('schedule.days')}</span>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {presets.map((p) => (
-            <button key={p.label} className={`n-chip${p.active ? ' active' : ''}`}
+            <button key={p.label} type="button" aria-pressed={p.active} className={`n-chip${p.active ? ' active' : ''}`}
               style={{ cursor: 'pointer', opacity: p.active ? 1 : 0.6 }}
               onClick={() => setDays(p.days)}>{p.label}</button>
           ))}
@@ -168,7 +168,7 @@ export function SchedulePicker({ value, onChange }: {
           {WEEKDAYS.map((d) => {
             const active = value.days.includes(d)
             return (
-              <button key={d} className={`n-chip${active ? ' active' : ''}`}
+              <button key={d} type="button" aria-pressed={active} className={`n-chip${active ? ' active' : ''}`}
                 style={{ cursor: 'pointer', opacity: active ? 1 : 0.55, minWidth: 42, textAlign: 'center' }}
                 onClick={() => toggleDay(d)}>{weekdayShort(d, t)}</button>
             )
@@ -187,7 +187,7 @@ export function SchedulePicker({ value, onChange }: {
           )}
           {value.times.map((tm, i) => (
             <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <input type="time" value={tm} style={{ ...inputStyle, width: 120, fontVariantNumeric: 'tabular-nums' }}
+              <input type="time" value={tm} aria-label={t('schedule.times')} style={{ ...inputStyle, width: 120, fontVariantNumeric: 'tabular-nums' }}
                 onChange={(e) => setTimes(value.times.map((x, j) => (j === i ? e.target.value : x)))} />
               <button className="n-btn" title={t('config.delete')} aria-label={t('config.delete')}
                 style={{ height: 30, width: 30, padding: 0, fontSize: 13, color: 'var(--n-danger)' }}
@@ -213,6 +213,7 @@ export function SchedulePicker({ value, onChange }: {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <input style={{ ...inputStyle, width: 160, fontFamily: 'var(--n-mono, monospace)' }}
               placeholder="*/30 * * * *" value={value.cron ?? ''}
+              aria-label={t('schedule.advanced')}
               onChange={(e) => onChange({ ...value, cron: e.target.value })} />
             <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12 }}
               onClick={() => { onChange({ ...value, cron: null }); setShowAdvanced(false) }}>
@@ -241,6 +242,7 @@ export function ColorPicker({ value, onChange }: {
     <button
       key={key ?? 'default'}
       type="button"
+      aria-pressed={selected}
       title={key ?? t('config.colorDefault')}
       aria-label={key ?? t('config.colorDefault')}
       onClick={() => onChange(key)}
@@ -272,7 +274,7 @@ export function ReminderTime({ value, onChange }: { value: string; onChange: (cr
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         <input style={{ ...inputStyle, width: 160, fontFamily: 'var(--n-mono, monospace)' }}
-          value={value} onChange={(e) => onChange(e.target.value)} />
+          value={value} aria-label={t('config.notifyReminderTime')} onChange={(e) => onChange(e.target.value)} />
         {dailyCronToTime(value) !== null && (
           <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12 }}
             onClick={() => setAdvanced(false)}>{t('schedule.usePicker')}</button>
@@ -283,7 +285,7 @@ export function ReminderTime({ value, onChange }: { value: string; onChange: (cr
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
       <input type="time" style={{ ...inputStyle, width: 120, fontVariantNumeric: 'tabular-nums' }}
-        value={time ?? '21:00'} onChange={(e) => onChange(timeToDailyCron(e.target.value))} />
+        value={time ?? '21:00'} aria-label={t('config.notifyReminderTime')} onChange={(e) => onChange(timeToDailyCron(e.target.value))} />
       <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12 }}
         onClick={() => setAdvanced(true)}>{t('schedule.advanced')}</button>
     </div>
@@ -327,6 +329,7 @@ export function NotifyTargetList({ values, services, dirty, onChange }: {
               onChange={(nv) => update(i, (x) => ({ ...x, service: nv }))}
               options={options}
               hint={t('config.entityType.notify')}
+              ariaLabel={t('config.entityType.notify')}
               width={300}
             />
             <button
@@ -345,7 +348,7 @@ export function NotifyTargetList({ values, services, dirty, onChange }: {
             {NOTIFICATION_CATEGORIES.map((cat) => {
               const on = tg.categories.includes(cat)
               return (
-                <button key={cat} type="button" className={`n-chip${on ? ' active' : ''}`}
+                <button key={cat} type="button" aria-pressed={on} className={`n-chip${on ? ' active' : ''}`}
                   style={{ cursor: 'pointer', opacity: on ? 1 : 0.55 }}
                   onClick={() => update(i, (x) => ({
                     ...x,
