@@ -6,6 +6,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from types import SimpleNamespace
 from typing import Any
 
 from naiad.config import (
@@ -20,11 +21,14 @@ from naiad.domain.models import ActiveRun, RunHistory
 from naiad.domain.resume import (
     clear_active_run,
     clear_all_snapshots,
+    clear_pending_close,
     clear_snapshot,
     load_active_runs,
+    load_pending_closes,
     load_snapshot,
     save_active_run,
     save_pause_snapshot,
+    save_pending_close,
 )
 from naiad.drivers.protocol import IValveDriver
 from naiad.i18n import t as translate
@@ -34,6 +38,18 @@ logger = logging.getLogger(__name__)
 
 class MutexConflict(Exception):
     """A run could not start because of a conflict with an active run."""
+
+
+class RunnerBusy(MutexConflict):
+    """A run could not start while the runner is performing safety work."""
+
+
+class InitialRecoveryInProgress(RunnerBusy):
+    """A run could not start before the first HA-backed recovery completed."""
+
+
+class ValveCleanupInProgress(RunnerBusy):
+    """A run could not start while safety cleanup is issuing valve closes."""
 
 
 class ZoneBusy(MutexConflict):
@@ -134,6 +150,7 @@ class _Run:
     stop_event: asyncio.Event
     pause_event: asyncio.Event
     is_zone_run: bool = False
+    started_notification: str | None = None
     stop_reason: str = "manual_stop"
     current_zone: ZoneProgress | None = None
     task: asyncio.Task[None] | None = None
@@ -265,9 +282,17 @@ class SequenceRunner:
         # until then, so the periodic close retry can never close a valve that
         # recovery would have resumed.
         self._recovery_complete = False
+        # Production enables this before accepting scheduler/API starts. Kept
+        # separate from _recovery_complete so isolated runner users can opt in.
+        self._starts_blocked_for_recovery = False
+        # Reconciliation issues physical close commands across awaits. Starts are
+        # rejected while it runs so a newly-opened valve cannot race a stale close.
+        self._cleanup_in_progress = False
+        self._cleanup_lock = asyncio.Lock()
+        self._background_tasks: set[asyncio.Task[None]] = set()
         # Invoked once a run actually opens its first valve (sequence_id, triggered_by),
         # so "running" is broadcast only after the run is confirmed, not when it's scheduled.
-        self.on_started: Callable[[str, str], Awaitable[None]] | None = None
+        self.on_started: Callable[[str, str, str | None], Awaitable[None]] | None = None
         # Invoked for noteworthy run events that warrant a notification
         # (message, level), e.g. a watchdog abort. Wired to push/broadcast in main.
         self.on_notification: Callable[[str, str], Awaitable[None]] | None = None
@@ -282,6 +307,30 @@ class SequenceRunner:
             await self.on_notification(message, level)
         except Exception:
             logger.exception("on_notification callback failed")
+
+    def _spawn_background(self, coro: Awaitable[None], *, name: str) -> None:
+        """Run best-effort callbacks without delaying valve safety timers."""
+        task = asyncio.create_task(coro, name=name)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _emit_started(
+        self,
+        sequence_id: str,
+        triggered_by: str,
+        notification: str | None,
+    ) -> None:
+        if self.on_started is None:
+            return
+        try:
+            await asyncio.wait_for(
+                self.on_started(sequence_id, triggered_by, notification),
+                timeout=5.0,
+            )
+        except TimeoutError:
+            logger.warning("on_started callback timed out for '%s'", sequence_id)
+        except Exception:
+            logger.exception("on_started callback failed for '%s'", sequence_id)
 
     async def _emit_run_recorded(self) -> None:
         if self.on_run_recorded is None:
@@ -300,28 +349,62 @@ class SequenceRunner:
         run = self._runs.get(run_id)
         return run.seq if run is not None else None
 
-    def _zones_in_use(self, exclude_run: str | None = None) -> set[str]:
-        """Every zone reserved by an active run.
+    def _switches_in_use(self, exclude_run: str | None = None) -> set[str]:
+        """Every switch entity reserved by an active run.
 
-        The full zone set of each running sequence is reserved (not just the
-        currently-open zone), since a sequence still has to step through its
-        remaining zones. Standalone zone runs carry a single-zone synthetic
-        sequence, so this uniformly covers sequence and zone runs.
+        Ownership is tracked by physical switch (not zone id): two runs may not
+        drive the same valve, and the periodic close-retry must never touch a switch
+        a live run legitimately holds open. Zones are mapped to switches via the
+        live config; reload is blocked while any run is active, so this is stable.
         """
         used: set[str] = set()
         for run_id, run in self._runs.items():
             if run_id == exclude_run:
                 continue
-            used.update(run.seq.zones)
+            for zone_id in run.seq.zones:
+                zone_cfg = self._config.zones.get(zone_id)
+                if zone_cfg is not None:
+                    used.add(zone_cfg.switch)
         return used
 
+    def _pending_close_switches(self) -> set[str]:
+        """Switch entities with an unconfirmed-open valve (a pending close).
+
+        Reserved like a live run's switches: a new run must not open a valve whose
+        previous close was never confirmed, otherwise the periodic retry could close
+        the new run's valve out from under it.
+        """
+        with self._session_factory() as session:
+            return {rec.switch for rec in load_pending_closes(session)}
+
+    def _active_run_switches(self) -> set[str]:
+        """Switch entities retained by crash-recovery records.
+
+        An unhandled runner error can remove the in-memory run while leaving its
+        valve open. Reserve the persisted physical switch until retry confirms it
+        is closed, so a fresh run can never be opened underneath that retry.
+        """
+        with self._session_factory() as session:
+            return {rec.switch for rec in load_active_runs(session) if rec.switch}
+
     def _check_zone_conflict(self, zones: list[str]) -> None:
-        conflict = sorted(set(zones) & self._zones_in_use())
+        reserved = (
+            self._switches_in_use() | self._pending_close_switches() | self._active_run_switches()
+        )
+        conflict = sorted(
+            zone_id
+            for zone_id in zones
+            if (zc := self._config.zones.get(zone_id)) is not None and zc.switch in reserved
+        )
         if conflict:
             raise ZoneBusy(conflict)
 
     def is_managed(self, zone_id: str) -> bool:
         return any(zone_id in run.seq.zones for run in self._runs.values())
+
+    def is_switch_managed(self, switch: str) -> bool:
+        """True if any live run owns ``switch`` (used to protect it from the retry)."""
+        return switch in self._switches_in_use()
 
     def conflicting_run(self, zones: list[str]) -> str | None:
         """The run id that reserves any of ``zones`` (or None)."""
@@ -359,6 +442,31 @@ class SequenceRunner:
     def any_running(self) -> bool:
         return bool(self._runs)
 
+    def can_reload_config(self) -> bool:
+        """Whether the shared zone-to-switch mapping can be mutated safely.
+
+        Deliberately *not* gated on ``_starts_blocked_for_recovery``: the pre-recovery
+        window can last indefinitely while HA is unreachable, and blocking reload on it
+        would lock the user out of fixing configuration exactly when HA is down at boot.
+        Recovery itself is robust to a reload — it closes by the stored physical switch
+        and resolves reconfigured switches per-record — and its execution is already
+        covered here: resumed runs register into ``self._runs`` synchronously before any
+        await, and ``reconcile_valves``/``retry_pending_closes`` set ``_cleanup_in_progress``
+        while they issue closes. Fresh starts stay blocked via ``_ensure_start_allowed``.
+        """
+        return not self._runs and not self._cleanup_in_progress
+
+    def require_initial_recovery(self) -> None:
+        """Reject fresh starts until the first HA-backed recovery succeeds."""
+        self._recovery_complete = False
+        self._starts_blocked_for_recovery = True
+
+    def _ensure_start_allowed(self) -> None:
+        if self._starts_blocked_for_recovery:
+            raise InitialRecoveryInProgress("initial valve recovery is still in progress")
+        if self._cleanup_in_progress:
+            raise ValveCleanupInProgress("valve safety cleanup is in progress")
+
     def find_zone_run(self, zone_id: str) -> tuple[str, ZoneProgress] | None:
         """The (run_id, ZoneProgress) of the run that currently has ``zone_id``
         open, or None."""
@@ -373,7 +481,9 @@ class SequenceRunner:
         factor_pct: float = 100.0,
         override_min: float | None = None,
         triggered_by: str = "manual",
+        started_notification: str | None = None,
     ) -> None:
+        self._ensure_start_allowed()
         if sequence_id not in self._config.sequences:
             raise SequenceNotFound(sequence_id)
         if sequence_id in self._runs:
@@ -386,6 +496,7 @@ class SequenceRunner:
             triggered_by=triggered_by,
             stop_event=asyncio.Event(),
             pause_event=asyncio.Event(),
+            started_notification=started_notification,
         )
         self._runs[sequence_id] = run  # registered before first await — asyncio mutex
         run.task = asyncio.create_task(
@@ -398,6 +509,7 @@ class SequenceRunner:
         zone_id: str,
         duration_min: float,
         triggered_by: str = "manual",
+        started_notification: str | None = None,
     ) -> None:
         """Run a single zone in isolation for ``duration_min`` minutes.
 
@@ -405,6 +517,7 @@ class SequenceRunner:
         already be reserved by a running sequence or another zone run), reusing
         the full execution path via a synthetic single-zone sequence.
         """
+        self._ensure_start_allowed()
         if zone_id not in self._config.zones:
             raise ZoneNotFound(zone_id)
         run_id = zone_run_id(zone_id)
@@ -419,6 +532,7 @@ class SequenceRunner:
             stop_event=asyncio.Event(),
             pause_event=asyncio.Event(),
             is_zone_run=True,
+            started_notification=started_notification,
         )
         self._runs[run_id] = run  # registered before first await — asyncio mutex
         run.task = asyncio.create_task(
@@ -540,23 +654,29 @@ class SequenceRunner:
         return basis, watchdog
 
     async def _safe_turn_off(
-        self, zone_cfg: Any, zone_id: str, attempts: int = 3, backoff_s: float = 1.0
+        self, zone_cfg: Any, zone_id: str | None = None, attempts: int = 3, backoff_s: float = 1.0
     ) -> bool:
-        """Turn a zone off, retrying on failure. Never raises.
+        """Turn a valve off, retrying on failure. Never raises.
 
         A failing turn_off (e.g. HA disconnected) must not abort the run loop
         before history is recorded, and must not leave the loop in a state where
         the valve is silently assumed off. Returns True if HA confirmed the
-        command, False if the valve may still be physically open.
+        command, False if the valve may still be physically open. Pending-close
+        bookkeeping is keyed by the switch entity (``zone_cfg.switch``), so it
+        survives zone renames/removals and never collides with another switch.
         """
+        switch = zone_cfg.switch
         for attempt in range(1, attempts + 1):
             try:
                 await self._driver.turn_off(zone_cfg)
+                # Confirmed off — drop the pending-close record for exactly this switch.
+                with self._session_factory() as session:
+                    clear_pending_close(session, switch)
                 return True
             except Exception:
                 logger.warning(
-                    "turn_off failed for zone %s (attempt %d/%d)",
-                    zone_id,
+                    "turn_off failed for switch %s (attempt %d/%d)",
+                    switch,
                     attempt,
                     attempts,
                     exc_info=True,
@@ -564,11 +684,17 @@ class SequenceRunner:
                 if attempt < attempts:
                     await asyncio.sleep(backoff_s)
         logger.error(
-            "Could not turn off zone %s after %d attempts — valve may still be open; "
-            "it will be closed by reconciliation once HA is reachable",
-            zone_id,
+            "Could not turn off switch %s after %d attempts — valve may still be open; "
+            "it will be retried by retry_pending_closes (and reconciliation once HA "
+            "is reachable)",
+            switch,
             attempts,
         )
+        # Durably record the open valve per-switch so it is never lost — even when a
+        # later zone overwrites this sequence's ActiveRun, no run owns the zone
+        # (reconciliation failure), or a reload later changes the zone's config.
+        with self._session_factory() as session:
+            save_pending_close(session, switch, zone_id)
         return False
 
     async def reconcile_valves(self, exclude: set[str] | str | None = None) -> None:
@@ -576,8 +702,8 @@ class SequenceRunner:
 
         Safety net for valves left ON by a previous process / crash, and for
         closing a zone after an HA disconnect aborted its run. ``exclude`` keeps
-        specific zones open (used when resuming runs that own those zones); the
-        zones of all currently-live runs are kept open implicitly.
+        specific zones open (used when resuming runs that own those zones); all
+        switches reserved by currently-live runs are kept open implicitly.
         Idempotent: turning off an already-off switch is harmless.
         """
         if exclude is None:
@@ -586,18 +712,28 @@ class SequenceRunner:
             excluded = {exclude}
         else:
             excluded = set(exclude)
-        running_zones = {
-            run.current_zone.zone_id for run in self._runs.values() if run.current_zone is not None
-        }
-        keep = excluded | running_zones
-        for zone_id, zone_cfg in self._config.zones.items():
-            if zone_id in keep:
-                continue
-            await self._safe_turn_off(zone_cfg, zone_id, attempts=1)
+        async with self._cleanup_lock:
+            self._cleanup_in_progress = True
+            try:
+                for zone_id, zone_cfg in self._config.zones.items():
+                    if zone_id in excluded or self.is_switch_managed(zone_cfg.switch):
+                        continue
+                    await self._safe_turn_off(zone_cfg, zone_id, attempts=1)
+            finally:
+                self._cleanup_in_progress = False
 
     def _clear_active_run(self, sequence_id: str) -> None:
         with self._session_factory() as session:
             clear_active_run(session, sequence_id)
+
+    def _retain_active_switch_for_close(
+        self, record: ActiveRun, zone_id: str | None = None
+    ) -> None:
+        """Preserve an ActiveRun's physical switch before discarding the run."""
+        with self._session_factory() as session:
+            if record.switch is not None:
+                save_pending_close(session, record.switch, zone_id)
+            clear_active_run(session, record.sequence_id)
 
     async def recover_runs(self) -> list[str]:
         """Recover (or clean up) in-flight runs after a crash/restart.
@@ -615,6 +751,7 @@ class SequenceRunner:
         if not records:
             await self.reconcile_valves()
             self._recovery_complete = True
+            self._starts_blocked_for_recovery = False
             return ["reconciled"]
 
         actions: list[str] = []
@@ -629,29 +766,81 @@ class SequenceRunner:
         # their zones open via reconcile_valves' implicit running-zone exclusion).
         await self.reconcile_valves(exclude=resuming_zones)
         self._recovery_complete = True
+        self._starts_blocked_for_recovery = False
         return actions
 
     async def retry_pending_closes(self) -> None:
-        """Durably close valves whose final turn_off was never confirmed.
+        """Durably close valves whose turn_off was never confirmed.
 
-        A run keeps its ActiveRun record when it ends without HA confirming the
-        valve closed (a turn_off failure, or an unhandled error). Once that run is
-        no longer live, its lingering record means the valve may still be open, so
-        retry the close here — and only clear the record once HA confirms off.
-        Called periodically (the plan tick), this retries until success instead of
+        Two record kinds drive this: per-switch :class:`PendingClose` rows (written
+        by ``_safe_turn_off`` on any unconfirmed close — including intermediate
+        zones of a multi-zone run and reconciliation failures) and per-sequence
+        ``ActiveRun`` rows left by a hard crash or an unhandled error.
+        Called periodically (the plan tick), it retries until success instead of
         relying on a future HA reconnect, and works even while other runs are
         active (where reconnect reconciliation would be skipped).
 
-        No-op until initial crash recovery has run, so it can never close a valve
-        that recovery would otherwise resume.
+        A switch currently owned by a live run is never touched
+        (``is_switch_managed``), so the retry can never close a valve that a running
+        sequence legitimately keeps open. No-op until initial crash recovery has
+        run, so it can never close a valve that recovery would otherwise resume.
         """
         if not self._recovery_complete:
             return
+
+        async with self._cleanup_lock:
+            self._cleanup_in_progress = True
+            try:
+                await self._retry_pending_closes_locked()
+            finally:
+                self._cleanup_in_progress = False
+
+    async def _retry_pending_closes_locked(self) -> None:
+        """Retry durable closes while fresh starts and config reloads are blocked."""
+        # Per-switch pending closes: the authoritative, non-overwritable record of an
+        # open valve. The stored switch entity is closed directly (never re-resolved
+        # against the live config, which a reload may have changed), so the exact
+        # valve that was left open is the one we close. _safe_turn_off clears the
+        # row itself on a confirmed close.
+        with self._session_factory() as session:
+            pending = load_pending_closes(session)
+        for rec in pending:
+            if self.is_switch_managed(rec.switch):
+                continue  # a live run owns this switch — its valve is legitimately open
+            logger.warning(
+                "Retrying close of switch %s (zone %s; turn_off was unconfirmed)",
+                rec.switch,
+                rec.zone_id,
+            )
+            target = SimpleNamespace(switch=rec.switch)
+            await self._safe_turn_off(target, rec.zone_id, attempts=1)
+
+        # Per-sequence ActiveRun records: close the run's current zone and clear the
+        # record once confirmed. Guarded by is_switch_managed so a different run that
+        # now owns the same switch is never disturbed.
         with self._session_factory() as session:
             records = load_active_runs(session)
         for record in records:
             if record.sequence_id in self._runs:
                 continue  # still live — its valve is legitimately open
+            if record.switch is not None:
+                zone_id = None
+                seq = self._config.sequences.get(record.sequence_id)
+                if seq is not None and 0 <= record.zone_index < len(seq.zones):
+                    zone_id = seq.zones[record.zone_index]
+                if self.is_switch_managed(record.switch):
+                    continue
+                logger.warning(
+                    "Retrying close of switch %s from active run %s",
+                    record.switch,
+                    record.sequence_id,
+                )
+                target = SimpleNamespace(switch=record.switch)
+                if await self._safe_turn_off(target, zone_id, attempts=1):
+                    self._clear_active_run(record.sequence_id)
+                continue
+
+            # Legacy rows created before ActiveRun stored the physical switch.
             seq = self._config.sequences.get(record.sequence_id)
             if seq is not None and 0 <= record.zone_index < len(seq.zones):
                 zone_id: str | None = seq.zones[record.zone_index]
@@ -661,6 +850,8 @@ class SequenceRunner:
             if zone_id is None or zone_cfg is None:
                 self._clear_active_run(record.sequence_id)  # unknown zone — nothing to close
                 continue
+            if self.is_switch_managed(zone_cfg.switch):
+                continue  # another live run owns this switch now — do not close it
             logger.warning("Retrying close of zone %s (turn_off was unconfirmed)", zone_id)
             if await self._safe_turn_off(zone_cfg, zone_id, attempts=1):
                 self._clear_active_run(record.sequence_id)
@@ -672,13 +863,34 @@ class SequenceRunner:
         Does not close valves itself — the caller reconciles once at the end.
         """
         seq = self._config.sequences.get(record.sequence_id)
-        if seq is None or record.zone_index >= len(seq.zones):
+        if seq is None or not 0 <= record.zone_index < len(seq.zones):
             logger.warning(
                 "Crash recovery: discarding active run for unknown sequence/zone '%s'",
                 record.sequence_id,
             )
-            self._clear_active_run(record.sequence_id)
+            self._retain_active_switch_for_close(record)
             return "discarded", None
+
+        existing = self._runs.get(record.sequence_id)
+        if existing is not None:
+            zone_id = (
+                existing.current_zone.zone_id
+                if existing.current_zone is not None
+                else seq.zones[record.zone_index]
+            )
+            return "already_resumed", zone_id
+
+        resuming_zone = seq.zones[record.zone_index]
+        zone_cfg = self._config.zones.get(resuming_zone)
+        if record.switch is not None and (zone_cfg is None or zone_cfg.switch != record.switch):
+            logger.warning(
+                "Crash recovery: switch for '%s' changed from %s; closing the old switch "
+                "instead of resuming",
+                record.sequence_id,
+                record.switch,
+            )
+            self._retain_active_switch_for_close(record, resuming_zone)
+            return "discarded_reconfigured", None
 
         started = record.zone_started_at
         if started.tzinfo is None:
@@ -693,11 +905,10 @@ class SequenceRunner:
                 elapsed,
                 record.zone_planned_min,
             )
-            self._clear_active_run(record.sequence_id)
+            self._retain_active_switch_for_close(record, resuming_zone)
             return "closed_stale", None
 
         remaining = max(0.0, min(record.zone_planned_min, record.zone_planned_min - elapsed))
-        resuming_zone = seq.zones[record.zone_index]
         logger.info(
             "Crash recovery: resuming '%s' at zone '%s' (#%d) for %.1f more min",
             record.sequence_id,
@@ -781,7 +992,14 @@ class SequenceRunner:
             # Persist the in-flight state so a hard crash can recover (see ActiveRun).
             with self._session_factory() as session:
                 save_active_run(
-                    session, sequence_id, i, started_at, zone_duration, duration_min, triggered_by
+                    session,
+                    sequence_id,
+                    i,
+                    started_at,
+                    zone_duration,
+                    duration_min,
+                    triggered_by,
+                    zone_cfg.switch,
                 )
             # Record the run in history immediately at start (ended_at/duration/
             # liters filled in when the zone ends) so it shows up in the history
@@ -797,15 +1015,52 @@ class SequenceRunner:
                 session.commit()
                 session.refresh(history_row)
                 history_id = history_row.id
-            await self._driver.turn_on(zone_cfg)
+            try:
+                await self._driver.turn_on(zone_cfg)
+            except Exception:
+                # turn_on may have reached HA before failing, so the valve might be
+                # open. Try to close it right away (don't wait for the next plan
+                # tick); _safe_turn_off persists a per-switch pending close if that
+                # also fails. Then finalize history as aborted and end the run
+                # instead of leaving an unreserved, untracked valve.
+                logger.exception(
+                    "turn_on failed for switch %s — closing immediately and aborting run %s",
+                    zone_cfg.switch,
+                    sequence_id,
+                )
+                closed = await self._safe_turn_off(zone_cfg, zone_id)
+                abort_reason: str | None = "start_failed" if closed else "close_failed"
+                with self._session_factory() as session:
+                    row = session.get(RunHistory, history_id) if history_id is not None else None
+                    if row is not None:
+                        row.ended_at = datetime.now(UTC)
+                        row.duration_min = 0.0
+                        row.liters = 0.0
+                        row.aborted = True
+                        row.abort_reason = abort_reason
+                        session.add(row)
+                        session.commit()
+                self._clear_active_run(sequence_id)
+                await self._emit_run_recorded()
+                seq_label = seq.label or sequence_id
+                await self._emit_notification(
+                    translate(
+                        f"abort.{abort_reason}",
+                        self._config.language,
+                        label=seq_label,
+                        zone=zone_cfg.label,
+                    ),
+                    "warning",
+                )
+                return
             logger.info("zone %s ON  (%.1f min)", zone_id, zone_duration)
 
             if not announced and self.on_started is not None:
                 announced = True
-                try:
-                    await self.on_started(sequence_id, triggered_by)
-                except Exception:
-                    logger.exception("on_started callback failed for '%s'", sequence_id)
+                self._spawn_background(
+                    self._emit_started(sequence_id, triggered_by, run.started_notification),
+                    name=f"run-started-{sequence_id}",
+                )
 
             # For a staircase-timer zone, keep the actuator's hardware timer alive
             # by re-sending "on" ahead of its expiry (see _staircase_retrigger_loop).
@@ -835,28 +1090,26 @@ class SequenceRunner:
             closed = await self._safe_turn_off(zone_cfg, zone_id)
             logger.info("zone %s OFF result=%s closed=%s", zone_id, result, closed)
 
-            # Clear the crash-recovery record only once HA confirms the valve is
-            # off. If the close could not be confirmed, keep ActiveRun so the valve
-            # is closed by retry_pending_closes (and survives a crash for boot
-            # recovery) instead of being silently abandoned open.
-            def _release(
-                sequence_id: str = sequence_id, zone_id: str = zone_id, closed: bool = closed
-            ) -> None:
-                if closed:
-                    self._clear_active_run(sequence_id)
-                else:
-                    logger.error(
-                        "zone %s may still be open (turn_off unconfirmed) — keeping "
-                        "ActiveRun so the close is retried",
-                        zone_id,
-                    )
+            # This execution path ended deliberately, so it must never be resumed
+            # after a restart. If the close was not confirmed, _safe_turn_off has
+            # already written a switch-specific PendingClose for durable retry.
+            def _release(sequence_id: str = sequence_id) -> None:
+                self._clear_active_run(sequence_id)
 
             actual_min = (off_time - started_at).total_seconds() / 60.0
             liters = actual_min / 60.0 * zone_cfg.flow_lph
-            aborted = result in (_STOP, _WATCHDOG, _RETRIGGER_FAILED)
+            # An unconfirmed close ends the run too (see the `if not closed` branch
+            # below), so the history row must reflect the abort — otherwise it would
+            # read as a successful run while a notification says the opposite.
+            aborted = result in (_STOP, _WATCHDOG, _RETRIGGER_FAILED) or not closed
 
-            abort_reason: str | None = None
-            if result == _WATCHDOG:
+            # An unconfirmed close is the safety-critical outcome (a valve may be
+            # physically open), so it takes precedence over the reason the zone
+            # *ended* — the user must see "valve may be open", not just "watchdog".
+            abort_reason = None
+            if not closed:
+                abort_reason = "close_failed"
+            elif result == _WATCHDOG:
                 abort_reason = "watchdog"
             elif result == _RETRIGGER_FAILED:
                 abort_reason = "staircase_retrigger_failed"
@@ -893,6 +1146,28 @@ class SequenceRunner:
 
             # History is persisted — let consumers (MQTT stats) refresh totals.
             await self._emit_run_recorded()
+
+            # Safety warning first, on *every* exit path: if the close was not
+            # confirmed the valve may be physically open (the switch is retried by
+            # retry_pending_closes). Surface it regardless of why the zone ended, so
+            # a stop/watchdog/staircase/pause never hides an open valve.
+            if not closed:
+                logger.error(
+                    "zone %s close unconfirmed (result=%s) — valve may be open; "
+                    "the close will be retried",
+                    zone_id,
+                    result,
+                )
+                seq_label = seq.label or sequence_id
+                await self._emit_notification(
+                    translate(
+                        "abort.close_failed",
+                        self._config.language,
+                        label=seq_label,
+                        zone=zone_cfg.label,
+                    ),
+                    "warning",
+                )
 
             if result == _STOP:
                 _release()
@@ -931,6 +1206,16 @@ class SequenceRunner:
                 remaining = zone_duration - actual_min
                 with self._session_factory() as session:
                     save_pause_snapshot(session, sequence_id, zone_id, i, max(0.0, remaining))
+                _release()
+                return
+
+            # Normal zone completion, but the valve close was not confirmed: do NOT
+            # advance to the next zone. Opening another valve while this one may
+            # still be open can leave multiple zones running at once — dropping line
+            # pressure and over-watering the unclosed zone. End the run here; the
+            # open valve is durably tracked (PendingClose) and retried (the warning
+            # was already emitted above).
+            if not closed:
                 _release()
                 return
 

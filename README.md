@@ -220,9 +220,12 @@ Each sequence registers 1-5 cron triggers per scheduled time. When a run fires
    entirely rather than watering the range minimum. The factor is *not* applied
    to single-zone plans, which water for exactly the requested duration. A
    *manual* start always runs (it isn't subject to the factor-0 skip).
-3. **Runs the zones in order**, one valve at a time under a single global mutex
-   (only one run anywhere at a time). A run history row is written at zone start
-   and finalized (duration, liters, abort reason) when the zone ends.
+3. **Runs the zones in order**, one valve at a time within a run. Runs are
+   serialized per *zone*, not globally: several runs can proceed in parallel as
+   long as their zone sets are disjoint, while a run requesting a zone already
+   reserved by another run (or by a pending valve close) is rejected. A run
+   history row is written at zone start and finalized (duration, liters, abort
+   reason) when the zone ends.
 
 Two independent safety mechanisms bound a run:
 

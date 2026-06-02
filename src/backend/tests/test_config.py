@@ -57,6 +57,26 @@ def test_negative_range_lower_bound_rejected() -> None:
         AppConfig.model_validate(data)
 
 
+def test_duplicate_switch_across_zones_rejected() -> None:
+    """Two zones may not share a switch entity — ownership/reservation is tracked
+    by switch, so a shared switch could be driven by two parallel runs."""
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["zones"]["zone_b"]["switch"] = data["zones"]["zone_a"]["switch"]
+    with pytest.raises(ValidationError, match="share switch"):
+        AppConfig.model_validate(data)
+
+
+def test_multiple_empty_switch_zones_allowed() -> None:
+    """Empty switches mean 'not yet configured' and must not collide — a config with
+    several prepared-but-unconfigured zones has to be saveable."""
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["zones"]["zone_a"]["switch"] = ""
+    data["zones"]["zone_b"]["switch"] = ""
+    config = AppConfig.model_validate(data)  # must not raise
+    assert config.zones["zone_a"].switch == ""
+    assert config.zones["zone_b"].switch == ""
+
+
 def test_missing_ha_token_raises() -> None:
     data = copy.deepcopy(MINIMAL_CONFIG_DATA)
     del data["ha"]["token"]

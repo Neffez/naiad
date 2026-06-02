@@ -30,7 +30,7 @@ components:
 
     AbortReason:
       type: string
-      enum: [rain, watchdog, manual_stop, ha_disconnect]
+      enum: [rain, watchdog, manual_stop, ha_disconnect, staircase_retrigger_failed, close_failed, start_failed]
 
     ValveStateEnum:
       type: string
