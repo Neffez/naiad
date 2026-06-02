@@ -23,6 +23,7 @@ import {
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
 import { ILogo } from '../components/icons'
+import { LoadError } from '../components/LoadError'
 import { MasterToggle } from '../components/MasterToggle'
 import { SequenceCard } from '../components/SequenceCard'
 import { SortableGrid } from '../components/SortableGrid'
@@ -41,7 +42,7 @@ export default function Dashboard() {
   const qc = useQueryClient()
   const navigate = useNavigate()
 
-  const { data: status } = useQuery<SystemStatus>({
+  const { data: status, isError: statusError } = useQuery<SystemStatus>({
     queryKey: queryKeys.status,
     queryFn: getStatus,
     refetchInterval: 30_000,
@@ -222,6 +223,12 @@ export default function Dashboard() {
           </div>
         </div>
       </header>
+
+      {statusError && (
+        <div style={{ padding: '12px 24px 0' }}>
+          <LoadError />
+        </div>
+      )}
 
       {/* mobile-only: weather + master below header */}
       {status && (
