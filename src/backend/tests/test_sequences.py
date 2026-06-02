@@ -835,6 +835,34 @@ async def test_retry_pending_closes_noop_before_recovery(fast_config: AppConfig,
         assert load_active_runs(session)  # record untouched
 
 
+async def test_retry_pending_closes_fast_path_skips_lock_when_idle(
+    fast_config: AppConfig, driver: FakeDriver, engine
+) -> None:
+    """With nothing to close the retry returns without entering the locked section,
+    so an idle plan tick never raises _cleanup_in_progress (which briefly blocks
+    fresh starts and config reloads). The locked section still runs once there is
+    durable work."""
+    runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
+    runner._recovery_complete = True
+
+    entered = False
+
+    async def _spy() -> None:
+        nonlocal entered
+        entered = True
+
+    runner._retry_pending_closes_locked = _spy  # type: ignore[method-assign]
+
+    await runner.retry_pending_closes()
+    assert entered is False  # fast path: locked section skipped
+    assert runner.can_reload_config()
+
+    with Session(engine) as session:
+        save_pending_close(session, "switch.zone_a", "zone_a")
+    await runner.retry_pending_closes()
+    assert entered is True  # work present: locked section runs
+
+
 async def test_initial_recovery_gate_rejects_fresh_starts(
     fast_config: AppConfig, driver: FakeDriver, engine
 ) -> None:
