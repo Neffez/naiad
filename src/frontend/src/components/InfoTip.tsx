@@ -1,8 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 
 /** Small circled "i" that reveals an explanatory tooltip on hover or tap. */
 export function InfoTip({ text }: { text: string }) {
+  const { t } = useTranslation()
+  const tooltipId = useId()
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLSpanElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
@@ -55,7 +58,13 @@ export function InfoTip({ text }: { text: string }) {
       <button
         ref={btnRef}
         type="button"
-        aria-label="info"
+        aria-label={t('a11y.moreInfo')}
+        aria-expanded={open}
+        aria-describedby={open ? tooltipId : undefined}
+        // Keyboard users toggle with Enter/Space (native button onClick) and
+        // dismiss with Escape; mouse users get hover via the wrapper. No onFocus
+        // opener — it would fight the click toggle and break tap on touch.
+        onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false) }}
         onClick={(e) => {
           e.preventDefault()
           setOpen((o) => !o)
@@ -84,6 +93,7 @@ export function InfoTip({ text }: { text: string }) {
       {open && pos && createPortal(
         <span
           role="tooltip"
+          id={tooltipId}
           style={{
             position: 'fixed',
             top: pos.top,

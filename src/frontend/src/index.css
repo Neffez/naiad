@@ -527,6 +527,49 @@ svg { display: block; }
 .n-input:focus { border-color: var(--n-teal-600); }
 .n-input::placeholder { color: var(--n-fg-muted); }
 
+/* ── Accessibility helpers ───────────────────────────────────────────────── */
+/* Visually hidden but available to screen readers (skip-link target text, etc.). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skip link — hidden until focused by a keyboard user, then revealed on top. */
+.n-skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 5000;
+  padding: 10px 16px;
+  background: var(--n-bg-elev);
+  color: var(--n-fg);
+  border: 1px solid var(--n-teal-500);
+  border-radius: var(--n-r-sm);
+  font-size: 13px;
+  font-family: var(--n-sans);
+  text-decoration: none;
+  transform: translateY(-150%);
+  transition: transform 150ms var(--n-ease);
+}
+.n-skip-link:focus {
+  transform: translateY(0);
+}
+
+/* Visible focus indicator for keyboard navigation. Pointer interactions
+   (:focus without :focus-visible) stay outline-free to preserve the design. */
+:focus-visible {
+  outline: 2px solid var(--n-teal-400);
+  outline-offset: 2px;
+  border-radius: var(--n-r-sm);
+}
+
 /* ── Responsive helpers ──────────────────────────────────────────────────── */
 @media (max-width: 1023px) {
   .desktop-only { display: none !important; }
