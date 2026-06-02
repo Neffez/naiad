@@ -61,7 +61,9 @@ export function InfoTip({ text }: { text: string }) {
         aria-label={t('a11y.moreInfo')}
         aria-expanded={open}
         aria-describedby={open ? tooltipId : undefined}
-        onFocus={() => setOpen(true)}
+        // Keyboard users toggle with Enter/Space (native button onClick) and
+        // dismiss with Escape; mouse users get hover via the wrapper. No onFocus
+        // opener — it would fight the click toggle and break tap on touch.
         onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false) }}
         onClick={(e) => {
           e.preventDefault()
