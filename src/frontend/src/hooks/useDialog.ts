@@ -18,6 +18,15 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(
 ) {
   const ref = useRef<T>(null)
 
+  // Keep the latest onClose in a ref so the focus effect can depend only on
+  // `open`. Callers pass inline arrows (new identity every render); without this
+  // a background re-render (e.g. a react-query refetch) while the dialog is open
+  // would re-run the effect and steal focus back to the first element.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  })
+
   useEffect(() => {
     if (!open) return
     const node = ref.current
@@ -37,7 +46,7 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         e.preventDefault()
-        onClose()
+        onCloseRef.current()
         return
       }
       if (e.key !== 'Tab') return
@@ -64,7 +73,7 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(
       // Restore focus to whatever was focused before the dialog opened.
       previouslyFocused?.focus?.()
     }
-  }, [open, onClose])
+  }, [open])
 
   return ref
 }
