@@ -65,8 +65,11 @@ def _read_settings(config: AppConfig, session: Session) -> AppSettingsResponse:
     lifetime_pref = session.get(UserPreference, "token_lifetime_days")
     lifetime = int(lifetime_pref.value) if lifetime_pref else _DEFAULT_TOKEN_LIFETIME
 
+    # Mirror the effective logic in auth._auto_login_enabled: the DB toggle
+    # overrides the YAML default, and the YAML default applies when unset — so the
+    # UI reflects the real auto-login state rather than always reporting "off".
     auto_login_pref = session.get(UserPreference, "auto_login_enabled")
-    auto_login = auto_login_pref.value == "1" if auto_login_pref else False
+    auto_login = auto_login_pref.value == "1" if auto_login_pref else config.auth.auto_login.enabled
 
     return AppSettingsResponse(
         sequences=sequences,

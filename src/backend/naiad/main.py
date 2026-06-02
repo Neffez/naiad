@@ -185,12 +185,13 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     runner.on_notification = _on_run_notification
 
-    valve_entities = {z.switch: z_id for z_id, z in config.zones.items()}
-
     async def _valve_state_cb(entity_id: str, new_state: dict[str, Any]) -> None:
-        if entity_id not in valve_entities:
+        # Resolve the switch→zone mapping live from the shared config so a runtime
+        # reload (which mutates ``config`` in place) immediately picks up added,
+        # removed, or re-pointed valves without a restart.
+        zone_id = next((z_id for z_id, z in config.zones.items() if z.switch == entity_id), None)
+        if zone_id is None:
             return
-        zone_id = valve_entities[entity_id]
         state_val = new_state.get("state", "unknown")
         if state_val in ("on", "off"):
             await broadcast_valve_changed(zone_id, state_val, entity_id)

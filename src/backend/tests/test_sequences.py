@@ -164,8 +164,11 @@ async def test_watchdog_aborts_run(minimal_config: AppConfig, driver: FakeDriver
     for seq in data["sequences"].values():
         seq["basis_min_per_zone"] = 0.02  # ~1.2s nominal zone duration
         seq["range"] = [0.0, 0.04]
-        seq["watchdog_min"] = 0  # watchdog fires immediately
     watchdog_config = AppConfig.model_validate(data)
+    # A zero watchdog (fires immediately) is rejected by config validation, so
+    # set it on the validated instance to exercise the runtime watchdog path.
+    for seq in watchdog_config.sequences.values():
+        seq.watchdog_min = 0
 
     runner = SequenceRunner(watchdog_config, driver, lambda: Session(engine))
     await runner.start("seq_1")
