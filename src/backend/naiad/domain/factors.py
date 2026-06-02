@@ -16,6 +16,10 @@ class SensorSnapshot:
     temperature_c: float | None
     season_on: bool
     wind_on: bool
+    # Today's values are the day's peak forecast (highest seen since local
+    # midnight); tomorrow's are the latest reading. The ``*_tomorrow_peak`` fields
+    # carry tomorrow's peak so ``compute_factors`` can opt into it via
+    # ``RainFactorConfig.peak_tomorrow`` (default off — see ``rain_factor_inputs``).
     precipitation_prob_today: float
     precipitation_prob_tomorrow: float
     precipitation_today_mm: float
@@ -23,6 +27,10 @@ class SensorSnapshot:
     # The day's forecast maximum temperature, when a max-temperature sensor is
     # configured. Preferred over ``temperature_c`` for the temperature factor.
     max_temperature_c: float | None = None
+    # Tomorrow's peak forecast (highest seen today). None falls back to the latest
+    # tomorrow reading, so callers/tests that omit them keep the old behaviour.
+    precipitation_prob_tomorrow_peak: float | None = None
+    precipitation_tomorrow_mm_peak: float | None = None
     unavailable: list[str] = field(default_factory=list)
 
 
@@ -65,6 +73,32 @@ def _compute_rain_factor(
     return 1.0 - (rain_mm - cfg.reduce_above_mm) / span
 
 
+def rain_factor_inputs(
+    snapshot: SensorSnapshot, peak_tomorrow: bool
+) -> tuple[float, float, float, float]:
+    """The (prob_today, prob_tomorrow, mm_today, mm_tomorrow) values fed to the rain
+    factor. Today always uses the day's peak forecast; tomorrow uses its peak only
+    when ``peak_tomorrow`` is enabled, otherwise the latest reading. Shared by
+    ``compute_factors`` and the status endpoint so the displayed rain figures match
+    what actually drives the adjustment."""
+    if peak_tomorrow:
+        prob_tomorrow = snapshot.precipitation_prob_tomorrow_peak
+        if prob_tomorrow is None:
+            prob_tomorrow = snapshot.precipitation_prob_tomorrow
+        mm_tomorrow = snapshot.precipitation_tomorrow_mm_peak
+        if mm_tomorrow is None:
+            mm_tomorrow = snapshot.precipitation_tomorrow_mm
+    else:
+        prob_tomorrow = snapshot.precipitation_prob_tomorrow
+        mm_tomorrow = snapshot.precipitation_tomorrow_mm
+    return (
+        snapshot.precipitation_prob_today,
+        prob_tomorrow,
+        snapshot.precipitation_today_mm,
+        mm_tomorrow,
+    )
+
+
 def merge_factor_config(
     config: AppConfig,
     fo: FactorOverride | None,
@@ -100,6 +134,7 @@ def merge_factor_config(
         ("reduce_above_mm", "rain_reduce_above_mm"),
         ("zero_above_mm", "rain_zero_above_mm"),
         ("forecast_decay", "rain_forecast_decay"),
+        ("peak_tomorrow", "rain_peak_tomorrow"),
     ]:
         val = getattr(fo, db_attr)
         if val is not None:
@@ -151,13 +186,10 @@ def compute_factors(
             sensors_unavailable=snapshot.unavailable,
         )
 
-    rain_factor = _compute_rain_factor(
-        snapshot.precipitation_prob_today,
-        snapshot.precipitation_prob_tomorrow,
-        snapshot.precipitation_today_mm,
-        snapshot.precipitation_tomorrow_mm,
-        eff_rain,
+    prob_today, prob_tomorrow, mm_today, mm_tomorrow = rain_factor_inputs(
+        snapshot, eff_rain.peak_tomorrow
     )
+    rain_factor = _compute_rain_factor(prob_today, prob_tomorrow, mm_today, mm_tomorrow, eff_rain)
 
     # Prefer the day's forecast maximum so a night-time run still scales to the
     # daytime peak; fall back to the current temperature when no max is available.

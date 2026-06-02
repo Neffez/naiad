@@ -115,6 +115,9 @@
     "reduceAbove": "Reduce above mm",
     "zeroAbove": "Zero above mm",
     "forecastDecay": "Forecast weighting",
+    "peakTomorrow": "Peak forecast",
+    "peakTomorrow_today": "Today only",
+    "peakTomorrow_both": "Today + tomorrow",
     "help": {
       "basisC": "Reference temperature at which watering runs at 100%. Above it watering scales up, below it scales down.",
       "pctPerC": "How many percent the watering duration changes per degree away from the reference temperature.",
@@ -123,7 +126,8 @@
       "thresholdProb": "Minimum rain probability before a rain forecast reduces watering at all.",
       "reduceAbove": "Forecast rainfall (mm) above which watering starts to be reduced.",
       "zeroAbove": "Forecast rainfall (mm) at or above which watering is skipped entirely.",
-      "forecastDecay": "Weighting (0–1) of tomorrow's rain relative to today's. 1 = counts fully, 0 = ignored."
+      "forecastDecay": "Weighting (0–1) of tomorrow's rain relative to today's. 1 = counts fully, 0 = ignored.",
+      "peakTomorrow": "Use the highest forecast value seen today for the rain adjustment instead of just the latest reading. Today is always treated this way; \"Today + tomorrow\" extends it to tomorrow's forecast too (more conservative, but more sensitive to fluctuating forecasts)."
     },
     "version": "Version",
     "haIntegration": "HA integration",

@@ -257,3 +257,49 @@ def test_merge_factor_config_accepts_valid_override(minimal_config: AppConfig) -
     temp, rain = merge_factor_config(minimal_config, good)
     assert rain.reduce_above_mm == 2.0
     assert rain.zero_above_mm == 15.0
+
+
+def test_tomorrow_peak_ignored_by_default(minimal_config: AppConfig) -> None:
+    """peak_tomorrow defaults off: the live tomorrow reading drives the factor and a
+    higher peak seen earlier today is ignored."""
+    result = compute_factors(
+        _snap(
+            precipitation_prob_tomorrow=20.0,
+            precipitation_tomorrow_mm=2.0,
+            precipitation_prob_tomorrow_peak=90.0,
+            precipitation_tomorrow_mm_peak=40.0,
+        ),
+        minimal_config,
+    )
+    assert result.rain_factor_pct == pytest.approx(100.0)  # live 2mm/20% → no reduction
+
+
+def test_tomorrow_peak_used_when_enabled(minimal_config: AppConfig, factor_engine) -> None:
+    """With peak_tomorrow on, the day's peak tomorrow forecast drives the factor even
+    after the live reading has dropped back."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_peak_tomorrow=True))
+        session.commit()
+    with Session(factor_engine) as session:
+        result = compute_factors(
+            _snap(
+                precipitation_prob_tomorrow=20.0,
+                precipitation_tomorrow_mm=2.0,
+                precipitation_prob_tomorrow_peak=90.0,
+                precipitation_tomorrow_mm_peak=40.0,
+            ),
+            minimal_config,
+            session,
+        )
+    # peak 40mm × decay 0.5 = 20mm effective at 90% prob → full block
+    assert result.rain_factor_pct == pytest.approx(0.0)
+
+
+def test_today_always_uses_peak(minimal_config: AppConfig) -> None:
+    """Today's peak always drives the factor regardless of peak_tomorrow: the snapshot
+    already carries the peak in precipitation_today_mm."""
+    result = compute_factors(
+        _snap(precipitation_prob_today=90.0, precipitation_today_mm=40.0),
+        minimal_config,
+    )
+    assert result.rain_factor_pct == pytest.approx(0.0)

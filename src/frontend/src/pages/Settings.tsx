@@ -89,8 +89,23 @@ export default function Settings() {
         <SettingsRow label={t('settings.zeroAbove')} info={t('settings.help.zeroAbove')}>
           <NumInput label={t('settings.zeroAbove')} value={settings.factors.rain.zero_above_mm} unit="mm" onBlur={(v) => mut.mutate({ factors: { rain: { zero_above_mm: v } } })} />
         </SettingsRow>
-        <SettingsRow label={t('settings.forecastDecay')} info={t('settings.help.forecastDecay')} last>
+        <SettingsRow label={t('settings.forecastDecay')} info={t('settings.help.forecastDecay')}>
           <NumInput label={t('settings.forecastDecay')} value={settings.factors.rain.forecast_decay} unit="" width={60} step={0.1} onBlur={(v) => mut.mutate({ factors: { rain: { forecast_decay: v } } })} />
+        </SettingsRow>
+        <SettingsRow label={t('settings.peakTomorrow')} info={t('settings.help.peakTomorrow')} last>
+          <div role="group" aria-label={t('settings.peakTomorrow')} style={{ display: 'flex', gap: 6 }}>
+            {([false, true] as const).map((val) => (
+              <button
+                key={String(val)}
+                className={`n-btn${settings.factors.rain.peak_tomorrow === val ? ' primary' : ''}`}
+                aria-pressed={settings.factors.rain.peak_tomorrow === val}
+                style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
+                onClick={() => mut.mutate({ factors: { rain: { peak_tomorrow: val } } })}
+              >
+                {val ? t('settings.peakTomorrow_both') : t('settings.peakTomorrow_today')}
+              </button>
+            ))}
+          </div>
         </SettingsRow>
       </SettingsSection>
 
