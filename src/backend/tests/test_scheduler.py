@@ -25,6 +25,7 @@ from naiad.scheduler import (
     _run_sequence_job,
     flush_notification_queue,
     push_notification,
+    refresh_rain_forecast_max,
 )
 from tests.conftest import MINIMAL_CONFIG_DATA
 
@@ -533,3 +534,28 @@ async def test_queue_caps_total_items() -> None:
     for i in range(_QUEUE_MAX_ITEMS + 10):
         _notification_queue.enqueue(target, f"m{i}", "start", cfg)
     assert _notification_queue.pending_count() == _QUEUE_MAX_ITEMS
+
+
+class _RefreshRecordingHA:
+    """Records the entity ids passed to refresh_daily_max."""
+
+    def __init__(self) -> None:
+        self.refreshed: list[str] = []
+
+    async def refresh_daily_max(self, entity_id: str, start: datetime, end: datetime) -> None:
+        # The window must cover today (local midnight up to now), not yesterday.
+        assert start <= end
+        self.refreshed.append(entity_id)
+
+
+async def test_refresh_rain_forecast_max_covers_all_precipitation_sensors(
+    minimal_config: AppConfig,
+) -> None:
+    ha = _RefreshRecordingHA()
+    await refresh_rain_forecast_max(minimal_config, ha)  # type: ignore[arg-type]
+    assert set(ha.refreshed) == {
+        "sensor.prec_today",
+        "sensor.prec_tomorrow",
+        "sensor.prec_prob_today",
+        "sensor.prec_prob_tomorrow",
+    }
