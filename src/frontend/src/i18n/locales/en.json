@@ -389,5 +389,20 @@
   },
   "confirmZone": {
     "subtitle": "Single zone — start now"
+  },
+  "a11y": {
+    "close": "Close",
+    "skipToContent": "Skip to main content",
+    "dismissNotification": "Dismiss notification",
+    "notificationsRegion": "Notifications",
+    "primaryNav": "Primary navigation",
+    "systemToggle": "Toggle system on or off",
+    "durationSlider": "Watering duration per zone in minutes",
+    "date": "Date",
+    "time": "Time",
+    "targetSelect": "Select target",
+    "modeSelect": "Schedule mode",
+    "weeklyUsageChart": "Weekly water usage",
+    "moreInfo": "More information"
   }
 }
