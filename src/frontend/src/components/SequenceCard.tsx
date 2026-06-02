@@ -62,6 +62,7 @@ function SequenceCardRegular({ seq, color, onStart, onPause, onResume, onStop, o
     >
       {color && (
         <span
+          aria-hidden="true"
           style={{
             position: 'absolute',
             top: 0,
@@ -107,7 +108,15 @@ function SequenceCardRegular({ seq, color, onStart, onPause, onResume, onStop, o
 
       {isRunning && seq.current_run && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div className="n-progress" style={{ flex: 1 }}>
+          <div
+            className="n-progress"
+            role="progressbar"
+            aria-label={t('status.running')}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress)}
+            style={{ flex: 1 }}
+          >
             <i style={{ width: `${progress}%` }} />
           </div>
           <span className="mono" style={{ fontSize: 13, color: 'var(--n-teal-200)', letterSpacing: '-0.01em', fontWeight: 500 }}>
@@ -183,6 +192,7 @@ function SequenceCardRich({ seq, color, onStart, onPause, onResume, onStop, onSc
     >
       {color && (
         <span
+          aria-hidden="true"
           style={{
             position: 'absolute',
             top: 0,
@@ -227,10 +237,18 @@ function SequenceCardRich({ seq, color, onStart, onPause, onResume, onStop, onSc
               {(seq.current_run.elapsed_min + seq.current_run.remaining_min).toFixed(0)} min
             </span>
           </div>
-          <div className="n-progress" style={{ height: 6 }}>
+          <div
+            className="n-progress"
+            role="progressbar"
+            aria-label={t('status.running')}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress)}
+            style={{ height: 6 }}
+          >
             <i style={{ width: `${progress}%` }} />
           </div>
-          <div className="n-ripple-line" />
+          <div className="n-ripple-line" aria-hidden="true" />
         </div>
       )}
 
@@ -311,6 +329,7 @@ function SequenceCardRich({ seq, color, onStart, onPause, onResume, onStop, onSc
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                   <span
+                    aria-hidden="true"
                     style={{
                       width: 6,
                       height: 6,

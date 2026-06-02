@@ -51,17 +51,21 @@ export default function Login({ onLogin }: Props) {
             value={pw}
             onChange={e => setPw(e.target.value)}
             placeholder={t('login.password')}
+            aria-label={t('login.password')}
+            aria-invalid={!!error}
+            autoComplete="current-password"
             className="n-input"
             style={{ textAlign: 'center', letterSpacing: '0.2em' }}
             autoFocus
           />
           {error && (
-            <p style={{ fontSize: 12, color: 'var(--n-danger)', textAlign: 'center' }}>{error}</p>
+            <p role="alert" style={{ fontSize: 12, color: 'var(--n-danger)', textAlign: 'center' }}>{error}</p>
           )}
           <button
             type="submit"
             className="n-btn primary"
             disabled={loading}
+            aria-busy={loading}
             style={{ width: '100%', justifyContent: 'center', padding: '10px' }}
           >
             {loading ? '…' : t('login.login')}
