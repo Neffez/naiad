@@ -130,6 +130,8 @@ factors:
     reduce_above_mm: 5.0      # mm — linear reduction starts here
     zero_above_mm: 20.0       # mm — factor = 0.0 at or above this
     forecast_decay: 0.5       # tomorrow's values multiplied by this
+    peak_tomorrow: false      # true = also use tomorrow's daily peak forecast,
+                              # not just the latest reading (today always uses the peak)
 
 notifications:
   # When the nightly reminder fires (who receives it is per-target, via the

@@ -612,6 +612,8 @@ export interface components {
             reduce_above_mm?: number;
             zero_above_mm?: number;
             forecast_decay?: number;
+            /** @description When true the rain factor also uses tomorrow's daily peak forecast, not just the latest reading. Today always uses the peak. */
+            peak_tomorrow?: boolean;
         };
         SequenceOverride: {
             basis_min_per_zone?: number | null;

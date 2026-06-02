@@ -287,6 +287,28 @@ async def refresh_fallback_temp_max(config: AppConfig, ha: HAClient) -> None:
     )
 
 
+async def refresh_rain_forecast_max(config: AppConfig, ha: HAClient) -> None:
+    """Refresh the cached daily-max for the precipitation forecast sensors.
+
+    The forecast for the day changes as it progresses (e.g. 5mm in the morning,
+    35mm at noon, 10mm in the evening). Reading only the current value means an
+    evening drop would restart irrigation that the noon peak had correctly stopped.
+    Caching the maximum the forecast reached since local midnight lets the rain
+    factor scale to the worst forecast seen today (see ``read_sensor_snapshot``).
+    """
+    tz = ZoneInfo(config.timezone)
+    now = datetime.now(tz)
+    start = datetime.combine(now.date(), time.min, tzinfo=tz)
+    for entity_id in (
+        config.sensors.precipitation_today,
+        config.sensors.precipitation_tomorrow,
+        config.sensors.precipitation_prob_today,
+        config.sensors.precipitation_prob_tomorrow,
+    ):
+        if entity_id:
+            await ha.refresh_daily_max(entity_id, start.astimezone(UTC), now.astimezone(UTC))
+
+
 async def _run_sequence_job(
     sequence_id: str,
     runner: SequenceRunner,
@@ -835,6 +857,20 @@ def setup_scheduler(
         args=[config, ha],
         id="fallback-temp-max",
         name="Fallback temp max refresh",
+        max_instances=1,
+        misfire_grace_time=600,
+    )
+
+    # Track the day's peak precipitation forecast so a late downward revision can't
+    # restart irrigation that an earlier, higher forecast had stopped. The recorder
+    # retains the full day's history, so an hourly poll still captures any peak; the
+    # initial fetch is triggered from the HA-connected callback (see main).
+    scheduler.add_job(
+        refresh_rain_forecast_max,
+        trigger=IntervalTrigger(hours=1),
+        args=[config, ha],
+        id="rain-forecast-max",
+        name="Rain forecast max refresh",
         max_instances=1,
         misfire_grace_time=600,
     )

@@ -115,6 +115,9 @@
     "reduceAbove": "Reduz. ab mm",
     "zeroAbove": "Null ab mm",
     "forecastDecay": "Prognose-Gewichtung",
+    "peakTomorrow": "Höchstwert-Prognose",
+    "peakTomorrow_today": "Nur heute",
+    "peakTomorrow_both": "Heute + morgen",
     "help": {
       "basisC": "Referenztemperatur, bei der die Bewässerung 100 % beträgt. Darüber wird länger, darunter kürzer bewässert.",
       "pctPerC": "Um wie viel Prozent sich die Bewässerungsdauer je Grad Abweichung von der Basistemperatur ändert.",
@@ -123,7 +126,8 @@
       "thresholdProb": "Mindest-Regenwahrscheinlichkeit, ab der eine Regenprognose die Bewässerung überhaupt reduziert.",
       "reduceAbove": "Prognostizierte Regenmenge (mm), ab der die Bewässerung reduziert wird.",
       "zeroAbove": "Prognostizierte Regenmenge (mm), ab der die Bewässerung ganz entfällt.",
-      "forecastDecay": "Gewichtung (0–1) des morgigen Regens gegenüber dem heutigen. 1 = zählt voll, 0 = wird ignoriert."
+      "forecastDecay": "Gewichtung (0–1) des morgigen Regens gegenüber dem heutigen. 1 = zählt voll, 0 = wird ignoriert.",
+      "peakTomorrow": "Für die Regenanpassung den höchsten heute gesehenen Vorhersagewert verwenden statt nur den aktuellen. „Heute“ wird immer so behandelt; mit „Heute + morgen“ gilt das auch für die morgige Prognose (vorsichtiger, aber empfindlicher gegenüber schwankenden Vorhersagen)."
     },
     "version": "Version",
     "haIntegration": "HA Integration",
