@@ -184,7 +184,7 @@ STAIRCASE_RETRY_ON_FAILURE_S = 5.0
 class ZoneConfig(BaseModel):
     label: str
     switch: str
-    flow_lph: float
+    flow_lph: float = Field(gt=0)
     # Hardware staircase-light timer support (see note above). When enabled,
     # ``staircase_min`` is the actuator's configured on-time in minutes.
     staircase_enabled: bool = False
@@ -337,9 +337,9 @@ SequenceColor = Literal["green", "sand", "purple", "slate", "blue", "rose"]
 class SequenceConfig(BaseModel):
     label: str
     zones: list[str]
-    basis_min_per_zone: float
+    basis_min_per_zone: float = Field(gt=0)
     range: tuple[float, float] = (5.0, 240.0)
-    watchdog_min: int
+    watchdog_min: int = Field(gt=0)
     schedule: ScheduleConfig
     enabled: bool = True
     wind_blocks: bool = False
@@ -348,6 +348,8 @@ class SequenceConfig(BaseModel):
     @model_validator(mode="after")
     def validate_range(self) -> "SequenceConfig":
         lo, hi = self.range
+        if lo < 0:
+            raise ValueError(f"range[0] must be >= 0, got {lo}")
         if lo >= hi:
             raise ValueError(f"range[0] must be < range[1], got [{lo}, {hi}]")
         return self
