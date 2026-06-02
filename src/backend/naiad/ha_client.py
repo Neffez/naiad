@@ -62,6 +62,27 @@ class HAClient:
 
     # ── Connection loop ───────────────────────────────────────────────────────
 
+    def _mark_disconnected(self) -> None:
+        """Tear down a dropped connection: clear state, fail pending requests and
+        fire the offline callback.
+
+        Idempotent and called from both close paths, because a websocket can end
+        two ways: abnormally (``async for`` raises → handled in ``_connect_loop``)
+        or *normally* when HA closes cleanly (codes 1000/1001 — the iterator just
+        stops, no exception). Without covering the normal path too, a clean HA
+        restart would leave pending futures hanging until their own timeout and
+        never broadcast that HA went offline.
+        """
+        was_connected = self._connected.is_set()
+        self._connected.clear()
+        self._ws = None
+        for fut in self._pending.values():
+            if not fut.done():
+                fut.cancel()
+        self._pending.clear()
+        if was_connected and self.on_connection_change:
+            self._spawn(self.on_connection_change(False), name="ha-conn-change")
+
     async def _connect_loop(self) -> None:
         delay = 1.0
         while True:
@@ -71,15 +92,10 @@ class HAClient:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                was_connected = self._connected.is_set()
-                self._connected.clear()
-                self._ws = None
-                for fut in self._pending.values():
-                    if not fut.done():
-                        fut.cancel()
-                self._pending.clear()
-                if was_connected and self.on_connection_change:
-                    self._spawn(self.on_connection_change(False), name="ha-conn-change")
+                # Cleanup normally already ran in _connect's finally; this covers the
+                # case where the failure happened before that finally could run (e.g.
+                # websockets.connect() itself failed). _mark_disconnected is idempotent.
+                self._mark_disconnected()
                 logger.warning("HA connection lost — retrying in %.0fs", delay, exc_info=True)
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 60.0)
@@ -128,8 +144,9 @@ class HAClient:
                 with contextlib.suppress(Exception):
                     async with asyncio.timeout(2):
                         await msg_task
-                self._connected.clear()
-                self._ws = None
+                # Runs whether the message loop ended via exception or a clean close,
+                # so pending requests fail fast and the offline callback always fires.
+                self._mark_disconnected()
 
     async def _load_state_cache(self, ws: ClientConnection) -> None:
         """Best-effort bulk load of all entity states."""
