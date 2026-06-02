@@ -186,22 +186,28 @@ async def _staircase_retrigger_loop(
     """
     loop = asyncio.get_running_loop()
     deadline = loop.time() + window_s
+    # The current wait between triggers. Dropped to the short retry interval after a
+    # failure (to land a successful "on" before the actuator times out) and restored
+    # to the normal interval on the next success, so a single HA hiccup does not keep
+    # us re-triggering every few seconds for the rest of the zone.
+    current_interval_s = interval_s
     while True:
         remaining = deadline - loop.time()
         if remaining <= 0:
             error_event.set()
             return
-        await asyncio.sleep(min(interval_s, remaining))
+        await asyncio.sleep(min(current_interval_s, remaining))
         try:
             await retrigger()
             deadline = loop.time() + window_s
+            current_interval_s = interval_s
             logger.debug("staircase re-trigger sent")
         except Exception:
             logger.warning(
                 "staircase re-trigger failed — retrying before actuator timeout",
                 exc_info=True,
             )
-            interval_s = STAIRCASE_RETRY_ON_FAILURE_S
+            current_interval_s = STAIRCASE_RETRY_ON_FAILURE_S
 
 
 async def _wait_zone(
