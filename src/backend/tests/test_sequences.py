@@ -651,3 +651,90 @@ async def test_db_override_watchdog_min(fast_config: AppConfig, driver: FakeDriv
         "seq_1",
     )
     assert watchdog == 120.0
+
+
+# ── Durable close retry (unconfirmed turn_off) ──────────────────────────────────
+
+
+class GatedOffDriver(FakeDriver):
+    """turn_off fails until ``allow_off`` is set, then succeeds."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.allow_off = False
+
+    async def turn_off(self, zone: Any) -> None:
+        if not self.allow_off:
+            raise RuntimeError("HA unreachable")
+        self.off_calls.append(zone.switch)
+
+
+async def test_active_run_kept_when_turn_off_unconfirmed(fast_config: AppConfig, engine) -> None:
+    """A normally-completed run whose final turn_off could not be confirmed keeps
+    its ActiveRun record, so the open valve is not silently abandoned."""
+    driver = FailingOffDriver()
+    runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
+    await runner.start("seq_1")
+    await asyncio.wait_for(_task(runner, "seq_1"), timeout=5.0)
+
+    assert not runner.any_running()
+    with Session(engine) as session:
+        assert load_active_runs(session)  # kept for retry, not cleared
+
+
+async def test_retry_pending_closes_closes_and_clears(fast_config: AppConfig, engine) -> None:
+    """Once recovery has run, the periodic retry closes a valve whose turn_off was
+    unconfirmed and clears the record only after HA confirms it off."""
+    driver = GatedOffDriver()
+    runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
+    runner._recovery_complete = True
+
+    await runner.start("seq_1")
+    await asyncio.wait_for(_task(runner, "seq_1"), timeout=5.0)
+    with Session(engine) as session:
+        assert load_active_runs(session)  # close failed during the run
+
+    # HA recovers — the retry should now close the valve and clear the record.
+    driver.allow_off = True
+    await runner.retry_pending_closes()
+
+    assert "switch.zone_a" in driver.off_calls
+    with Session(engine) as session:
+        assert not load_active_runs(session)
+
+
+async def test_retry_pending_closes_noop_before_recovery(fast_config: AppConfig, engine) -> None:
+    """The retry must not touch valves before initial crash recovery has run —
+    recovery may still want to resume a run that owns the zone."""
+    driver = GatedOffDriver()
+    driver.allow_off = True
+    runner = SequenceRunner(fast_config, driver, lambda: Session(engine))
+    # _recovery_complete is False by default.
+    with Session(engine) as session:
+        save_active_run(
+            session,
+            sequence_id="seq_1",
+            zone_index=0,
+            zone_started_at=datetime.now(UTC),
+            zone_planned_min=30.0,
+            run_duration_min=30.0,
+            triggered_by="cron",
+        )
+
+    await runner.retry_pending_closes()
+    assert driver.off_calls == []  # no-op
+    with Session(engine) as session:
+        assert load_active_runs(session)  # record untouched
+
+
+async def test_retry_pending_closes_skips_live_run(runner: SequenceRunner, engine) -> None:
+    """A live run's ActiveRun must not be closed/cleared by the retry."""
+    runner._recovery_complete = True
+    await runner.start("seq_1")
+    await asyncio.sleep(0)  # open the zone (writes ActiveRun)
+
+    await runner.retry_pending_closes()
+    assert runner.any_running()  # still live
+    with Session(engine) as session:
+        assert load_active_runs(session)  # not cleared
+    await runner.stop("seq_1")
