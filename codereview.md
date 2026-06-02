@@ -247,7 +247,18 @@ Verified after every change: backend `ruff check` ✅ · `ruff format` ✅ ·
   text; icon-only vs labeled button). It is a cosmetic dedup whose correctness is
   visual, and there are no render tests, so it should be done where the app can be
   run and eyeballed.
-- **[L-7 — remaining]** The `rgba(...)` glow/overlay literals (→ `--n-*` tokens),
-  full combobox ARIA (`role="combobox"/"listbox"`, `aria-activedescendant`) and
-  query-error UI are cosmetic/UX changes best verified against the running app.
+### L-7 follow-up (branch `claude/frontend-l7-finish`, off updated main)
+
+- **Combobox ARIA — ✅ already landed** via the separate a11y PR (#62): the entity
+  picker has `role="combobox"` + `aria-expanded/controls/autocomplete/activedescendant`
+  on the input and `role="listbox"`/`role="option"`/`aria-selected` on the popup.
+  Nothing left to do.
+- **Query-error UI — ✅ done.** New `components/LoadError.tsx` (`role="alert"`,
+  `common.loadError` in en/de) is rendered when the primary query of History,
+  Planner and Dashboard fails, instead of the page silently showing empty/`—`.
+- **`rgba(...)` literals — ✅ partial (lossless).** Added `--n-surface-overlay`
+  and `--n-glow-border` tokens (identical values) and replaced the exact repeated
+  literals (`rgba(255,255,255,0.015)` ×4, `rgba(94,200,216,0.25)` ×3) — zero visual
+  change. The remaining one-off literals use distinct alpha values; consolidating
+  them is a design decision (not a rule violation) best made against the running app.
 </content>

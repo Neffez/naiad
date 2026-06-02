@@ -36,6 +36,10 @@
   --n-teal-700: #145a66;
   --n-teal-900: #0b3138;
   --n-teal-glow: rgba(94, 200, 216, 0.14);
+  /* border tint matching the teal glow, for highlighted cards/rows */
+  --n-glow-border: rgba(94, 200, 216, 0.25);
+  /* faint white overlay for subtly raised surfaces */
+  --n-surface-overlay: rgba(255, 255, 255, 0.015);
   /* dark text drawn on a (light) teal accent surface — readable in both themes */
   --n-on-accent: #04181c;
 
