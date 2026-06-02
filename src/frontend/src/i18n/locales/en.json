@@ -1,4 +1,7 @@
 {
+  "common": {
+    "loadError": "Couldn't load — check the connection and try again."
+  },
   "toast": {
     "started": "{{name}} started",
     "resumed": "{{name}} resumed",

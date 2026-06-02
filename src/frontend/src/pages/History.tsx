@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { type ConfigDoc, deleteHistory, getConfig, getHistory, type HistoryEntry } from '../api/client'
 import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
+import { LoadError } from '../components/LoadError'
 import { IClock, IPlay } from '../components/icons'
 import { resolveSeqColor } from '../theme/sequenceColors'
 
@@ -37,7 +38,7 @@ export default function History() {
   const [confirm, setConfirm] = useState<null | 'all' | 'old'>(null)
   const qc = useQueryClient()
 
-  const { data } = useQuery({
+  const { data, isError } = useQuery({
     queryKey: queryKeys.historyPage(page),
     queryFn: () => getHistory({ page, per_page: 50 }),
   })
@@ -126,14 +127,18 @@ export default function History() {
         <HistoryRow key={row.id} row={row} config={config} />
       ))}
 
-      {/* Empty state */}
+      {/* Empty / error state */}
       {items.length === 0 && (
-        <div style={{
-          padding: '32px 0', textAlign: 'center',
-          color: 'var(--n-fg-muted)', fontSize: 14,
-        }}>
-          {t('history.empty')}
-        </div>
+        isError ? (
+          <div style={{ padding: '24px 0' }}><LoadError /></div>
+        ) : (
+          <div style={{
+            padding: '32px 0', textAlign: 'center',
+            color: 'var(--n-fg-muted)', fontSize: 14,
+          }}>
+            {t('history.empty')}
+          </div>
+        )
       )}
 
       {/* Pagination */}

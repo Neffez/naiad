@@ -113,7 +113,7 @@ export function ConfirmDialog({
             gridTemplateColumns: 'repeat(3, 1fr)',
             padding: '10px 0',
             borderRadius: 12,
-            background: 'rgba(255,255,255,0.015)',
+            background: 'var(--n-surface-overlay)',
             border: '1px solid var(--n-line)',
           }}
         >

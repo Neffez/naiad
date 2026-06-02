@@ -55,7 +55,7 @@ export default function Settings() {
           alignItems: 'center', gap: 8,
           padding: '8px 16px', borderRadius: 999,
           background: 'var(--n-teal-glow)',
-          border: '1px solid rgba(94,200,216,0.25)',
+          border: '1px solid var(--n-glow-border)',
           color: 'var(--n-teal-200)', fontSize: 13, fontWeight: 500,
         }}>
           ✓ {t('settings.saved')}
@@ -192,7 +192,7 @@ function SettingsSection({ title, children }: { title: string; children: ReactNo
     }}>
       <div style={{
         padding: '14px 20px',
-        background: 'rgba(255,255,255,0.015)',
+        background: 'var(--n-surface-overlay)',
         borderBottom: '1px solid var(--n-line)',
       }}>
         <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.01em' }}>{title}</span>
