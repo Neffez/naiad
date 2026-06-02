@@ -63,7 +63,11 @@ def _add_missing_columns(engine: Engine) -> None:
         # table: {column: SQL type}
         "plans": {"zone_id": "VARCHAR"},
         "active_run": {"switch": "VARCHAR"},
-        "factor_overrides": {"manual_mode": "BOOLEAN", "manual_pct": "INTEGER"},
+        "factor_overrides": {
+            "manual_mode": "BOOLEAN",
+            "manual_pct": "INTEGER",
+            "rain_peak_tomorrow": "BOOLEAN",
+        },
     }
     inspector = inspect(engine)
     for table, columns in additions.items():

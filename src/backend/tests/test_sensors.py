@@ -100,3 +100,20 @@ def test_precipitation_falls_back_to_current_without_cache(minimal_config: AppCo
     ha = FakeHA(states, daily_max={})
     snap = read_sensor_snapshot(ha, minimal_config)  # type: ignore[arg-type]
     assert snap.precipitation_today_mm == 12.0
+
+
+def test_tomorrow_keeps_live_value_and_separate_peak(minimal_config: AppConfig) -> None:
+    """Tomorrow's main field stays the latest reading; the peak (highest seen today)
+    is exposed separately so compute_factors can opt into it per peak_tomorrow."""
+    states = _base_states()
+    states["sensor.prec_tomorrow"] = "10"
+    states["sensor.prec_prob_tomorrow"] = "30"
+    ha = FakeHA(
+        states,
+        daily_max={"sensor.prec_tomorrow": 40.0, "sensor.prec_prob_tomorrow": 80.0},
+    )
+    snap = read_sensor_snapshot(ha, minimal_config)  # type: ignore[arg-type]
+    assert snap.precipitation_tomorrow_mm == 10.0  # latest reading
+    assert snap.precipitation_tomorrow_mm_peak == 40.0  # day's peak
+    assert snap.precipitation_prob_tomorrow == 30.0
+    assert snap.precipitation_prob_tomorrow_peak == 80.0
