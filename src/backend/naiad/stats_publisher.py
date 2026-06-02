@@ -234,7 +234,7 @@ class StatsPublisher:
 
         self._loop = asyncio.get_running_loop()
         client = mqtt.Client(
-            mqtt.CallbackAPIVersion.VERSION2,  # type: ignore[attr-defined]
+            mqtt.CallbackAPIVersion.VERSION2,
             client_id=cfg.client_id or "naiad",
         )
         if cfg.username:

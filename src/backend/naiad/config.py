@@ -167,10 +167,42 @@ class SensorsConfig(BaseModel):
 # ── Zones ─────────────────────────────────────────────────────────────────────
 
 
+# Some valve actuators (e.g. KNX switch actuators) offer a hardware "staircase
+# light" timer: a turn-on keeps the switch on for a fixed time and then closes it
+# on its own, bounding how long a valve can stay open if a turn-off is ever lost.
+# When enabled for a zone, Naiad re-sends "on" before that timer expires so the
+# valve stays open for the full watering, while the actuator still acts as a
+# hardware safety net. The re-trigger interval is derived (no benefit to making it
+# configurable): re-trigger at half the actuator timer, which tolerates a single
+# missed/failed trigger without the valve dropping.
+STAIRCASE_RETRIGGER_FRACTION = 0.5
+# On a failed re-trigger (HA hiccup), retry sooner than the normal interval — we
+# still have until the actuator's timer elapses to land a successful "on".
+STAIRCASE_RETRY_ON_FAILURE_S = 5.0
+
+
 class ZoneConfig(BaseModel):
     label: str
     switch: str
     flow_lph: float
+    # Hardware staircase-light timer support (see note above). When enabled,
+    # ``staircase_min`` is the actuator's configured on-time in minutes.
+    staircase_enabled: bool = False
+    staircase_min: float = 0.0
+
+    @model_validator(mode="after")
+    def _validate_staircase(self) -> "ZoneConfig":
+        if self.staircase_enabled and self.staircase_min <= 0:
+            raise ValueError("staircase_min must be > 0 when staircase_enabled is true")
+        return self
+
+
+def staircase_retrigger_interval_min(zone: ZoneConfig) -> float | None:
+    """The interval (minutes) at which to re-send "on" for a staircase zone, or
+    None when the zone does not use the actuator's staircase timer."""
+    if not zone.staircase_enabled or zone.staircase_min <= 0:
+        return None
+    return zone.staircase_min * STAIRCASE_RETRIGGER_FRACTION
 
 
 # ── Sequences ────────────────────────────────────────────────────────────────

@@ -2,12 +2,20 @@ import asyncio
 import logging
 import math
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from naiad.config import AppConfig, ScheduleConfig, SequenceConfig, ZoneConfig
+from naiad.config import (
+    STAIRCASE_RETRY_ON_FAILURE_S,
+    AppConfig,
+    ScheduleConfig,
+    SequenceConfig,
+    ZoneConfig,
+    staircase_retrigger_interval_min,
+)
 from naiad.domain.models import ActiveRun, RunHistory
 from naiad.domain.resume import (
     clear_active_run,
@@ -135,6 +143,48 @@ _STOP = "stop"
 _PAUSE = "pause"
 _DONE = "done"
 _WATCHDOG = "watchdog"
+_RETRIGGER_FAILED = "retrigger_failed"
+
+
+async def _staircase_retrigger_loop(
+    retrigger: Callable[[], Awaitable[None]],
+    interval_s: float,
+    window_s: float,
+    error_event: asyncio.Event,
+) -> None:
+    """Re-send "on" to a staircase actuator before its timer elapses.
+
+    The actuator closes the valve on its own ``window_s`` after the last
+    successful "on", so the loop tracks a deadline = last success + window and
+    re-triggers ahead of it. A failed trigger (HA hiccup) is retried sooner than
+    the normal interval — a slightly late trigger is harmless since Naiad turns
+    the valve off at the end anyway. If no "on" lands before the deadline, the
+    actuator has physically closed the valve: signal ``error_event`` so the run
+    ends early (and the user is notified) rather than silently watering short.
+
+    This task lives only for the duration of one zone's wait and is always
+    cancelled when that wait returns (including on the software watchdog), so it
+    can never keep re-triggering past the watering window and defeat the
+    actuator's hardware safety net.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + window_s
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            error_event.set()
+            return
+        await asyncio.sleep(min(interval_s, remaining))
+        try:
+            await retrigger()
+            deadline = loop.time() + window_s
+            logger.debug("staircase re-trigger sent")
+        except Exception:
+            logger.warning(
+                "staircase re-trigger failed — retrying before actuator timeout",
+                exc_info=True,
+            )
+            interval_s = STAIRCASE_RETRY_ON_FAILURE_S
 
 
 async def _wait_zone(
@@ -142,18 +192,49 @@ async def _wait_zone(
     watchdog_min: float,
     stop_event: asyncio.Event,
     pause_event: asyncio.Event,
+    retrigger: Callable[[], Awaitable[None]] | None = None,
+    retrigger_interval_min: float | None = None,
+    staircase_window_min: float | None = None,
 ) -> str:
     zone_task = asyncio.ensure_future(asyncio.sleep(duration_min * 60))
     watchdog_task = asyncio.ensure_future(asyncio.sleep(watchdog_min * 60))
     stop_task = asyncio.ensure_future(stop_event.wait())
     pause_task = asyncio.ensure_future(pause_event.wait())
 
-    done, pending = await asyncio.wait(
-        [zone_task, watchdog_task, stop_task, pause_task],
-        return_when=asyncio.FIRST_COMPLETED,
-    )
-    for t in pending:
-        t.cancel()
+    # Optional staircase re-trigger: a background task that keeps the actuator's
+    # hardware timer alive, plus an error event it raises if it can no longer do
+    # so before the actuator auto-closes the valve.
+    error_event = asyncio.Event()
+    retrigger_task: asyncio.Task[None] | None = None
+    if (
+        retrigger is not None
+        and retrigger_interval_min is not None
+        and staircase_window_min is not None
+    ):
+        retrigger_task = asyncio.ensure_future(
+            _staircase_retrigger_loop(
+                retrigger,
+                retrigger_interval_min * 60,
+                staircase_window_min * 60,
+                error_event,
+            )
+        )
+    error_task = asyncio.ensure_future(error_event.wait())
+
+    try:
+        done, pending = await asyncio.wait(
+            [zone_task, watchdog_task, stop_task, pause_task, error_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+    finally:
+        for t in (zone_task, watchdog_task, stop_task, pause_task, error_task):
+            t.cancel()
+        # The re-trigger task must be dead before the caller turns the valve off,
+        # so a stray "on" can never follow the closing "off".
+        if retrigger_task is not None:
+            retrigger_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await retrigger_task
 
     if stop_task in done:
         return _STOP
@@ -161,6 +242,8 @@ async def _wait_zone(
         return _PAUSE
     if watchdog_task in done:
         return _WATCHDOG
+    if error_task in done:
+        return _RETRIGGER_FAILED
     return _DONE
 
 
@@ -178,6 +261,10 @@ class SequenceRunner:
         # by run id. Multiple runs may execute in parallel as long as their zone
         # sets are disjoint (enforced at start by _check_zone_conflict).
         self._runs: dict[str, _Run] = {}
+        # Set once initial crash recovery has run. retry_pending_closes() is a no-op
+        # until then, so the periodic close retry can never close a valve that
+        # recovery would have resumed.
+        self._recovery_complete = False
         # Invoked once a run actually opens its first valve (sequence_id, triggered_by),
         # so "running" is broadcast only after the run is confirmed, not when it's scheduled.
         self.on_started: Callable[[str, str], Awaitable[None]] | None = None
@@ -354,8 +441,11 @@ class SequenceRunner:
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Unhandled error in zone run '%s'", run.run_id)
-            self._clear_active_run(run.run_id)
+            # Keep the ActiveRun record: the valve may still be open and the
+            # record is what lets retry_pending_closes (and boot recovery) close it.
+            logger.exception(
+                "Unhandled error in zone run '%s' — valve close will be retried", run.run_id
+            )
         finally:
             self._runs.pop(run.run_id, None)
 
@@ -424,8 +514,11 @@ class SequenceRunner:
             # be recovered on the next boot. Re-raise without clearing it.
             raise
         except Exception:
-            logger.exception("Unhandled error in sequence '%s'", sequence_id)
-            self._clear_active_run(sequence_id)
+            # Keep the ActiveRun record: the valve may still be open and the
+            # record is what lets retry_pending_closes (and boot recovery) close it.
+            logger.exception(
+                "Unhandled error in sequence '%s' — valve close will be retried", sequence_id
+            )
         finally:
             self._runs.pop(sequence_id, None)
 
@@ -521,6 +614,7 @@ class SequenceRunner:
 
         if not records:
             await self.reconcile_valves()
+            self._recovery_complete = True
             return ["reconciled"]
 
         actions: list[str] = []
@@ -534,7 +628,42 @@ class SequenceRunner:
         # Close any valve not owned by a resumed run (runs registered above keep
         # their zones open via reconcile_valves' implicit running-zone exclusion).
         await self.reconcile_valves(exclude=resuming_zones)
+        self._recovery_complete = True
         return actions
+
+    async def retry_pending_closes(self) -> None:
+        """Durably close valves whose final turn_off was never confirmed.
+
+        A run keeps its ActiveRun record when it ends without HA confirming the
+        valve closed (a turn_off failure, or an unhandled error). Once that run is
+        no longer live, its lingering record means the valve may still be open, so
+        retry the close here — and only clear the record once HA confirms off.
+        Called periodically (the plan tick), this retries until success instead of
+        relying on a future HA reconnect, and works even while other runs are
+        active (where reconnect reconciliation would be skipped).
+
+        No-op until initial crash recovery has run, so it can never close a valve
+        that recovery would otherwise resume.
+        """
+        if not self._recovery_complete:
+            return
+        with self._session_factory() as session:
+            records = load_active_runs(session)
+        for record in records:
+            if record.sequence_id in self._runs:
+                continue  # still live — its valve is legitimately open
+            seq = self._config.sequences.get(record.sequence_id)
+            if seq is not None and 0 <= record.zone_index < len(seq.zones):
+                zone_id: str | None = seq.zones[record.zone_index]
+            else:
+                zone_id = zone_id_of_run(record.sequence_id)
+            zone_cfg = self._config.zones.get(zone_id) if zone_id is not None else None
+            if zone_id is None or zone_cfg is None:
+                self._clear_active_run(record.sequence_id)  # unknown zone — nothing to close
+                continue
+            logger.warning("Retrying close of zone %s (turn_off was unconfirmed)", zone_id)
+            if await self._safe_turn_off(zone_cfg, zone_id, attempts=1):
+                self._clear_active_run(record.sequence_id)
 
     def _recover_one(self, record: ActiveRun) -> tuple[str, str | None]:
         """Process one persisted run; returns (action, resuming_zone_or_None).
@@ -603,8 +732,12 @@ class SequenceRunner:
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Unhandled error during crash recovery of '%s'", run.run_id)
-            self._clear_active_run(run.run_id)
+            # Keep the ActiveRun record: the valve may still be open and the
+            # record is what lets retry_pending_closes (and boot recovery) close it.
+            logger.exception(
+                "Unhandled error during crash recovery of '%s' — valve close will be retried",
+                run.run_id,
+            )
         finally:
             self._runs.pop(run.run_id, None)
 
@@ -674,21 +807,59 @@ class SequenceRunner:
                 except Exception:
                     logger.exception("on_started callback failed for '%s'", sequence_id)
 
+            # For a staircase-timer zone, keep the actuator's hardware timer alive
+            # by re-sending "on" ahead of its expiry (see _staircase_retrigger_loop).
+            # The task is bounded by _wait_zone, so capturing the loop's zone_cfg is
+            # safe — it's cancelled before the next iteration reassigns it.
+            retrigger_interval = staircase_retrigger_interval_min(zone_cfg)
+            retrigger_cb: Callable[[], Awaitable[None]] | None = None
+            if retrigger_interval is not None:
+
+                async def _retrigger(zc: ZoneConfig = zone_cfg) -> None:
+                    await self._driver.turn_on(zc)
+
+                retrigger_cb = _retrigger
             result = await _wait_zone(
-                zone_duration, effective_watchdog, run.stop_event, run.pause_event
+                zone_duration,
+                effective_watchdog,
+                run.stop_event,
+                run.pause_event,
+                retrigger=retrigger_cb,
+                retrigger_interval_min=retrigger_interval,
+                staircase_window_min=(
+                    zone_cfg.staircase_min if retrigger_interval is not None else None
+                ),
             )
 
             off_time = datetime.now(UTC)
-            await self._safe_turn_off(zone_cfg, zone_id)
-            logger.info("zone %s OFF result=%s", zone_id, result)
+            closed = await self._safe_turn_off(zone_cfg, zone_id)
+            logger.info("zone %s OFF result=%s closed=%s", zone_id, result, closed)
+
+            # Clear the crash-recovery record only once HA confirms the valve is
+            # off. If the close could not be confirmed, keep ActiveRun so the valve
+            # is closed by retry_pending_closes (and survives a crash for boot
+            # recovery) instead of being silently abandoned open.
+            def _release(
+                sequence_id: str = sequence_id, zone_id: str = zone_id, closed: bool = closed
+            ) -> None:
+                if closed:
+                    self._clear_active_run(sequence_id)
+                else:
+                    logger.error(
+                        "zone %s may still be open (turn_off unconfirmed) — keeping "
+                        "ActiveRun so the close is retried",
+                        zone_id,
+                    )
 
             actual_min = (off_time - started_at).total_seconds() / 60.0
             liters = actual_min / 60.0 * zone_cfg.flow_lph
-            aborted = result in (_STOP, _WATCHDOG)
+            aborted = result in (_STOP, _WATCHDOG, _RETRIGGER_FAILED)
 
             abort_reason: str | None = None
             if result == _WATCHDOG:
                 abort_reason = "watchdog"
+            elif result == _RETRIGGER_FAILED:
+                abort_reason = "staircase_retrigger_failed"
             elif result == _STOP:
                 abort_reason = run.stop_reason
 
@@ -724,7 +895,7 @@ class SequenceRunner:
             await self._emit_run_recorded()
 
             if result == _STOP:
-                self._clear_active_run(sequence_id)
+                _release()
                 return
             if result == _WATCHDOG:
                 logger.warning("Watchdog triggered for zone %s", zone_id)
@@ -738,14 +909,30 @@ class SequenceRunner:
                     ),
                     "warning",
                 )
-                self._clear_active_run(sequence_id)
+                _release()
+                return
+            if result == _RETRIGGER_FAILED:
+                logger.warning(
+                    "Staircase re-trigger failed for zone %s — ending run early", zone_id
+                )
+                seq_label = seq.label or sequence_id
+                await self._emit_notification(
+                    translate(
+                        "abort.staircase_failed",
+                        self._config.language,
+                        label=seq_label,
+                        zone=zone_cfg.label,
+                    ),
+                    "warning",
+                )
+                _release()
                 return
             if result == _PAUSE:
                 remaining = zone_duration - actual_min
                 with self._session_factory() as session:
                     save_pause_snapshot(session, sequence_id, zone_id, i, max(0.0, remaining))
-                self._clear_active_run(sequence_id)
+                _release()
                 return
 
         # All zones completed normally.
-        self._clear_active_run(sequence_id)
+        _release()

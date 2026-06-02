@@ -443,6 +443,13 @@ async def _plan_tick(
 ) -> None:
     now = datetime.now(UTC)
 
+    # Safety net: retry closing any valve whose turn_off was never confirmed (so a
+    # failed close is durably retried rather than relying on a future HA reconnect).
+    try:
+        await runner.retry_pending_closes()
+    except Exception:
+        logger.exception("retry_pending_closes failed")
+
     with session_factory() as session:
         due: list[Plan] = list(
             session.exec(
