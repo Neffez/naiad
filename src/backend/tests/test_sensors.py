@@ -64,3 +64,39 @@ def test_no_max_anywhere_leaves_none(minimal_config: AppConfig) -> None:
     ha = FakeHA(_base_states(), daily_max={})
     snap = read_sensor_snapshot(ha, minimal_config)  # type: ignore[arg-type]
     assert snap.max_temperature_c is None  # compute_factors then uses current temp
+
+
+def test_precipitation_uses_daily_peak_over_current(minimal_config: AppConfig) -> None:
+    """The rain forecast scales to the day's peak: an evening drop to 10mm must not
+    override a noon peak of 35mm that had stopped irrigation."""
+    states = _base_states()
+    states["sensor.prec_today"] = "10"  # current (evening) reading dropped back
+    states["sensor.prec_prob_today"] = "40"
+    ha = FakeHA(
+        states,
+        daily_max={
+            "sensor.prec_today": 35.0,  # the noon peak, from the recorder
+            "sensor.prec_prob_today": 90.0,
+        },
+    )
+    snap = read_sensor_snapshot(ha, minimal_config)  # type: ignore[arg-type]
+    assert snap.precipitation_today_mm == 35.0
+    assert snap.precipitation_prob_today == 90.0
+
+
+def test_precipitation_keeps_current_when_higher_than_peak(minimal_config: AppConfig) -> None:
+    """A live reading above the cached peak still wins — the cache never holds the
+    forecast back below the latest value."""
+    states = _base_states()
+    states["sensor.prec_today"] = "40"
+    ha = FakeHA(states, daily_max={"sensor.prec_today": 35.0})
+    snap = read_sensor_snapshot(ha, minimal_config)  # type: ignore[arg-type]
+    assert snap.precipitation_today_mm == 40.0
+
+
+def test_precipitation_falls_back_to_current_without_cache(minimal_config: AppConfig) -> None:
+    states = _base_states()
+    states["sensor.prec_today"] = "12"
+    ha = FakeHA(states, daily_max={})
+    snap = read_sensor_snapshot(ha, minimal_config)  # type: ignore[arg-type]
+    assert snap.precipitation_today_mm == 12.0
