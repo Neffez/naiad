@@ -164,6 +164,43 @@ async def test_auto_login_db_pref_overrides_yaml(minimal_config: AppConfig) -> N
     assert result.auto_login_enabled is False
 
 
+# ── Rain peak_tomorrow override ───────────────────────────────────────────────
+
+
+async def test_rain_peak_tomorrow_defaults_to_yaml(minimal_config: AppConfig) -> None:
+    """With no override stored, the response reflects the YAML default (False)."""
+    from naiad.api.settings import get_settings
+
+    eng = _engine()
+    with Session(eng) as s:
+        result = await get_settings(_=None, config=minimal_config, session=s)
+    assert result.factors.rain.peak_tomorrow is False
+
+
+async def test_rain_peak_tomorrow_round_trips(minimal_config: AppConfig) -> None:
+    """PATCHing peak_tomorrow persists it and is reflected on read-back."""
+    from naiad.api.schemas import (
+        FactorSettingsInput,
+        RainFactorSettingsInput,
+        UpdateSettingsRequest,
+    )
+    from naiad.api.settings import update_settings
+    from naiad.domain.models import FactorOverride
+
+    eng = _engine()
+    with Session(eng) as s:
+        body = UpdateSettingsRequest(
+            factors=FactorSettingsInput(rain=RainFactorSettingsInput(peak_tomorrow=True))
+        )
+        result = await update_settings(body=body, _=None, config=minimal_config, session=s)
+    assert result.factors.rain.peak_tomorrow is True
+
+    with Session(eng) as s:
+        fo = s.get(FactorOverride, 1)
+        assert fo is not None
+        assert fo.rain_peak_tomorrow is True
+
+
 # ── Token lifetime validation ─────────────────────────────────────────────────
 
 

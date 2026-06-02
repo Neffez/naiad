@@ -66,3 +66,20 @@ def test_no_plans_table_is_skipped() -> None:
     engine = create_engine("sqlite:///:memory:")
     _add_missing_columns(engine)  # must not raise
     assert not inspect(engine).has_table("plans")
+
+
+def test_adds_rain_peak_tomorrow_to_legacy_factor_overrides() -> None:
+    """A factor_overrides table created before peak_tomorrow existed gains the column."""
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as conn:
+        # Legacy schema: rain factor columns but no rain_peak_tomorrow.
+        conn.execute(
+            text(
+                "CREATE TABLE factor_overrides ("
+                "id INTEGER PRIMARY KEY, rain_forecast_decay FLOAT, updated_at DATETIME)"
+            )
+        )
+
+    assert "rain_peak_tomorrow" not in _columns(engine, "factor_overrides")
+    _add_missing_columns(engine)
+    assert "rain_peak_tomorrow" in _columns(engine, "factor_overrides")

@@ -48,6 +48,7 @@ def _read_settings(config: AppConfig, session: Session) -> AppSettingsResponse:
         reduce_above_mm=_r(fo.rain_reduce_above_mm if fo else None, rc.reduce_above_mm),
         zero_above_mm=_r(fo.rain_zero_above_mm if fo else None, rc.zero_above_mm),
         forecast_decay=_r(fo.rain_forecast_decay if fo else None, rc.forecast_decay),
+        peak_tomorrow=_r(fo.rain_peak_tomorrow if fo else None, rc.peak_tomorrow),
     )
 
     overrides = session.exec(select(SequenceOverride)).all()
@@ -127,6 +128,8 @@ async def update_settings(
                 fo.rain_zero_above_mm = r.zero_above_mm
             if r.forecast_decay is not None:
                 fo.rain_forecast_decay = r.forecast_decay
+            if r.peak_tomorrow is not None:
+                fo.rain_peak_tomorrow = r.peak_tomorrow
         # Validate the merged result before persisting: the read path
         # (compute_factors) re-validates and would otherwise raise on every
         # call, bricking status + scheduler. Fail fast with 422 instead.
