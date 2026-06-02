@@ -255,7 +255,9 @@ async def websocket_endpoint(
             except json.JSONDecodeError:
                 continue
             if client_msg.get("type") == "ping":
-                await websocket.send_text(json.dumps({"type": "pong"}))
+                # Route through the manager so the pong is serialized with
+                # broadcasts/heartbeat/run-tick on this connection's send lock.
+                await manager.send(websocket, {"type": "pong"})
     except WebSocketDisconnect:
         pass
     except Exception:

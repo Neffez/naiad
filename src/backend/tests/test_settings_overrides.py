@@ -133,3 +133,46 @@ async def test_manual_mode_toggle_off_persists(minimal_config: AppConfig) -> Non
 
     assert result.factors.manual_mode is False
     assert result.factors.manual_pct == 110
+
+
+# ── Auto-login reporting ──────────────────────────────────────────────────────
+
+
+async def test_auto_login_response_falls_back_to_yaml(minimal_config: AppConfig) -> None:
+    """With no DB preference, the settings response mirrors the YAML default
+    rather than always reporting False (which misled the UI)."""
+    from naiad.api.settings import get_settings
+
+    minimal_config.auth.auto_login.enabled = True
+    eng = _engine()
+    with Session(eng) as s:
+        result = await get_settings(_=None, config=minimal_config, session=s)
+    assert result.auto_login_enabled is True
+
+
+async def test_auto_login_db_pref_overrides_yaml(minimal_config: AppConfig) -> None:
+    from naiad.api.settings import get_settings
+    from naiad.domain.models import UserPreference
+
+    minimal_config.auth.auto_login.enabled = True
+    eng = _engine()
+    with Session(eng) as s:
+        s.add(UserPreference(key="auto_login_enabled", value="0"))
+        s.commit()
+    with Session(eng) as s:
+        result = await get_settings(_=None, config=minimal_config, session=s)
+    assert result.auto_login_enabled is False
+
+
+# ── Token lifetime validation ─────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("bad", [0, -1, 366])
+def test_token_lifetime_out_of_range_rejected(bad: int) -> None:
+    """A login must never mint an already-expired or effectively-permanent token."""
+    from pydantic import ValidationError
+
+    from naiad.api.schemas import UpdateSettingsRequest
+
+    with pytest.raises(ValidationError):
+        UpdateSettingsRequest(token_lifetime_days=bad)

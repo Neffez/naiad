@@ -288,7 +288,9 @@ class SequenceOverrideInput(BaseModel):
 class UpdateSettingsRequest(BaseModel):
     sequences: dict[str, SequenceOverrideInput] | None = None
     factors: FactorSettingsInput | None = None
-    token_lifetime_days: int | None = None
+    # Bounded so a login can't mint an already-expired token (<= 0) or one that
+    # effectively never expires. 365 days is the documented upper limit.
+    token_lifetime_days: int | None = Field(default=None, gt=0, le=365)
     auto_login_enabled: bool | None = None
 
 

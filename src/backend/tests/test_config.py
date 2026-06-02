@@ -33,6 +33,30 @@ def test_unknown_zone_reference_raises() -> None:
         AppConfig.model_validate(data)
 
 
+@pytest.mark.parametrize("bad_flow", [0, -1, -500.0])
+def test_non_positive_flow_lph_rejected(bad_flow: float) -> None:
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["zones"]["zone_a"]["flow_lph"] = bad_flow
+    with pytest.raises(ValidationError, match="flow_lph"):
+        AppConfig.model_validate(data)
+
+
+@pytest.mark.parametrize("field", ["watchdog_min", "basis_min_per_zone"])
+@pytest.mark.parametrize("bad", [0, -5])
+def test_non_positive_sequence_runtimes_rejected(field: str, bad: int) -> None:
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["sequences"]["seq_1"][field] = bad
+    with pytest.raises(ValidationError, match=field):
+        AppConfig.model_validate(data)
+
+
+def test_negative_range_lower_bound_rejected() -> None:
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["sequences"]["seq_1"]["range"] = [-1.0, 240.0]
+    with pytest.raises(ValidationError, match="range"):
+        AppConfig.model_validate(data)
+
+
 def test_missing_ha_token_raises() -> None:
     data = copy.deepcopy(MINIMAL_CONFIG_DATA)
     del data["ha"]["token"]

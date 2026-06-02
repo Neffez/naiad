@@ -233,8 +233,14 @@ class StatsPublisher:
             return
 
         self._loop = asyncio.get_running_loop()
+        # paho-mqtt 2.x requires selecting the callback API version. Reference it
+        # through an Any alias so the call type-checks regardless of whether the
+        # installed paho's type information exposes CallbackAPIVersion (it varies
+        # by version: a hard reference errors in one environment or is flagged as
+        # an unused ignore in another).
+        mqtt_any: Any = mqtt
         client = mqtt.Client(
-            mqtt.CallbackAPIVersion.VERSION2,
+            mqtt_any.CallbackAPIVersion.VERSION2,
             client_id=cfg.client_id or "naiad",
         )
         if cfg.username:
