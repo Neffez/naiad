@@ -15,6 +15,28 @@ logger = logging.getLogger(__name__)
 StateCallback = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
 
 
+def _entry_timestamp(entry: dict[str, Any]) -> float | None:
+    """Epoch seconds of a recorder history entry, or None if unparseable.
+
+    Minimal-response entries carry ``lu``/``lc`` (Unix timestamps); the first,
+    full entry carries ISO ``last_updated``/``last_changed``."""
+    for key in ("lu", "lc"):
+        val = entry.get(key)
+        if val is not None:
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                return None
+    for key in ("last_updated", "last_changed"):
+        val = entry.get(key)
+        if isinstance(val, str):
+            try:
+                return datetime.fromisoformat(val).timestamp()
+            except ValueError:
+                return None
+    return None
+
+
 class HAError(Exception):
     def __init__(self, error: dict[str, Any]) -> None:
         super().__init__(error.get("message", str(error)))
@@ -32,10 +54,10 @@ class HAClient:
         # Cached "max value over a period" per entity (e.g. yesterday's max
         # temperature), refreshed out-of-band so synchronous callers can read it.
         self._daily_max_cache: dict[str, float | None] = {}
-        # Whether the binary rain sensor has been "on" at any point today. Set live
-        # by the rain callback and reconstructed from the recorder on refresh, so
-        # synchronous callers (read_sensor_snapshot) can gate today's forecast peak.
-        self._rain_confirmed_today: bool = False
+        # Per forecast entity: the peak value it reached while the binary rain sensor
+        # was on today (reconstructed from the recorder). Lets synchronous callers
+        # (read_sensor_snapshot) confirm today's forecast peak against actual rain.
+        self._rain_confirmed_peak_cache: dict[str, float | None] = {}
         self._state_callbacks: list[StateCallback] = []
         self._connected = asyncio.Event()
         self._loop_task: asyncio.Task[None] | None = None
@@ -328,35 +350,85 @@ class HAClient:
         except Exception:
             logger.warning("Could not fetch history max for '%s'", entity_id, exc_info=True)
 
-    def get_rain_confirmed_today(self) -> bool:
-        """Whether the binary rain sensor fired at any point today (see refresh)."""
-        return self._rain_confirmed_today
+    def get_rain_confirmed_peak(self, entity_id: str) -> float | None:
+        """The forecast peak for ``entity_id`` confirmed by actual rain today.
 
-    def set_rain_confirmed_today(self, value: bool) -> None:
-        """Record a live rain-sensor transition (the callback calls this with True)."""
-        self._rain_confirmed_today = value
+        The maximum value ``entity_id`` reached while the binary rain sensor was on
+        (see ``refresh_rain_confirmed_peak``). Distinguishes:
+          * ``None`` — not yet computed (no rain history, or fetch failed): callers
+            should fall back to the unconfirmed peak (conservative).
+          * ``0.0`` — computed, but it never rained today: today's peak is unconfirmed.
+          * ``> 0`` — the highest forecast value that coincided with real rain.
+        """
+        return self._rain_confirmed_peak_cache.get(entity_id)
 
-    async def refresh_rain_confirmed_today(
-        self, entity_id: str, start: datetime, end: datetime
+    async def refresh_rain_confirmed_peak(
+        self, forecast_entities: list[str], rain_entity: str, start: datetime, end: datetime
     ) -> None:
-        """Recompute ``rain_confirmed_today`` from the recorder over ``[start, end)``.
+        """Recompute each forecast entity's rain-confirmed peak over ``[start, end)``.
 
-        True if the binary rain sensor was ``on`` at any point in the window. Run on
-        the same hourly/reconnect cadence as the forecast peak so the window resets
-        across local midnight. Best-effort: a failed fetch leaves the flag untouched.
+        For every ``forecast_entities`` value, caches the maximum it reached while
+        ``rain_entity`` was ``on`` — i.e. the forecast level that actually coincided
+        with rain, not a spike the forecast merely predicted. Run on the same
+        hourly/reconnect cadence as the forecast peak (and on rain transitions) so the
+        window resets across local midnight. Best-effort: a failed fetch leaves the
+        previous cached values untouched.
         """
         try:
-            confirmed = await self.fetch_history_contains_on(entity_id, start, end)
+            rain_hist = await self.fetch_history(rain_entity, start, end)
+            for entity_id in forecast_entities:
+                if not entity_id:
+                    continue
+                forecast_hist = await self.fetch_history(entity_id, start, end)
+                peak = self._max_forecast_during_rain(forecast_hist, rain_hist)
+                self._rain_confirmed_peak_cache[entity_id] = peak
+                logger.debug("Refreshed rain-confirmed peak for %s: %s", entity_id, peak)
         except Exception:
-            logger.warning("Could not fetch rain history for '%s'", entity_id, exc_info=True)
-            return
-        self._rain_confirmed_today = confirmed
-        logger.debug("Refreshed rain_confirmed_today for %s: %s", entity_id, confirmed)
+            logger.warning(
+                "Could not refresh rain-confirmed peak for %s", forecast_entities, exc_info=True
+            )
 
-    async def fetch_history_contains_on(
+    @staticmethod
+    def _max_forecast_during_rain(
+        forecast_hist: list[tuple[float, str]], rain_hist: list[tuple[float, str]]
+    ) -> float | None:
+        """Maximum forecast value over the intervals when rain was on.
+
+        Both series are piecewise-constant state timelines of ``(timestamp, state)``.
+        Merge them and sweep: a forecast value is a candidate only while the rain
+        state is ``on``. Returns ``None`` when there is no rain history at all
+        (unknown), ``0.0`` when there is rain history but it was never on (provably
+        unconfirmed), else the confirmed peak.
+        """
+        if not rain_hist:
+            return None
+        events: list[tuple[float, str, str]] = [(ts, "f", s) for ts, s in forecast_hist]
+        events += [(ts, "r", s) for ts, s in rain_hist]
+        events.sort(key=lambda e: e[0])
+
+        cur_forecast: float | None = None
+        rain_on = False
+        confirmed: float | None = None
+        for _ts, kind, raw in events:
+            if kind == "f":
+                try:
+                    cur_forecast = float(raw)
+                except (TypeError, ValueError):
+                    cur_forecast = None  # "unavailable"/"unknown" breaks the value
+            else:
+                rain_on = raw == "on"
+            # State is piecewise-constant, so evaluating after each change visits every
+            # distinct (value, rain) interval at least once.
+            if rain_on and cur_forecast is not None:
+                confirmed = cur_forecast if confirmed is None else max(confirmed, cur_forecast)
+        return confirmed if confirmed is not None else 0.0
+
+    async def fetch_history(
         self, entity_id: str, start: datetime, end: datetime
-    ) -> bool:
-        """True if ``entity_id`` held state ``on`` at any point in ``[start, end)``."""
+    ) -> list[tuple[float, str]]:
+        """Recorder history of ``entity_id`` over ``[start, end)`` as ``(epoch, state)``
+        samples in chronological order. Entries without a parseable timestamp or state
+        are skipped."""
         if not self._connected.is_set() or self._ws is None:
             raise HAError({"message": "Not connected to Home Assistant"})
         result: dict[str, list[dict[str, Any]]] = await self._send_command(
@@ -371,10 +443,17 @@ class HAClient:
             },
             timeout=30.0,
         )
+        samples: list[tuple[float, str]] = []
         for entry in (result or {}).get(entity_id, []):
-            if entry.get("s", entry.get("state")) == "on":
-                return True
-        return False
+            state = entry.get("s", entry.get("state"))
+            if state is None:
+                continue
+            ts = _entry_timestamp(entry)
+            if ts is None:
+                continue
+            samples.append((ts, str(state)))
+        samples.sort(key=lambda s: s[0])
+        return samples
 
     def list_entities(self, domain: str | None = None) -> list[dict[str, Any]]:
         """List cached entities (optionally filtered by domain) for the UI entity picker."""

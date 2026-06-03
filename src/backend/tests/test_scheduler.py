@@ -25,6 +25,7 @@ from naiad.scheduler import (
     _run_sequence_job,
     flush_notification_queue,
     push_notification,
+    refresh_rain_confirmed_peak,
     refresh_rain_forecast_max,
 )
 from tests.conftest import MINIMAL_CONFIG_DATA
@@ -61,7 +62,6 @@ class FakeHA:
             "sensor.prec_today": prec_today,
             "sensor.prec_tomorrow": "0",
         }
-        self._rain_confirmed = False
 
     def get_state_value(self, entity_id: str) -> str | None:
         return self._states.get(entity_id)
@@ -69,11 +69,8 @@ class FakeHA:
     def get_cached_daily_max(self, entity_id: str) -> float | None:
         return None
 
-    def get_rain_confirmed_today(self) -> bool:
-        return self._rain_confirmed
-
-    def set_rain_confirmed_today(self, value: bool) -> None:
-        self._rain_confirmed = value
+    def get_rain_confirmed_peak(self, entity_id: str) -> float | None:
+        return None
 
     @property
     def is_connected(self) -> bool:
@@ -328,24 +325,36 @@ async def test_rain_noop_when_nothing_running_or_paused(fast_config: AppConfig, 
     await _on_rain("binary_sensor.regen", {"state": "on"}, runner, fast_config, FakeHA())
 
 
-async def test_rain_marks_confirmed_today(fast_config: AppConfig, engine) -> None:
-    """A rain-sensor 'on' event records that it rained today, so the
-    confirm_with_rain_sensor gate lets today's forecast peak apply."""
-    sf = lambda: Session(engine)  # noqa: E731
-    runner = SequenceRunner(fast_config, FakeDriver(), sf)
-    ha = FakeHA()
-    assert ha.get_rain_confirmed_today() is False
-    await _on_rain("binary_sensor.regen", {"state": "on"}, runner, fast_config, ha)
-    assert ha.get_rain_confirmed_today() is True
+class _ConfirmRecordingHA:
+    """Records the entities passed to refresh_rain_confirmed_peak."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[str], str]] = []
+
+    async def refresh_rain_confirmed_peak(
+        self, forecast_entities: list[str], rain_entity: str, start: datetime, end: datetime
+    ) -> None:
+        assert start <= end
+        self.calls.append((forecast_entities, rain_entity))
 
 
-async def test_rain_off_event_does_not_mark_confirmed(fast_config: AppConfig, engine) -> None:
-    """Only an 'on' transition confirms rain; an 'off' update leaves the flag alone."""
-    sf = lambda: Session(engine)  # noqa: E731
-    runner = SequenceRunner(fast_config, FakeDriver(), sf)
-    ha = FakeHA()
-    await _on_rain("binary_sensor.regen", {"state": "off"}, runner, fast_config, ha)
-    assert ha.get_rain_confirmed_today() is False
+async def test_refresh_rain_confirmed_peak_passes_today_sensors(minimal_config: AppConfig) -> None:
+    """The confirmed-peak refresh correlates only today's forecast sensors with the
+    rain sensor (tomorrow has not happened yet)."""
+    ha = _ConfirmRecordingHA()
+    await refresh_rain_confirmed_peak(minimal_config, ha)  # type: ignore[arg-type]
+    assert ha.calls == [(["sensor.prec_today", "sensor.prec_prob_today"], "binary_sensor.regen")]
+
+
+async def test_refresh_rain_confirmed_peak_skips_without_rain_sensor(
+    minimal_config: AppConfig,
+) -> None:
+    data = minimal_config.model_dump()
+    data["sensors"]["rain"] = ""
+    cfg = AppConfig.model_validate(data)
+    ha = _ConfirmRecordingHA()
+    await refresh_rain_confirmed_peak(cfg, ha)  # type: ignore[arg-type]
+    assert ha.calls == []
 
 
 def test_consume_skip_prunes_stale(engine) -> None:
@@ -564,22 +573,22 @@ async def test_queue_caps_total_items() -> None:
 
 
 class _RefreshRecordingHA:
-    """Records the entity ids passed to refresh_daily_max / refresh_rain_confirmed_today."""
+    """Records the entity ids passed to refresh_daily_max / refresh_rain_confirmed_peak."""
 
     def __init__(self) -> None:
         self.refreshed: list[str] = []
-        self.rain_confirmed_refreshed: list[str] = []
+        self.confirmed_peak_calls: list[tuple[list[str], str]] = []
 
     async def refresh_daily_max(self, entity_id: str, start: datetime, end: datetime) -> None:
         # The window must cover today (local midnight up to now), not yesterday.
         assert start <= end
         self.refreshed.append(entity_id)
 
-    async def refresh_rain_confirmed_today(
-        self, entity_id: str, start: datetime, end: datetime
+    async def refresh_rain_confirmed_peak(
+        self, forecast_entities: list[str], rain_entity: str, start: datetime, end: datetime
     ) -> None:
         assert start <= end
-        self.rain_confirmed_refreshed.append(entity_id)
+        self.confirmed_peak_calls.append((forecast_entities, rain_entity))
 
 
 async def test_refresh_rain_forecast_max_covers_all_precipitation_sensors(
@@ -593,5 +602,7 @@ async def test_refresh_rain_forecast_max_covers_all_precipitation_sensors(
         "sensor.prec_prob_today",
         "sensor.prec_prob_tomorrow",
     }
-    # The rain forecast refresh also reconstructs the rain-confirmed flag.
-    assert ha.rain_confirmed_refreshed == ["binary_sensor.regen"]
+    # The rain forecast refresh also recomputes the rain-confirmed peak for today.
+    assert ha.confirmed_peak_calls == [
+        (["sensor.prec_today", "sensor.prec_prob_today"], "binary_sensor.regen")
+    ]
