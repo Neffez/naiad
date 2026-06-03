@@ -106,6 +106,115 @@ def test_refresh_daily_max_swallows_errors() -> None:
     assert client.get_cached_daily_max("sensor.temp") is None
 
 
+def test_refresh_recent_rain_credit_counts_positive_deltas_and_ignores_resets() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+    client._connected.set()
+    client._ws = object()  # type: ignore[assignment]
+    now = datetime(2026, 6, 3, 12, tzinfo=UTC)
+
+    async def fake_send(ws: Any, msg: dict[str, Any], timeout: float = 10.0) -> Any:
+        assert msg["type"] == "history/history_during_period"
+        return {
+            "sensor.rain": [
+                {"s": "0", "lu": (now - timedelta(days=2)).timestamp()},
+                {"s": "10", "lu": (now - timedelta(days=2, hours=-1)).timestamp()},
+                {"s": "0", "lu": (now - timedelta(days=1)).timestamp()},  # daily reset
+                {"s": "4", "lu": (now - timedelta(hours=12)).timestamp()},
+            ]
+        }
+
+    client._state_cache["sensor.rain"] = {"state": "4"}
+    client._send_command = fake_send  # type: ignore[assignment]
+    asyncio.run(
+        client.refresh_recent_rain_credit(
+            "sensor.rain", now - timedelta(days=3), now, decay=1.0
+        )
+    )
+    assert client.get_recent_rain_credit("sensor.rain") == pytest.approx(14.0)
+
+
+def test_refresh_recent_rain_credit_can_require_binary_rain_confirmation() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+    client._connected.set()
+    client._ws = object()  # type: ignore[assignment]
+    now = datetime(2026, 6, 3, 12, tzinfo=UTC)
+    base = now - timedelta(hours=3)
+
+    histories: dict[str, dict[str, list[dict[str, Any]]]] = {
+        "sensor.actual_rain": {
+            "sensor.actual_rain": [
+                {"s": "0", "lu": base.timestamp()},
+                {"s": "8", "lu": (base + timedelta(hours=1)).timestamp()},
+                {"s": "15", "lu": (base + timedelta(hours=2)).timestamp()},
+            ]
+        },
+        "binary_sensor.rain": {
+            "binary_sensor.rain": [
+                {"s": "off", "lu": base.timestamp()},
+                {"s": "on", "lu": (base + timedelta(hours=1, minutes=30)).timestamp()},
+            ]
+        },
+    }
+
+    async def fake_send(ws: Any, msg: dict[str, Any], timeout: float = 10.0) -> Any:
+        return histories[msg["entity_ids"][0]]
+
+    client._state_cache["sensor.actual_rain"] = {"state": "15"}
+    client._send_command = fake_send  # type: ignore[assignment]
+    asyncio.run(
+        client.refresh_recent_rain_credit(
+            "sensor.actual_rain",
+            now - timedelta(days=1),
+            now,
+            decay=1.0,
+            rain_entity="binary_sensor.rain",
+        )
+    )
+    assert client.get_recent_rain_credit("sensor.actual_rain") == pytest.approx(7.0)
+
+
+def test_refresh_recent_rain_credit_with_confirmation_ignores_phantom_forecast() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+    client._connected.set()
+    client._ws = object()  # type: ignore[assignment]
+    now = datetime(2026, 6, 3, 12, tzinfo=UTC)
+    base = now - timedelta(hours=2)
+
+    histories: dict[str, dict[str, list[dict[str, Any]]]] = {
+        "sensor.actual_rain": {
+            "sensor.actual_rain": [
+                {"s": "0", "lu": base.timestamp()},
+                {"s": "20", "lu": (base + timedelta(hours=1)).timestamp()},
+            ]
+        },
+        "binary_sensor.rain": {
+            "binary_sensor.rain": [{"s": "off", "lu": base.timestamp()}]
+        },
+    }
+
+    async def fake_send(ws: Any, msg: dict[str, Any], timeout: float = 10.0) -> Any:
+        return histories[msg["entity_ids"][0]]
+
+    client._state_cache["sensor.actual_rain"] = {"state": "20"}
+    client._send_command = fake_send  # type: ignore[assignment]
+    asyncio.run(
+        client.refresh_recent_rain_credit(
+            "sensor.actual_rain",
+            now - timedelta(days=1),
+            now,
+            decay=1.0,
+            rain_entity="binary_sensor.rain",
+        )
+    )
+    assert client.get_recent_rain_credit("sensor.actual_rain") == pytest.approx(0.0)
+
+
 def test_max_forecast_during_rain_correlates_peak_timing() -> None:
     """The confirmed peak is the forecast value while rain was on, not the day's max.
 

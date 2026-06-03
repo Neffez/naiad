@@ -66,6 +66,9 @@ def _add_missing_columns(engine: Engine) -> None:
         "factor_overrides": {
             "manual_mode": "BOOLEAN",
             "manual_pct": "INTEGER",
+            "rain_mode": "VARCHAR",
+            "rain_water_balance_days": "INTEGER",
+            "rain_water_balance_decay": "FLOAT",
             "rain_peak_tomorrow": "BOOLEAN",
             "rain_confirm_with_sensor": "BOOLEAN",
         },
