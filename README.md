@@ -54,6 +54,10 @@ A HA-native irrigation stack is spread across too many layers. A small change, l
 - Real-time updates via WebSocket (sequence state, valve changes, factor updates, HA status)
 - Docker images published to GHCR for `amd64` + `arm64`
 
+The built frontend is a release artifact, not committed source. `npm run build`
+generates `static/` locally; the Docker release build regenerates it from
+`src/frontend/` and copies it into the runtime image.
+
 ## Architecture
 
 Naiad runs as a single container. The FastAPI backend serves the REST API, the
