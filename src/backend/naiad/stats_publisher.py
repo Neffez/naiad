@@ -16,6 +16,9 @@ The published entities (grouped under one "Naiad" device):
 * ``sensor.naiad_last_run_liters``  — liters of the most recent run
 * ``sensor.naiad_last_run_duration``— minutes of the most recent run
 * ``sensor.naiad_last_run``         — timestamp of the most recent run
+* ``sensor.naiad_rain_credit``      — recent actual-rain credit in mm
+* ``sensor.naiad_rain_factor``      — current rain multiplier in percent
+* ``sensor.naiad_adjustment_factor``— current combined watering factor in percent
 
 State and discovery messages are published with ``retain=True`` so the values
 survive both Naiad and Home Assistant restarts. The source of truth stays the
@@ -34,7 +37,10 @@ from typing import Any, Protocol
 from sqlmodel import Session, col, func, select
 
 from naiad.config import AppConfig
+from naiad.domain.factors import FactorResult, SensorSnapshot, compute_factors
 from naiad.domain.models import RunHistory
+from naiad.domain.sensors import read_sensor_snapshot
+from naiad.ha_client import HAClient
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +67,12 @@ class RunTotals:
     last_liters: float | None = None
     last_duration_min: float | None = None
     last_ended_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class WeatherMetrics:
+    snapshot: SensorSnapshot
+    factors: FactorResult
 
 
 def compute_totals(session: Session) -> RunTotals:
@@ -132,10 +144,12 @@ class StatsPublisher:
         config: AppConfig,
         session_factory: Callable[[], Session],
         *,
+        ha: HAClient | None = None,
         client: MQTTClient | None = None,
     ) -> None:
         self._config = config
         self._session_factory = session_factory
+        self._ha = ha
         self._client = client
         self._loop: asyncio.AbstractEventLoop | None = None
         self._connected = client is not None  # injected fakes are "ready" for tests
@@ -163,6 +177,9 @@ class StatsPublisher:
             _EntitySpec("last_run_liters", "Last run liters", "water", "measurement", "L"),
             _EntitySpec("last_run_duration", "Last run duration", "duration", "measurement", "min"),
             _EntitySpec("last_run", "Last run", "timestamp", None, None),
+            _EntitySpec("rain_credit", "Rain credit", "precipitation", "measurement", "mm"),
+            _EntitySpec("rain_factor", "Rain factor", None, "measurement", "%"),
+            _EntitySpec("adjustment_factor", "Adjustment factor", None, "measurement", "%"),
         ]
         for zone_id, zone in self._config.zones.items():
             specs.append(
@@ -346,6 +363,24 @@ class StatsPublisher:
             self._publish(self._state_topic("last_run_duration"), _num(totals.last_duration_min))
         if totals.last_ended_at is not None:
             self._publish(self._state_topic("last_run"), _isoformat(totals.last_ended_at))
+        metrics = self._weather_metrics()
+        if metrics is not None:
+            self._publish(
+                self._state_topic("rain_credit"),
+                _num(metrics.snapshot.actual_rain_credit_mm or 0.0),
+            )
+            self._publish(self._state_topic("rain_factor"), _num(metrics.factors.rain_factor_pct))
+            self._publish(
+                self._state_topic("adjustment_factor"), _num(metrics.factors.factor_pct)
+            )
+
+    def _weather_metrics(self) -> WeatherMetrics | None:
+        if self._ha is None:
+            return None
+        snapshot = read_sensor_snapshot(self._ha, self._config)
+        with self._session_factory() as session:
+            factors = compute_factors(snapshot, self._config, session)
+        return WeatherMetrics(snapshot=snapshot, factors=factors)
 
     # ── Hooks ───────────────────────────────────────────────────────────────
 

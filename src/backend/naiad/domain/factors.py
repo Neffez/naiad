@@ -42,6 +42,10 @@ class SensorSnapshot:
     # Only consulted when ``confirm_with_rain_sensor`` is enabled.
     precipitation_prob_today_confirmed: float | None = None
     precipitation_today_mm_confirmed: float | None = None
+    # Recent actual rain retained as a water-balance credit. This is precomputed
+    # from HA recorder history by the scheduler/HA client so factor calculation
+    # stays synchronous at cron fire time.
+    actual_rain_credit_mm: float | None = None
     unavailable: list[str] = field(default_factory=list)
 
 
@@ -53,6 +57,8 @@ class FactorResult:
     wind_on: bool
     season_off: bool
     sensors_unavailable: list[str] = field(default_factory=list)
+    rain_mm: float | None = None
+    rain_prob_pct: float | None = None
     # True when factor_pct comes from a manual override rather than the automatic
     # temp/rain calculation. The temp/rain breakdown fields are neutral in that case.
     manual: bool = False
@@ -82,6 +88,31 @@ def _compute_rain_factor(
 
     span = cfg.zero_above_mm - cfg.reduce_above_mm
     return 1.0 - (rain_mm - cfg.reduce_above_mm) / span
+
+
+def _compute_water_balance_rain_factor(
+    forecast_prob_today: float,
+    forecast_prob_tomorrow: float,
+    forecast_mm_today: float,
+    forecast_mm_tomorrow: float,
+    actual_credit_mm: float,
+    cfg: RainFactorConfig,
+) -> tuple[float, float, float]:
+    forecast_mm = max(forecast_mm_today, forecast_mm_tomorrow * cfg.forecast_decay)
+    forecast_prob = max(forecast_prob_today, forecast_prob_tomorrow)
+    if forecast_prob < cfg.threshold_prob:
+        forecast_mm = 0.0
+    effective_mm = max(forecast_mm, actual_credit_mm)
+    effective_prob = (
+        100.0 if actual_credit_mm >= forecast_mm and actual_credit_mm > 0 else forecast_prob
+    )
+    if effective_mm < cfg.reduce_above_mm:
+        return 1.0, effective_prob, effective_mm
+    if effective_mm >= cfg.zero_above_mm:
+        return 0.0, effective_prob, effective_mm
+
+    span = cfg.zero_above_mm - cfg.reduce_above_mm
+    return 1.0 - (effective_mm - cfg.reduce_above_mm) / span, effective_prob, effective_mm
 
 
 def _confirmed_today(confirmed: float | None, current: float | None, peak: float) -> float:
@@ -168,10 +199,13 @@ def merge_factor_config(
     rain_data = rain_cfg.model_dump()
     for field_name, db_attr in [
         ("forecast_days", "rain_forecast_days"),
+        ("mode", "rain_mode"),
         ("threshold_prob", "rain_threshold_prob"),
         ("reduce_above_mm", "rain_reduce_above_mm"),
         ("zero_above_mm", "rain_zero_above_mm"),
         ("forecast_decay", "rain_forecast_decay"),
+        ("water_balance_days", "rain_water_balance_days"),
+        ("water_balance_decay", "rain_water_balance_decay"),
         ("peak_tomorrow", "rain_peak_tomorrow"),
         ("confirm_with_rain_sensor", "rain_confirm_with_sensor"),
     ]:
@@ -228,7 +262,21 @@ def compute_factors(
     prob_today, prob_tomorrow, mm_today, mm_tomorrow = rain_factor_inputs(
         snapshot, eff_rain.peak_tomorrow, eff_rain.confirm_with_rain_sensor
     )
-    rain_factor = _compute_rain_factor(prob_today, prob_tomorrow, mm_today, mm_tomorrow, eff_rain)
+    if eff_rain.mode == "water_balance":
+        rain_factor, rain_prob, rain_mm = _compute_water_balance_rain_factor(
+            prob_today,
+            prob_tomorrow,
+            mm_today,
+            mm_tomorrow,
+            snapshot.actual_rain_credit_mm or 0.0,
+            eff_rain,
+        )
+    else:
+        rain_factor = _compute_rain_factor(
+            prob_today, prob_tomorrow, mm_today, mm_tomorrow, eff_rain
+        )
+        rain_prob = max(prob_today, prob_tomorrow)
+        rain_mm = max(mm_today, mm_tomorrow * eff_rain.forecast_decay)
 
     # Prefer the day's forecast maximum so a night-time run still scales to the
     # daytime peak; fall back to the current temperature when no max is available.
@@ -251,4 +299,6 @@ def compute_factors(
         wind_on=snapshot.wind_on,
         season_off=False,
         sensors_unavailable=snapshot.unavailable,
+        rain_mm=round(rain_mm, 1),
+        rain_prob_pct=round(rain_prob, 1),
     )

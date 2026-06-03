@@ -16,9 +16,10 @@ from naiad.config import (
     NotifyTarget,
     target_service_data,
 )
-from naiad.domain.factors import compute_factors
+from naiad.domain.factors import compute_factors, merge_factor_config
 from naiad.domain.models import (
     DeferredCronRun,
+    FactorOverride,
     Plan,
     QueuedNotification,
     SequenceOverride,
@@ -287,7 +288,9 @@ async def refresh_fallback_temp_max(config: AppConfig, ha: HAClient) -> None:
     )
 
 
-async def refresh_rain_forecast_max(config: AppConfig, ha: HAClient) -> None:
+async def refresh_rain_forecast_max(
+    config: AppConfig, ha: HAClient, session_factory: SessionFactory | None = None
+) -> None:
     """Refresh the cached daily-max for the precipitation forecast sensors.
 
     The forecast for the day changes as it progresses (e.g. 5mm in the morning,
@@ -312,6 +315,34 @@ async def refresh_rain_forecast_max(config: AppConfig, ha: HAClient) -> None:
         if entity_id:
             await ha.refresh_daily_max(entity_id, start_utc, now_utc)
     await refresh_rain_confirmed_peak(config, ha)
+    await refresh_recent_rain_credit(config, ha, session_factory)
+
+
+async def refresh_recent_rain_credit(
+    config: AppConfig, ha: HAClient, session_factory: SessionFactory | None = None
+) -> None:
+    """Refresh the multi-day actual-rain credit used by water-balance mode."""
+    entity_id = config.sensors.precipitation_actual
+    if not entity_id:
+        return
+    rain_cfg = config.factors.rain
+    if session_factory is not None:
+        with session_factory() as session:
+            _temp_cfg, rain_cfg = merge_factor_config(config, session.get(FactorOverride, 1))
+    tz = ZoneInfo(config.timezone)
+    now = datetime.now(tz)
+    start = datetime.combine(
+        now.date() - timedelta(days=max(0, rain_cfg.water_balance_days - 1)),
+        time.min,
+        tzinfo=tz,
+    )
+    await ha.refresh_recent_rain_credit(
+        entity_id,
+        start.astimezone(UTC),
+        now.astimezone(UTC),
+        rain_cfg.water_balance_decay,
+        config.sensors.rain if rain_cfg.confirm_with_rain_sensor else None,
+    )
 
 
 async def refresh_rain_confirmed_peak(config: AppConfig, ha: HAClient) -> None:
@@ -860,6 +891,7 @@ def setup_scheduler(
     runner: SequenceRunner,
     ha: HAClient,
     session_factory: SessionFactory,
+    on_weather_metrics_refreshed: Callable[[], Any] | None = None,
 ) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=config.timezone)
 
@@ -881,6 +913,14 @@ def setup_scheduler(
 
     _register_reminder_job(scheduler, config, ha, session_factory)
 
+    async def _refresh_rain_forecast_and_publish() -> None:
+        await refresh_rain_forecast_max(config, ha, session_factory)
+        if on_weather_metrics_refreshed is None:
+            return
+        result = on_weather_metrics_refreshed()
+        if result is not None:
+            await result
+
     # Keep the fallback max temperature (yesterday's recorded max) fresh so it
     # rolls over shortly after local midnight. The initial fetch is triggered from
     # the HA-connected callback once the socket is up (see main).
@@ -899,9 +939,8 @@ def setup_scheduler(
     # retains the full day's history, so an hourly poll still captures any peak; the
     # initial fetch is triggered from the HA-connected callback (see main).
     scheduler.add_job(
-        refresh_rain_forecast_max,
+        _refresh_rain_forecast_and_publish,
         trigger=IntervalTrigger(hours=1),
-        args=[config, ha],
         id="rain-forecast-max",
         name="Rain forecast max refresh",
         max_instances=1,
@@ -915,6 +954,11 @@ def setup_scheduler(
         # hourly refresh (best-effort; the recompute swallows fetch errors).
         if entity_id == config.sensors.rain:
             await refresh_rain_confirmed_peak(config, ha)
+            await refresh_recent_rain_credit(config, ha, session_factory)
+            if on_weather_metrics_refreshed is not None:
+                result = on_weather_metrics_refreshed()
+                if result is not None:
+                    await result
 
     ha.subscribe_state_changes(_rain_cb)
     logger.info("Rain listener registered: '%s'", config.sensors.rain)

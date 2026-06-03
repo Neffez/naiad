@@ -1,4 +1,4 @@
-from typing import TypeVar
+from typing import Literal, TypeVar, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
@@ -25,6 +25,14 @@ _DEFAULT_TOKEN_LIFETIME = 30
 _T = TypeVar("_T")
 
 
+def _rain_mode(
+    value: str | None, default: Literal["forecast", "water_balance"]
+) -> Literal["forecast", "water_balance"]:
+    if value in ("forecast", "water_balance"):
+        return cast(Literal["forecast", "water_balance"], value)
+    return default
+
+
 def _read_settings(config: AppConfig, session: Session) -> AppSettingsResponse:
     factor_override = session.get(FactorOverride, 1)
     fo = factor_override
@@ -43,11 +51,18 @@ def _read_settings(config: AppConfig, session: Session) -> AppSettingsResponse:
         return override_val if (fo and override_val is not None) else default_val
 
     rain = RainFactorSettingsResponse(
+        mode=_rain_mode(fo.rain_mode if fo else None, rc.mode),
         forecast_days=_r(fo.rain_forecast_days if fo else None, rc.forecast_days),
         threshold_prob=_r(fo.rain_threshold_prob if fo else None, rc.threshold_prob),
         reduce_above_mm=_r(fo.rain_reduce_above_mm if fo else None, rc.reduce_above_mm),
         zero_above_mm=_r(fo.rain_zero_above_mm if fo else None, rc.zero_above_mm),
         forecast_decay=_r(fo.rain_forecast_decay if fo else None, rc.forecast_decay),
+        water_balance_days=_r(
+            fo.rain_water_balance_days if fo else None, rc.water_balance_days
+        ),
+        water_balance_decay=_r(
+            fo.rain_water_balance_decay if fo else None, rc.water_balance_decay
+        ),
         peak_tomorrow=_r(fo.rain_peak_tomorrow if fo else None, rc.peak_tomorrow),
         confirm_with_rain_sensor=_r(
             fo.rain_confirm_with_sensor if fo else None, rc.confirm_with_rain_sensor
@@ -121,6 +136,8 @@ async def update_settings(
                 fo.temp_max_pct = t.max_pct
         if f.rain is not None:
             r = f.rain
+            if r.mode is not None:
+                fo.rain_mode = r.mode
             if r.forecast_days is not None:
                 fo.rain_forecast_days = r.forecast_days
             if r.threshold_prob is not None:
@@ -131,6 +148,10 @@ async def update_settings(
                 fo.rain_zero_above_mm = r.zero_above_mm
             if r.forecast_decay is not None:
                 fo.rain_forecast_decay = r.forecast_decay
+            if r.water_balance_days is not None:
+                fo.rain_water_balance_days = r.water_balance_days
+            if r.water_balance_decay is not None:
+                fo.rain_water_balance_decay = r.water_balance_decay
             if r.peak_tomorrow is not None:
                 fo.rain_peak_tomorrow = r.peak_tomorrow
             if r.confirm_with_rain_sensor is not None:

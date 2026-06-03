@@ -158,6 +158,9 @@ components:
         wind_blocking_sequences:
           type: array
           items: { type: string }
+        temp_input_c:              { type: number, nullable: true }
+        rain_prob_pct:             { type: number, nullable: true }
+        rain_mm:                   { type: number, nullable: true }
 
     NextRunSummary:
       type: object
@@ -301,13 +304,18 @@ components:
     RainFactorSettings:
       type: object
       properties:
+        mode:
+          type: string
+          enum: [forecast, water_balance]
         forecast_days:     { type: integer }
         threshold_prob:    { type: integer }
         reduce_above_mm:   { type: number }
         zero_above_mm:     { type: number }
         forecast_decay:    { type: number }
+        water_balance_days: { type: integer, description: "Recent actual-rain history window for water_balance mode." }
+        water_balance_decay: { type: number, description: "Daily carryover for actual rain in water_balance mode." }
         peak_tomorrow:     { type: boolean, description: "When true the rain factor also uses tomorrow's daily peak forecast, not just the latest reading. Today always uses the peak." }
-        confirm_with_rain_sensor: { type: boolean, description: "When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain; otherwise today falls back to the latest reading. Opt-in; only affects today." }
+        confirm_with_rain_sensor: { type: boolean, description: "When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain. In water_balance mode, actual-rain deltas also only count while the rain sensor was on." }
 
     SequenceOverride:
       type: object

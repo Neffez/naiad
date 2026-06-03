@@ -83,5 +83,10 @@ def read_sensor_snapshot(ha: HAClient, config: AppConfig) -> SensorSnapshot:
             sensors.precipitation_prob_today
         ),
         precipitation_today_mm_confirmed=ha.get_rain_confirmed_peak(sensors.precipitation_today),
+        actual_rain_credit_mm=(
+            ha.get_recent_rain_credit(sensors.precipitation_actual)
+            if sensors.precipitation_actual
+            else None
+        ),
         unavailable=unavailable,
     )

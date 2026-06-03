@@ -306,7 +306,18 @@ export interface AppSettings {
   sequences: Record<string, { basis_min_per_zone: number | null; watchdog_min: number | null; paused: boolean }>
   factors: {
     temp: { basis_c: number; pct_per_c: number; min_pct: number; max_pct: number }
-    rain: { forecast_days: number; threshold_prob: number; reduce_above_mm: number; zero_above_mm: number; forecast_decay: number; peak_tomorrow: boolean; confirm_with_rain_sensor: boolean }
+    rain: {
+      mode: 'forecast' | 'water_balance'
+      forecast_days: number
+      threshold_prob: number
+      reduce_above_mm: number
+      zero_above_mm: number
+      forecast_decay: number
+      water_balance_days: number
+      water_balance_decay: number
+      peak_tomorrow: boolean
+      confirm_with_rain_sensor: boolean
+    }
     manual_mode: boolean
     manual_pct: number | null
   }
@@ -369,16 +380,20 @@ export interface SensorsConfig {
   precipitation_prob_tomorrow: string
   precipitation_today: string
   precipitation_tomorrow: string
+  precipitation_actual: string
 }
 
 export interface FactorsConfig {
   temp: { formula: 'linear'; basis_c: number; pct_per_c: number; min_pct: number; max_pct: number }
   rain: {
+    mode: 'forecast' | 'water_balance'
     forecast_days: number
     threshold_prob: number
     reduce_above_mm: number
     zero_above_mm: number
     forecast_decay: number
+    water_balance_days: number
+    water_balance_decay: number
     peak_tomorrow: boolean
     confirm_with_rain_sensor: boolean
   }

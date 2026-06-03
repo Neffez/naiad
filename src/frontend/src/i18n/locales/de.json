@@ -115,6 +115,11 @@
     "reduceAbove": "Reduz. ab mm",
     "zeroAbove": "Null ab mm",
     "forecastDecay": "Prognose-Gewichtung",
+    "rainMode": "Regen-Modus",
+    "rainMode_forecast": "Prognose",
+    "rainMode_water_balance": "Wasserbilanz",
+    "waterBalanceDays": "Bilanzfenster",
+    "waterBalanceDecay": "Regen-Nachlauf",
     "peakTomorrow": "Höchstwert-Prognose",
     "peakTomorrow_today": "Nur heute",
     "peakTomorrow_both": "Heute + morgen",
@@ -130,8 +135,11 @@
       "reduceAbove": "Prognostizierte Regenmenge (mm), ab der die Bewässerung reduziert wird.",
       "zeroAbove": "Prognostizierte Regenmenge (mm), ab der die Bewässerung ganz entfällt.",
       "forecastDecay": "Gewichtung (0–1) des morgigen Regens gegenüber dem heutigen. 1 = zählt voll, 0 = wird ignoriert.",
+      "rainMode": "Prognose nutzt nur heute/morgen. Wasserbilanz nutzt zusätzlich kürzlich tatsächlich gefallenen Regen aus dem konfigurierten Niederschlagssensor.",
+      "waterBalanceDays": "Wie viele zurückliegende Tage tatsächlicher Regen als Guthaben behalten wird.",
+      "waterBalanceDecay": "Täglicher Nachlauf für tatsächlichen Regen. 1 = Regen bleibt voll wirksam, 0 = nur der jüngste Wert zählt.",
       "peakTomorrow": "Für die Regenanpassung den höchsten heute gesehenen Vorhersagewert verwenden statt nur den aktuellen. „Heute“ wird immer so behandelt; mit „Heute + morgen“ gilt das auch für die morgige Prognose (vorsichtiger, aber empfindlicher gegenüber schwankenden Vorhersagen).",
-      "confirmRainSensor": "Wenn an, reduziert die heutige Höchstwert-Prognose die Bewässerung nur bis zu dem Wert, der mit tatsächlich vom Regensensor erkanntem Regen zusammenfiel; sonst gilt der aktuelle Wert. Verhindert, dass ein Prognose-Ausschlag ohne echten Regen die Bewässerung unterdrückt. Betrifft nur heute."
+      "confirmRainSensor": "Wenn an, reduziert die heutige Höchstwert-Prognose die Bewässerung nur bis zu dem Wert, der mit tatsächlich vom Regensensor erkanntem Regen zusammenfiel. Im Wasserbilanz-Modus zählen auch Niederschlags-Deltas nur, während der Regensensor an war. Nutze das, wenn die Niederschlagsquelle aus einer Forecast-Integration kommt."
     },
     "version": "Version",
     "haIntegration": "HA Integration",
@@ -180,7 +188,8 @@
       "precipitation_prob_today": "Regenwahrscheinlichkeit heute",
       "precipitation_prob_tomorrow": "Regenwahrscheinlichkeit morgen",
       "precipitation_today": "Niederschlag heute",
-      "precipitation_tomorrow": "Niederschlag morgen"
+      "precipitation_tomorrow": "Niederschlag morgen",
+      "precipitation_actual": "Tatsächlicher Niederschlag"
     },
     "sensorHelp": {
       "rain": "Notwendig. Binärsensor, der Regen erkennt. Bei „an“ wird ein laufender Lauf sofort abgebrochen.",
@@ -191,7 +200,8 @@
       "precipitation_prob_today": "Optional. Regenwahrscheinlichkeit heute (0–100 %). Fließt in den Regen-Faktor ein.",
       "precipitation_prob_tomorrow": "Optional. Regenwahrscheinlichkeit morgen (0–100 %). Fließt in den Regen-Faktor ein.",
       "precipitation_today": "Optional. Erwarteter Niederschlag heute in mm. Bestimmt zusammen mit der Schwelle die Reduktion.",
-      "precipitation_tomorrow": "Optional. Erwarteter Niederschlag morgen in mm. Wird mit dem Prognose-Gewichtungsfaktor verrechnet."
+      "precipitation_tomorrow": "Optional. Erwarteter Niederschlag morgen in mm. Wird mit dem Prognose-Gewichtungsfaktor verrechnet.",
+      "precipitation_actual": "Optional. Tatsächliche Niederschlagsmenge in mm. Im Wasserbilanz-Modus liest Naiad positive Änderungen aus der Home-Assistant-Historie und behält sie als Regen-Guthaben. Wenn die Quelle aus einer Forecast-Integration kommt, aktiviere die Regensensor-Bestätigung."
     },
     "zones": "Zonen",
     "addZone": "Zone hinzufügen",
