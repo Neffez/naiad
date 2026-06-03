@@ -132,6 +132,11 @@ factors:
     forecast_decay: 0.5       # tomorrow's values multiplied by this
     peak_tomorrow: false      # true = also use tomorrow's daily peak forecast,
                               # not just the latest reading (today always uses the peak)
+    confirm_with_rain_sensor: false  # true = today's peak only counts if the binary
+                              # rain sensor (sensors.rain) actually fired today;
+                              # otherwise today falls back to the latest reading, so a
+                              # forecast spike that never produced real rain does not
+                              # suppress watering. Opt-in; affects today only.
 
 notifications:
   # When the nightly reminder fires (who receives it is per-target, via the

@@ -32,6 +32,10 @@ class HAClient:
         # Cached "max value over a period" per entity (e.g. yesterday's max
         # temperature), refreshed out-of-band so synchronous callers can read it.
         self._daily_max_cache: dict[str, float | None] = {}
+        # Whether the binary rain sensor has been "on" at any point today. Set live
+        # by the rain callback and reconstructed from the recorder on refresh, so
+        # synchronous callers (read_sensor_snapshot) can gate today's forecast peak.
+        self._rain_confirmed_today: bool = False
         self._state_callbacks: list[StateCallback] = []
         self._connected = asyncio.Event()
         self._loop_task: asyncio.Task[None] | None = None
@@ -323,6 +327,54 @@ class HAClient:
             )
         except Exception:
             logger.warning("Could not fetch history max for '%s'", entity_id, exc_info=True)
+
+    def get_rain_confirmed_today(self) -> bool:
+        """Whether the binary rain sensor fired at any point today (see refresh)."""
+        return self._rain_confirmed_today
+
+    def set_rain_confirmed_today(self, value: bool) -> None:
+        """Record a live rain-sensor transition (the callback calls this with True)."""
+        self._rain_confirmed_today = value
+
+    async def refresh_rain_confirmed_today(
+        self, entity_id: str, start: datetime, end: datetime
+    ) -> None:
+        """Recompute ``rain_confirmed_today`` from the recorder over ``[start, end)``.
+
+        True if the binary rain sensor was ``on`` at any point in the window. Run on
+        the same hourly/reconnect cadence as the forecast peak so the window resets
+        across local midnight. Best-effort: a failed fetch leaves the flag untouched.
+        """
+        try:
+            confirmed = await self.fetch_history_contains_on(entity_id, start, end)
+        except Exception:
+            logger.warning("Could not fetch rain history for '%s'", entity_id, exc_info=True)
+            return
+        self._rain_confirmed_today = confirmed
+        logger.debug("Refreshed rain_confirmed_today for %s: %s", entity_id, confirmed)
+
+    async def fetch_history_contains_on(
+        self, entity_id: str, start: datetime, end: datetime
+    ) -> bool:
+        """True if ``entity_id`` held state ``on`` at any point in ``[start, end)``."""
+        if not self._connected.is_set() or self._ws is None:
+            raise HAError({"message": "Not connected to Home Assistant"})
+        result: dict[str, list[dict[str, Any]]] = await self._send_command(
+            self._ws,
+            {
+                "type": "history/history_during_period",
+                "start_time": start.isoformat(),
+                "end_time": end.isoformat(),
+                "entity_ids": [entity_id],
+                "minimal_response": True,
+                "no_attributes": True,
+            },
+            timeout=30.0,
+        )
+        for entry in (result or {}).get(entity_id, []):
+            if entry.get("s", entry.get("state")) == "on":
+                return True
+        return False
 
     def list_entities(self, domain: str | None = None) -> list[dict[str, Any]]:
         """List cached entities (optionally filtered by domain) for the UI entity picker."""
