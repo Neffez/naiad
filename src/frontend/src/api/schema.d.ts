@@ -424,6 +424,109 @@ export interface paths {
         patch: operations["updatePreferences"];
         trace?: never;
     };
+    "/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public configuration document with secrets redacted */
+        get: operations["getConfiguration"];
+        /** Replace the configuration document */
+        put: operations["replaceConfiguration"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export the effective configuration as YAML */
+        get: operations["exportConfiguration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import a YAML or JSON configuration document */
+        post: operations["importConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/entities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List cached Home Assistant entities for UI pickers */
+        get: operations["listEntities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Home Assistant services for UI pickers */
+        get: operations["listServices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/test-notify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a test notification to configured notify targets */
+        post: operations["testNotify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -442,12 +545,12 @@ export interface components {
             label: string;
             state: components["schemas"]["ValveStateEnum"];
             /** Format: date-time */
-            on_since?: string | null;
-            runtime_min?: number | null;
+            on_since: string | null;
+            runtime_min: number | null;
             /** @description Planned total duration of a single-zone run, for remaining-time display. Null unless single_run is true. */
             total_min?: number | null;
             /** @description True when this zone is running as a standalone single-zone run (stoppable directly). */
-            single_run?: boolean;
+            single_run: boolean;
         };
         ZoneSummary: {
             id: string;
@@ -470,7 +573,7 @@ export interface components {
             /** @description Clock times HH:MM */
             times: string[];
             /** @description Advanced cron override; set only when active */
-            cron?: string | null;
+            cron: string | null;
         };
         SequenceState: {
             id: string;
@@ -482,10 +585,10 @@ export interface components {
             factor_notes: components["schemas"]["FactorNotes"];
             schedule: components["schemas"]["ScheduleSummary"];
             /** Format: date-time */
-            next_run_at?: string | null;
+            next_run_at: string | null;
             zones: components["schemas"]["ZoneSummary"][];
             basis_min_per_zone: number;
-            current_run?: (components["schemas"]["CurrentRun"] | null) | null;
+            current_run: (components["schemas"]["CurrentRun"] | null) | null;
         };
         StartSequenceRequest: {
             /** @description Override in minutes. null = use config default with factor applied. */
@@ -506,9 +609,9 @@ export interface components {
             season_off: boolean;
             wind_blocked: boolean;
             /** @description Rain multiplier in % (100 = neutral); set only when rain reduces watering. */
-            rain_factor_pct?: number | null;
+            rain_factor_pct: number | null;
             /** @description Signed temperature delta in %; set only when |delta| >= 5. */
-            temp_delta_pct?: number | null;
+            temp_delta_pct: number | null;
         };
         FactorBreakdown: {
             /** @description Signed temperature delta in % (0 = neutral). */
@@ -518,11 +621,11 @@ export interface components {
             /** @description Overall factor in % (100 = neutral). */
             combined_pct: number;
             /** @description True when combined_pct is a manual override (temp/rain deltas are neutral). */
-            manual?: boolean;
+            manual: boolean;
             wind_blocking_sequences: string[];
-            temp_input_c?: number | null;
-            rain_prob_pct?: number | null;
-            rain_mm?: number | null;
+            temp_input_c: number | null;
+            rain_prob_pct: number | null;
+            rain_mm: number | null;
         };
         NextRunSummary: {
             sequence_id: string;
@@ -531,17 +634,17 @@ export interface components {
             scheduled_at: string;
             duration_min: number;
             /** @description Set for one-off planned runs; null for recurring cron runs. */
-            plan_id?: string | null;
+            plan_id: string | null;
             /** @description True when this is the run currently executing (live, not skippable). */
-            in_progress?: boolean;
+            in_progress: boolean;
         };
         SystemStatus: {
             master_on: boolean;
             ha_connected: boolean;
             weather: components["schemas"]["WeatherSummary"];
             today_factor: components["schemas"]["FactorBreakdown"];
-            next_run?: (components["schemas"]["NextRunSummary"] | null) | null;
-            after_next?: (components["schemas"]["NextRunSummary"] | null) | null;
+            next_run: (components["schemas"]["NextRunSummary"] | null) | null;
+            after_next: (components["schemas"]["NextRunSummary"] | null) | null;
             /** @description All upcoming runs of the next day that has any — today if runs remain today, otherwise the next day with scheduled runs. */
             upcoming_runs: components["schemas"]["NextRunSummary"][];
             liters_today: number;
@@ -554,16 +657,16 @@ export interface components {
             id: string;
             /** @enum {string} */
             target_type: "sequence" | "zone";
-            sequence_id?: string | null;
-            sequence_label?: string | null;
-            zone_id?: string | null;
-            zone_label?: string | null;
+            sequence_id: string | null;
+            sequence_label: string | null;
+            zone_id: string | null;
+            zone_label: string | null;
             /** @description Unified display label (sequence or zone). */
             label: string;
             /** Format: date-time */
             scheduled_at: string;
-            duration_min?: number | null;
-            estimated_liters?: number | null;
+            duration_min: number | null;
+            estimated_liters: number | null;
             /** Format: date-time */
             created_at: string;
         };
@@ -587,12 +690,12 @@ export interface components {
             /** Format: date-time */
             started_at: string;
             /** Format: date-time */
-            ended_at?: string | null;
-            duration_min?: number | null;
-            liters?: number | null;
+            ended_at: string | null;
+            duration_min: number | null;
+            liters: number | null;
             triggered_by: components["schemas"]["TriggerSource"];
             aborted: boolean;
-            abort_reason?: (components["schemas"]["AbortReason"] | null) | null;
+            abort_reason: (components["schemas"]["AbortReason"] | null) | null;
         };
         PaginatedHistory: {
             items: components["schemas"]["HistoryEntry"][];
@@ -604,12 +707,40 @@ export interface components {
             deleted: number;
         };
         TempFactorSettings: {
+            basis_c: number;
+            pct_per_c: number;
+            min_pct: number;
+            max_pct: number;
+        };
+        RainFactorSettings: {
+            /** @enum {string} */
+            mode: "forecast" | "water_balance";
+            forecast_days: number;
+            threshold_prob: number;
+            reduce_above_mm: number;
+            zero_above_mm: number;
+            forecast_decay: number;
+            /** @description Recent actual-rain history window for water_balance mode. */
+            water_balance_days: number;
+            /** @description Daily carryover for actual rain in water_balance mode. */
+            water_balance_decay: number;
+            /** @description When true the rain factor also uses tomorrow's daily peak forecast, not just the latest reading. Today always uses the peak. */
+            peak_tomorrow: boolean;
+            /** @description When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain. In water_balance mode, actual-rain deltas also only count while the rain sensor was on. */
+            confirm_with_rain_sensor: boolean;
+        };
+        SequenceOverride: {
+            basis_min_per_zone: number | null;
+            watchdog_min: number | null;
+            paused: boolean;
+        };
+        TempFactorSettingsUpdate: {
             basis_c?: number;
             pct_per_c?: number;
             min_pct?: number;
             max_pct?: number;
         };
-        RainFactorSettings: {
+        RainFactorSettingsUpdate: {
             /** @enum {string} */
             mode?: "forecast" | "water_balance";
             forecast_days?: number;
@@ -626,35 +757,240 @@ export interface components {
             /** @description When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain. In water_balance mode, actual-rain deltas also only count while the rain sensor was on. */
             confirm_with_rain_sensor?: boolean;
         };
-        SequenceOverride: {
+        SequenceOverrideUpdate: {
             basis_min_per_zone?: number | null;
             watchdog_min?: number | null;
             paused?: boolean;
         };
-        AppSettings: {
+        FactorSettingsUpdate: {
+            temp?: components["schemas"]["TempFactorSettingsUpdate"];
+            rain?: components["schemas"]["RainFactorSettingsUpdate"];
+            /** @description When true, the manual adjustment overrides the automatic factor. */
+            manual_mode?: boolean;
+            /** @description Manual adjustment percentage (clamped to the temperature factor's min/max). */
+            manual_pct?: number | null;
+        };
+        UpdateSettingsRequest: {
             sequences?: {
-                [key: string]: components["schemas"]["SequenceOverride"];
+                [key: string]: components["schemas"]["SequenceOverrideUpdate"];
             };
-            factors?: {
-                temp?: components["schemas"]["TempFactorSettings"];
-                rain?: components["schemas"]["RainFactorSettings"];
-                /** @description When true, the manual adjustment overrides the automatic factor. */
-                manual_mode?: boolean;
-                /** @description Manual adjustment percentage (clamped to the temperature factor's min/max). */
-                manual_pct?: number | null;
-            };
+            factors?: components["schemas"]["FactorSettingsUpdate"];
             token_lifetime_days?: number;
             auto_login_enabled?: boolean;
         };
+        AppSettings: {
+            sequences: {
+                [key: string]: components["schemas"]["SequenceOverride"];
+            };
+            factors: {
+                temp: components["schemas"]["TempFactorSettings"];
+                rain: components["schemas"]["RainFactorSettings"];
+                /** @description When true, the manual adjustment overrides the automatic factor. */
+                manual_mode: boolean;
+                /** @description Manual adjustment percentage (clamped to the temperature factor's min/max). */
+                manual_pct: number | null;
+            };
+            token_lifetime_days: number;
+            auto_login_enabled: boolean;
+        };
         UserPreferences: {
+            /** @enum {string} */
+            theme: "dark" | "light";
+            /** @enum {string} */
+            language: "de" | "en";
+            /** @description Sequence IDs in the user's preferred dashboard order. IDs not present are appended in their natural order. */
+            sequence_order: string[];
+            /** @description Zone (valve) IDs in the user's preferred dashboard order. IDs not present are appended in their natural order. */
+            zone_order: string[];
+        };
+        UpdatePreferencesRequest: {
             /** @enum {string} */
             theme?: "dark" | "light";
             /** @enum {string} */
             language?: "de" | "en";
-            /** @description Sequence IDs in the user's preferred dashboard order. IDs not present are appended in their natural order. */
             sequence_order?: string[];
-            /** @description Zone (valve) IDs in the user's preferred dashboard order. IDs not present are appended in their natural order. */
             zone_order?: string[];
+        };
+        /** @enum {string} */
+        NotificationCategory: "start" | "skip" | "abort" | "reminder";
+        NotifyTarget: {
+            service: string;
+            categories: components["schemas"]["NotificationCategory"][];
+            quiet: boolean;
+            /** @enum {string} */
+            platform: "auto" | "ios" | "android";
+        };
+        HAConfigPublic: {
+            url: string;
+            notify_targets: components["schemas"]["NotifyTarget"][];
+        };
+        MQTTConfig: {
+            enabled: boolean;
+            host: string;
+            port: number;
+            username: string;
+            client_id: string;
+            discovery_prefix: string;
+            base_topic: string;
+            /** @description Whether an environment-managed MQTT password is configured. The password value is never exposed. */
+            password_set: boolean;
+        };
+        MQTTConfigInput: {
+            enabled: boolean;
+            host: string;
+            port: number;
+            username: string;
+            client_id: string;
+            discovery_prefix: string;
+            base_topic: string;
+            /** @description Accepted for GET→edit→PUT round-trips and ignored by the backend. */
+            password_set?: boolean;
+        };
+        AutoLoginTrigger: {
+            url_param: string;
+            trusted_referers: string[];
+            trusted_ips: string[];
+        };
+        AutoLoginConfig: {
+            enabled: boolean;
+            trigger: components["schemas"]["AutoLoginTrigger"];
+        };
+        ForwardHeaderConfig: {
+            header: string;
+            trusted_proxies: string[];
+        };
+        AuthConfig: {
+            /** @enum {string} */
+            mode: "password" | "forward_header" | "none";
+            forward_header: components["schemas"]["ForwardHeaderConfig"];
+            auto_login: components["schemas"]["AutoLoginConfig"];
+            frame_ancestors: string[];
+            /** @description Whether an environment-managed password is configured. The password value is never exposed. */
+            password_set: boolean;
+        };
+        AuthConfigInput: {
+            /** @enum {string} */
+            mode: "password" | "forward_header" | "none";
+            forward_header: components["schemas"]["ForwardHeaderConfig"];
+            auto_login: components["schemas"]["AutoLoginConfig"];
+            frame_ancestors: string[];
+            /** @description Accepted for GET→edit→PUT round-trips and ignored by the backend. */
+            password_set?: boolean;
+        };
+        SensorsConfig: {
+            rain: string;
+            wind: string;
+            season: string;
+            temperature: string;
+            temperature_max: string;
+            precipitation_prob_today: string;
+            precipitation_prob_tomorrow: string;
+            precipitation_today: string;
+            precipitation_tomorrow: string;
+            precipitation_actual: string;
+        };
+        ZoneConfig: {
+            label: string;
+            switch: string;
+            flow_lph: number;
+            staircase_enabled: boolean;
+            staircase_min: number;
+        };
+        /** @enum {string} */
+        SequenceColorKey: "green" | "sand" | "purple" | "slate" | "blue" | "rose";
+        SequenceConfig: {
+            label: string;
+            zones: string[];
+            basis_min_per_zone: number;
+            range: [
+                number,
+                number
+            ];
+            watchdog_min: number;
+            schedule: components["schemas"]["ScheduleSummary"];
+            enabled: boolean;
+            wind_blocks: boolean;
+            color: (components["schemas"]["SequenceColorKey"] | null) | null;
+        };
+        TempFactorConfig: {
+            /** @enum {string} */
+            formula: "linear";
+            basis_c: number;
+            pct_per_c: number;
+            min_pct: number;
+            max_pct: number;
+        };
+        RainFactorConfig: {
+            /** @enum {string} */
+            mode: "forecast" | "water_balance";
+            forecast_days: number;
+            threshold_prob: number;
+            reduce_above_mm: number;
+            zero_above_mm: number;
+            forecast_decay: number;
+            water_balance_days: number;
+            water_balance_decay: number;
+            peak_tomorrow: boolean;
+            confirm_with_rain_sensor: boolean;
+        };
+        FactorsConfig: {
+            temp: components["schemas"]["TempFactorConfig"];
+            rain: components["schemas"]["RainFactorConfig"];
+        };
+        NotificationsConfig: {
+            evening_reminder_cron: string;
+            queue_max_hours: number;
+        };
+        ConfigDoc: {
+            ha: components["schemas"]["HAConfigPublic"];
+            mqtt: components["schemas"]["MQTTConfig"];
+            auth: components["schemas"]["AuthConfig"];
+            sensors: components["schemas"]["SensorsConfig"];
+            zones: {
+                [key: string]: components["schemas"]["ZoneConfig"];
+            };
+            sequences: {
+                [key: string]: components["schemas"]["SequenceConfig"];
+            };
+            factors: components["schemas"]["FactorsConfig"];
+            notifications: components["schemas"]["NotificationsConfig"];
+            timezone: string;
+            sequence_colors_enabled: boolean;
+            restart_required: boolean;
+        };
+        ConfigUpdateRequest: {
+            ha: components["schemas"]["HAConfigPublic"];
+            mqtt: components["schemas"]["MQTTConfigInput"];
+            auth: components["schemas"]["AuthConfigInput"];
+            sensors: components["schemas"]["SensorsConfig"];
+            zones: {
+                [key: string]: components["schemas"]["ZoneConfig"];
+            };
+            sequences: {
+                [key: string]: components["schemas"]["SequenceConfig"];
+            };
+            factors: components["schemas"]["FactorsConfig"];
+            notifications: components["schemas"]["NotificationsConfig"];
+            timezone: string;
+            sequence_colors_enabled: boolean;
+            /** @description Accepted for GET→edit→PUT round-trips and ignored by the backend. */
+            restart_required?: boolean;
+        };
+        EntityInfo: {
+            entity_id: string;
+            friendly_name: string | null;
+            state: string;
+            domain: string;
+        };
+        EntitiesResponse: {
+            entities: components["schemas"]["EntityInfo"][];
+        };
+        ServicesResponse: {
+            services: string[];
+        };
+        TestNotifyResponse: {
+            sent: number;
+            targets: string[];
         };
         LoginRequest: {
             password: string;
@@ -793,7 +1129,11 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                    };
+                };
             };
             /** @description Token invalid or expired */
             401: {
@@ -1336,7 +1676,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AppSettings"];
+                "application/json": components["schemas"]["UpdateSettingsRequest"];
             };
         };
         responses: {
@@ -1425,7 +1765,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UserPreferences"];
+                "application/json": components["schemas"]["UpdatePreferencesRequest"];
             };
         };
         responses: {
@@ -1436,6 +1776,210 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UserPreferences"];
                 };
+            };
+        };
+    };
+    getConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigDoc"];
+                };
+            };
+        };
+    };
+    replaceConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigUpdateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigDoc"];
+                };
+            };
+            /** @description Cannot change configuration while valve operations are active */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid configuration */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    exportConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-yaml": string;
+                };
+            };
+        };
+    };
+    importConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-yaml": string;
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigDoc"];
+                };
+            };
+            /** @description Uploaded config could not be parsed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Cannot change configuration while valve operations are active */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid configuration */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listEntities: {
+        parameters: {
+            query?: {
+                domain?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntitiesResponse"];
+                };
+            };
+        };
+    };
+    listServices: {
+        parameters: {
+            query?: {
+                domain?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServicesResponse"];
+                };
+            };
+        };
+    };
+    testNotify: {
+        parameters: {
+            query?: {
+                service?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestNotifyResponse"];
+                };
+            };
+            /** @description No notify targets configured */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Notify target not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Notification delivery failed */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
