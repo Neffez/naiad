@@ -520,6 +520,9 @@ export interface components {
             /** @description True when combined_pct is a manual override (temp/rain deltas are neutral). */
             manual?: boolean;
             wind_blocking_sequences: string[];
+            temp_input_c?: number | null;
+            rain_prob_pct?: number | null;
+            rain_mm?: number | null;
         };
         NextRunSummary: {
             sequence_id: string;
@@ -607,14 +610,19 @@ export interface components {
             max_pct?: number;
         };
         RainFactorSettings: {
+            mode?: "forecast" | "water_balance";
             forecast_days?: number;
             threshold_prob?: number;
             reduce_above_mm?: number;
             zero_above_mm?: number;
             forecast_decay?: number;
+            /** @description Recent actual-rain history window for water_balance mode. */
+            water_balance_days?: number;
+            /** @description Daily carryover for actual rain in water_balance mode. */
+            water_balance_decay?: number;
             /** @description When true the rain factor also uses tomorrow's daily peak forecast, not just the latest reading. Today always uses the peak. */
             peak_tomorrow?: boolean;
-            /** @description When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain; otherwise today falls back to the latest reading. Opt-in; only affects today. */
+            /** @description When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain. In water_balance mode, actual-rain deltas also only count while the rain sensor was on. */
             confirm_with_rain_sensor?: boolean;
         };
         SequenceOverride: {

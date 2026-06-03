@@ -162,6 +162,11 @@ class SensorsConfig(BaseModel):
     precipitation_prob_tomorrow: str
     precipitation_today: str
     precipitation_tomorrow: str
+    # Optional actual precipitation amount sensor. Naiad reads its HA recorder
+    # history and turns recent positive deltas into a multi-day rain credit for
+    # the water-balance rain mode. Works with daily-reset or total-increasing mm
+    # sensors as long as state changes are numeric.
+    precipitation_actual: str = ""
 
 
 # ── Zones ─────────────────────────────────────────────────────────────────────
@@ -373,11 +378,14 @@ class TempFactorConfig(BaseModel):
 
 
 class RainFactorConfig(BaseModel):
+    mode: Literal["forecast", "water_balance"] = "forecast"
     forecast_days: int = Field(default=2, ge=1)
     threshold_prob: int = Field(default=70, ge=0, le=100)
     reduce_above_mm: float = 5.0
     zero_above_mm: float = 20.0
     forecast_decay: float = Field(default=0.5, ge=0.0, le=1.0)
+    water_balance_days: int = Field(default=4, ge=1, le=14)
+    water_balance_decay: float = Field(default=0.65, ge=0.0, le=1.0)
     # When True the rain factor also uses the day's *peak* forecast for tomorrow
     # (the highest value seen since local midnight), not just the latest reading —
     # mirroring how today is handled. Today always uses the peak; tomorrow's

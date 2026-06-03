@@ -162,11 +162,17 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Mirror tracked liters/durations into Home Assistant over MQTT (best-effort,
     # disabled unless configured). Runner and tracker both write run history, so
     # both refresh the published totals once a run is recorded.
-    stats_publisher = StatsPublisher(config, _session_factory)
+    stats_publisher = StatsPublisher(config, _session_factory, ha=ha)
     runner.on_run_recorded = stats_publisher.on_run_recorded
     _tracker.on_run_recorded = stats_publisher.on_run_recorded
 
-    scheduler = setup_scheduler(config, runner, ha, _session_factory)
+    scheduler = setup_scheduler(
+        config,
+        runner,
+        ha,
+        _session_factory,
+        on_weather_metrics_refreshed=stats_publisher.publish_all,
+    )
     scheduler.start()
     logger.info("Scheduler started (%d jobs)", len(scheduler.get_jobs()))
 
@@ -260,7 +266,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                     await runner.retry_pending_closes()
                     # Still refresh the weather forecast maxima in the background.
                     await refresh_fallback_temp_max(config, ha)
-                    await refresh_rain_forecast_max(config, ha)
+                    await refresh_rain_forecast_max(config, ha, _session_factory)
+                    await stats_publisher.publish_all()
                     return
                 else:
                     # Later reconnects while idle: close any orphaned valves. A
@@ -275,7 +282,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 # temperature (yesterday's recorded max) and the day's peak rain
                 # forecast; the hourly jobs keep them fresh.
                 await refresh_fallback_temp_max(config, ha)
-                await refresh_rain_forecast_max(config, ha)
+                await refresh_rain_forecast_max(config, ha, _session_factory)
+                await stats_publisher.publish_all()
         else:
             # Do NOT abort a live run on disconnect: the run task does not depend
             # on HA, and aborting cannot physically close the valve anyway (HA is

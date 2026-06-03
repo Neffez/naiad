@@ -178,10 +178,10 @@ environment only (see [`.env.example`](.env.example)).
 | Section         | Purpose                                                                                                                                                                                                                                                                                                                                                 |
 |-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `ha`            | HA WebSocket URL.                                                                                                                                                                                                                                                                                                                                       |
-| `sensors`       | Entity IDs for rain, wind, season, temperature, the four precipitation forecast sensors, and an optional `temperature_max` (forecast daily peak).                                                                                                                                                                                                       |
+| `sensors`       | Entity IDs for rain, wind, season, temperature, the four precipitation forecast sensors, an optional `temperature_max` (forecast daily peak), and optional `precipitation_actual` (actual precipitation amount in mm for water-balance mode).                                                                                                             |
 | `zones`         | Per-zone `label`, `switch` entity, and `flow_lph` (used for liter tracking).                                                                                                                                                                                                                                                                            |
 | `sequences`     | Ordered `zones`, `basis_min_per_zone`, allowed `range`, `watchdog_min`, `enabled`, `wind_blocks` (skips the run on a wind alarm), and a `schedule` — `days` (ISO 1=Mon…7=Sun, empty = every day) + `times` (`HH:MM`), with an advanced `cron` escape hatch that overrides them when set.                                                                |
-| `factors`       | `temp` (linear scaling around `basis_c`, clamped to `min_pct`..`max_pct`) and `rain` (forecast-based reduction with `threshold_prob`, `reduce_above_mm`, `zero_above_mm`, `forecast_decay`, `peak_tomorrow`). The rain input always uses today's *peak* forecast — the highest value seen since local midnight — so a later downward revision can't restart a run that an earlier peak had stopped; `peak_tomorrow` extends that to tomorrow's forecast too. The temperature input prefers the forecast daily max, then falls back to yesterday's recorded max, and only uses the current temperature as a last resort. |
+| `factors`       | `temp` (linear scaling around `basis_c`, clamped to `min_pct`..`max_pct`) and `rain`. `rain.mode: forecast` keeps the existing forecast-based reduction with `threshold_prob`, `reduce_above_mm`, `zero_above_mm`, `forecast_decay`, `peak_tomorrow`. `rain.mode: water_balance` additionally uses recent actual precipitation from `sensors.precipitation_actual` as a decaying rain credit (`water_balance_days`, `water_balance_decay`) so rain earlier in the week can reduce a later scheduled run. When `confirm_with_rain_sensor` is enabled, forecast peaks and water-balance precipitation deltas only count while the binary rain sensor actually detected rain. The temperature input prefers the forecast daily max, then falls back to yesterday's recorded max, and only uses the current temperature as a last resort. |
 | `mqtt`          | Optional MQTT statistics bridge — see [Statistics in Home Assistant](#statistics-in-home-assistant). `enabled`, broker `host`/`port`/`username`, `discovery_prefix`, `base_topic`.                                                                                                                                                                      |
 | `notifications` | Optional HA push notifications.                                                                                                                                                                                                                                                                                                                         |
 | `auth`          | `mode` (`password` \| `forward_header` \| `none`), the shared `password`, optional `auto_login` for trusted embedding contexts, `ingress` trust for the HA App sidebar (additive — coexists with `mode`), and `frame_ancestors` for the CSP header.                                                                                                     |
@@ -269,11 +269,16 @@ discovery configs and state under one **Naiad** device. The entities:
 | `sensor.naiad_last_run_liters` | `measurement`, `water`, `L` | Liters of the most recent run |
 | `sensor.naiad_last_run_duration` | `measurement`, `duration`, `min` | Minutes of the most recent run |
 | `sensor.naiad_last_run` | `timestamp` | When the most recent run ended |
+| `sensor.naiad_rain_credit` | `measurement`, `precipitation`, `mm` | Recent actual-rain credit used by water-balance mode |
+| `sensor.naiad_rain_factor` | `measurement`, `%` | Current rain multiplier applied to automatic runs |
+| `sensor.naiad_adjustment_factor` | `measurement`, `%` | Current combined automatic watering factor |
 
-The values are recomputed from the SQLite history on every publish (after each
-run, including external/manual valve activity, and on every (re)connect), so they
-never drift from what Naiad recorded. Messages are retained, so the figures
-survive both Naiad and Home Assistant restarts.
+The water/runtime values are recomputed from the SQLite history on every publish
+(after each run, including external/manual valve activity, and on every
+(re)connect), so they never drift from what Naiad recorded. The rain/adjustment
+values are published from Naiad's current factor calculation after weather
+refreshes and reconnects. Messages are retained, so the figures survive both
+Naiad and Home Assistant restarts.
 
 For the Grafana path: HA's InfluxDB integration exports **state changes** (not
 the statistics tables), so it picks these sensors up automatically. Point Grafana

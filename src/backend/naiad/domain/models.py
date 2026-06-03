@@ -179,10 +179,13 @@ class FactorOverride(SQLModel, table=True):
     temp_min_pct: int | None = None
     temp_max_pct: int | None = None
     rain_forecast_days: int | None = None
+    rain_mode: str | None = None
     rain_threshold_prob: int | None = None
     rain_reduce_above_mm: float | None = None
     rain_zero_above_mm: float | None = None
     rain_forecast_decay: float | None = None
+    rain_water_balance_days: int | None = None
+    rain_water_balance_decay: float | None = None
     rain_peak_tomorrow: bool | None = None
     rain_confirm_with_sensor: bool | None = None
     # Manual adjustment override. When manual_mode is True the automatic

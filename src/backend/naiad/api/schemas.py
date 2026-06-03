@@ -265,11 +265,14 @@ class TempFactorSettingsInput(BaseModel):
 
 
 class RainFactorSettingsInput(BaseModel):
+    mode: Literal["forecast", "water_balance"] | None = None
     forecast_days: int | None = None
     threshold_prob: int | None = None
     reduce_above_mm: float | None = None
     zero_above_mm: float | None = None
     forecast_decay: float | None = None
+    water_balance_days: int | None = None
+    water_balance_decay: float | None = None
     peak_tomorrow: bool | None = None
     confirm_with_rain_sensor: bool | None = None
 
@@ -304,11 +307,14 @@ class TempFactorSettingsResponse(BaseModel):
 
 
 class RainFactorSettingsResponse(BaseModel):
+    mode: Literal["forecast", "water_balance"]
     forecast_days: int
     threshold_prob: int
     reduce_above_mm: float
     zero_above_mm: float
     forecast_decay: float
+    water_balance_days: int
+    water_balance_decay: float
     peak_tomorrow: bool
     confirm_with_rain_sensor: bool
 

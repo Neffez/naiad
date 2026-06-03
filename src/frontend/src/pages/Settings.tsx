@@ -80,6 +80,21 @@ export default function Settings() {
 
       {/* Regen-Faktor */}
       <SettingsSection title={t('settings.factorRain')}>
+        <SettingsRow label={t('settings.rainMode')} info={t('settings.help.rainMode')}>
+          <div role="group" aria-label={t('settings.rainMode')} style={{ display: 'flex', gap: 6 }}>
+            {(['forecast', 'water_balance'] as const).map((val) => (
+              <button
+                key={val}
+                className={`n-btn${settings.factors.rain.mode === val ? ' primary' : ''}`}
+                aria-pressed={settings.factors.rain.mode === val}
+                style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
+                onClick={() => mut.mutate({ factors: { rain: { mode: val } } })}
+              >
+                {t(`settings.rainMode_${val}`)}
+              </button>
+            ))}
+          </div>
+        </SettingsRow>
         <SettingsRow label={t('settings.thresholdProb')} info={t('settings.help.thresholdProb')}>
           <NumInput label={t('settings.thresholdProb')} value={settings.factors.rain.threshold_prob} unit="%" onBlur={(v) => mut.mutate({ factors: { rain: { threshold_prob: v } } })} />
         </SettingsRow>
@@ -91,6 +106,12 @@ export default function Settings() {
         </SettingsRow>
         <SettingsRow label={t('settings.forecastDecay')} info={t('settings.help.forecastDecay')}>
           <NumInput label={t('settings.forecastDecay')} value={settings.factors.rain.forecast_decay} unit="" width={60} step={0.1} onBlur={(v) => mut.mutate({ factors: { rain: { forecast_decay: v } } })} />
+        </SettingsRow>
+        <SettingsRow label={t('settings.waterBalanceDays')} info={t('settings.help.waterBalanceDays')}>
+          <NumInput label={t('settings.waterBalanceDays')} value={settings.factors.rain.water_balance_days} unit="d" width={60} onBlur={(v) => mut.mutate({ factors: { rain: { water_balance_days: v } } })} />
+        </SettingsRow>
+        <SettingsRow label={t('settings.waterBalanceDecay')} info={t('settings.help.waterBalanceDecay')}>
+          <NumInput label={t('settings.waterBalanceDecay')} value={settings.factors.rain.water_balance_decay} unit="" width={60} step={0.05} onBlur={(v) => mut.mutate({ factors: { rain: { water_balance_decay: v } } })} />
         </SettingsRow>
         <SettingsRow label={t('settings.peakTomorrow')} info={t('settings.help.peakTomorrow')}>
           <div role="group" aria-label={t('settings.peakTomorrow')} style={{ display: 'flex', gap: 6 }}>

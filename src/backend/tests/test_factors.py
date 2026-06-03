@@ -75,6 +75,41 @@ def test_rain_full_block(minimal_config: AppConfig) -> None:
     assert result.factor_pct == pytest.approx(0.0)
 
 
+def test_actual_rain_credit_ignored_in_forecast_mode(minimal_config: AppConfig) -> None:
+    result = compute_factors(_snap(actual_rain_credit_mm=25.0), minimal_config)
+    assert result.rain_factor_pct == pytest.approx(100.0)
+    assert result.factor_pct == pytest.approx(100.0)
+
+
+def test_water_balance_credit_reduces_factor(
+    minimal_config: AppConfig, factor_engine
+) -> None:
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_mode="water_balance"))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(_snap(actual_rain_credit_mm=10.0), minimal_config, session)
+
+    assert result.rain_factor_pct == pytest.approx(100.0 * (1.0 - 5.0 / 15.0), rel=1e-3)
+    assert result.rain_mm == pytest.approx(10.0)
+    assert result.rain_prob_pct == pytest.approx(100.0)
+
+
+def test_water_balance_credit_can_skip_run(
+    minimal_config: AppConfig, factor_engine
+) -> None:
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_mode="water_balance"))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(_snap(actual_rain_credit_mm=25.0), minimal_config, session)
+
+    assert result.rain_factor_pct == pytest.approx(0.0)
+    assert result.factor_pct == pytest.approx(0.0)
+
+
 def test_season_off_returns_zero_factor(minimal_config: AppConfig) -> None:
     result = compute_factors(_snap(season_on=False), minimal_config)
     assert result.season_off is True

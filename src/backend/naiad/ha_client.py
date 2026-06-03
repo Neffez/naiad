@@ -58,6 +58,7 @@ class HAClient:
         # was on today (reconstructed from the recorder). Lets synchronous callers
         # (read_sensor_snapshot) confirm today's forecast peak against actual rain.
         self._rain_confirmed_peak_cache: dict[str, float | None] = {}
+        self._recent_rain_credit_cache: dict[str, float | None] = {}
         self._state_callbacks: list[StateCallback] = []
         self._connected = asyncio.Event()
         self._loop_task: asyncio.Task[None] | None = None
@@ -361,6 +362,74 @@ class HAClient:
           * ``> 0`` — the highest forecast value that coincided with real rain.
         """
         return self._rain_confirmed_peak_cache.get(entity_id)
+
+    def get_recent_rain_credit(self, entity_id: str) -> float | None:
+        """Recent actual rain credit in mm for the water-balance rain mode."""
+        return self._recent_rain_credit_cache.get(entity_id)
+
+    async def refresh_recent_rain_credit(
+        self,
+        entity_id: str,
+        start: datetime,
+        end: datetime,
+        decay: float,
+        rain_entity: str | None = None,
+    ) -> None:
+        """Refresh recent actual rain credit from a numeric precipitation sensor.
+
+        The sensor may be either daily-reset or total-increasing. Positive deltas
+        count as rain; negative deltas are treated as resets and ignored. The final
+        credit decays with age in whole days so Monday rain can still suppress a
+        Wednesday run without lasting indefinitely. When ``rain_entity`` is set,
+        deltas only count while that binary rain sensor is on.
+        """
+        try:
+            samples = await self.fetch_history(entity_id, start, end)
+            rain_hist = await self.fetch_history(rain_entity, start, end) if rain_entity else []
+            current = self.get_state_value(entity_id)
+            if current is not None:
+                samples.append((end.timestamp(), str(current)))
+            samples.sort(key=lambda s: s[0])
+            if len(samples) < 2:
+                self._recent_rain_credit_cache[entity_id] = 0.0
+                return
+
+            credit = 0.0
+            for (_prev_ts, prev_raw), (cur_ts, cur_raw) in zip(
+                samples, samples[1:], strict=False
+            ):
+                try:
+                    prev_val = float(prev_raw)
+                    cur_val = float(cur_raw)
+                except (TypeError, ValueError):
+                    continue
+                delta = cur_val - prev_val
+                if delta <= 0:
+                    continue
+                if rain_entity and self._state_at(rain_hist, cur_ts, default="off") != "on":
+                    continue
+                age_days = max(0.0, (end.timestamp() - cur_ts) / 86400.0)
+                credit += delta * (decay**age_days)
+            self._recent_rain_credit_cache[entity_id] = round(credit, 2)
+            logger.debug(
+                "Refreshed recent rain credit for %s: %s",
+                entity_id,
+                self._recent_rain_credit_cache[entity_id],
+            )
+        except Exception:
+            logger.warning(
+                "Could not refresh recent rain credit for '%s'", entity_id, exc_info=True
+            )
+
+    @staticmethod
+    def _state_at(samples: list[tuple[float, str]], timestamp: float, default: str) -> str:
+        """Piecewise-constant state at ``timestamp`` for chronological HA samples."""
+        state = default
+        for ts, raw in samples:
+            if ts > timestamp:
+                break
+            state = raw
+        return state
 
     async def refresh_rain_confirmed_peak(
         self, forecast_entities: list[str], rain_entity: str, start: datetime, end: datetime

@@ -242,6 +242,12 @@ async def get_status(
     rain_prob_today, rain_prob_tomorrow, rain_mm_today, rain_mm_tomorrow = rain_factor_inputs(
         snapshot, eff_rain.peak_tomorrow, eff_rain.confirm_with_rain_sensor
     )
+    display_rain_prob = factors.rain_prob_pct
+    display_rain_mm = factors.rain_mm
+    if display_rain_prob is None:
+        display_rain_prob = max(rain_prob_today, rain_prob_tomorrow)
+    if display_rain_mm is None:
+        display_rain_mm = max(rain_mm_today, rain_mm_tomorrow * eff_rain.forecast_decay)
 
     wind_blocking = [
         seq_id for seq_id, seq in config.sequences.items() if seq.wind_blocks and snapshot.wind_on
@@ -279,14 +285,8 @@ async def get_status(
                 if snapshot.max_temperature_c is not None
                 else snapshot.temperature_c
             ),
-            rain_prob_pct=max(
-                rain_prob_today,
-                rain_prob_tomorrow,
-            ),
-            rain_mm=max(
-                rain_mm_today,
-                rain_mm_tomorrow * eff_rain.forecast_decay,
-            ),
+            rain_prob_pct=display_rain_prob,
+            rain_mm=display_rain_mm,
         ),
         next_run=next_runs[0] if len(next_runs) > 0 else None,
         after_next=next_runs[1] if len(next_runs) > 1 else None,
