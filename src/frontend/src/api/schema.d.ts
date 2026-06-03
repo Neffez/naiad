@@ -610,6 +610,7 @@ export interface components {
             max_pct?: number;
         };
         RainFactorSettings: {
+            /** @enum {string} */
             mode?: "forecast" | "water_balance";
             forecast_days?: number;
             threshold_prob?: number;

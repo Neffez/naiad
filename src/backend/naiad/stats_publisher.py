@@ -370,9 +370,7 @@ class StatsPublisher:
                 _num(metrics.snapshot.actual_rain_credit_mm or 0.0),
             )
             self._publish(self._state_topic("rain_factor"), _num(metrics.factors.rain_factor_pct))
-            self._publish(
-                self._state_topic("adjustment_factor"), _num(metrics.factors.factor_pct)
-            )
+            self._publish(self._state_topic("adjustment_factor"), _num(metrics.factors.factor_pct))
 
     def _weather_metrics(self) -> WeatherMetrics | None:
         if self._ha is None:
