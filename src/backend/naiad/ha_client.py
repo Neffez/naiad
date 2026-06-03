@@ -395,9 +395,7 @@ class HAClient:
                 return
 
             credit = 0.0
-            for (_prev_ts, prev_raw), (cur_ts, cur_raw) in zip(
-                samples, samples[1:], strict=False
-            ):
+            for (_prev_ts, prev_raw), (cur_ts, cur_raw) in zip(samples, samples[1:], strict=False):
                 try:
                     prev_val = float(prev_raw)
                     cur_val = float(cur_raw)

@@ -172,9 +172,7 @@ async def test_publish_emits_discovery_and_state(minimal_config: AppConfig, engi
     assert all(retain for _, _, retain in fake.messages)
 
 
-async def test_publish_emits_weather_metric_sensors(
-    minimal_config: AppConfig, engine
-) -> None:
+async def test_publish_emits_weather_metric_sensors(minimal_config: AppConfig, engine) -> None:
     minimal_config.mqtt.enabled = True
     data = minimal_config.model_dump()
     data["sensors"]["precipitation_actual"] = "sensor.actual_rain"
