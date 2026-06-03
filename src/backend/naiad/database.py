@@ -67,6 +67,7 @@ def _add_missing_columns(engine: Engine) -> None:
             "manual_mode": "BOOLEAN",
             "manual_pct": "INTEGER",
             "rain_peak_tomorrow": "BOOLEAN",
+            "rain_confirm_with_sensor": "BOOLEAN",
         },
     }
     inspector = inspect(engine)

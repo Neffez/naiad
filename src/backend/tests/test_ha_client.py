@@ -106,6 +106,45 @@ def test_refresh_daily_max_swallows_errors() -> None:
     assert client.get_cached_daily_max("sensor.temp") is None
 
 
+def test_refresh_rain_confirmed_today_detects_on_state() -> None:
+    from datetime import UTC, datetime
+
+    client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+    client._connected.set()
+    client._ws = object()  # type: ignore[assignment]
+    assert client.get_rain_confirmed_today() is False
+
+    history: dict[str, list[dict[str, Any]]] = {"binary_sensor.rain": [{"s": "off"}, {"s": "on"}]}
+
+    async def fake_send(ws: Any, msg: dict[str, Any], timeout: float = 10.0) -> Any:
+        assert msg["type"] == "history/history_during_period"
+        return history
+
+    client._send_command = fake_send  # type: ignore[assignment]
+    start, end = datetime(2026, 6, 2, tzinfo=UTC), datetime(2026, 6, 3, tzinfo=UTC)
+    asyncio.run(client.refresh_rain_confirmed_today("binary_sensor.rain", start, end))
+    assert client.get_rain_confirmed_today() is True
+
+    # No "on" anywhere today → flag clears.
+    history["binary_sensor.rain"] = [{"s": "off"}]
+    asyncio.run(client.refresh_rain_confirmed_today("binary_sensor.rain", start, end))
+    assert client.get_rain_confirmed_today() is False
+
+
+def test_refresh_rain_confirmed_today_swallows_errors_and_keeps_flag() -> None:
+    from datetime import UTC, datetime
+
+    client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+    client.set_rain_confirmed_today(True)
+    # Not connected → fetch raises; refresh must not propagate nor clear the flag.
+    asyncio.run(
+        client.refresh_rain_confirmed_today(
+            "binary_sensor.rain", datetime(2026, 6, 2, tzinfo=UTC), datetime(2026, 6, 3, tzinfo=UTC)
+        )
+    )
+    assert client.get_rain_confirmed_today() is True
+
+
 def test_mark_disconnected_cancels_pending_and_fires_offline() -> None:
     """Both close paths route through _mark_disconnected: a clean close (the
     ``async for`` ending normally) must fail pending requests fast and broadcast

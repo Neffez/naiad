@@ -303,3 +303,63 @@ def test_today_always_uses_peak(minimal_config: AppConfig) -> None:
         minimal_config,
     )
     assert result.rain_factor_pct == pytest.approx(0.0)
+
+
+def _peak_vs_current_snap() -> SensorSnapshot:
+    # High peak earlier today (40mm/90%) but the latest reading has dropped back
+    # (2mm/20%): the day spiked in the forecast but may never have actually rained.
+    return _snap(
+        precipitation_prob_today=90.0,
+        precipitation_today_mm=40.0,
+        precipitation_prob_today_current=20.0,
+        precipitation_today_mm_current=2.0,
+    )
+
+
+def test_rain_sensor_gate_off_by_default_uses_peak(minimal_config: AppConfig) -> None:
+    """Without the opt-in flag, today keeps using the peak even if it never rained."""
+    result = compute_factors(_peak_vs_current_snap(), minimal_config)
+    assert result.rain_factor_pct == pytest.approx(0.0)  # peak 40mm → full block
+
+
+def test_rain_sensor_gate_falls_back_to_current_when_no_rain(
+    minimal_config: AppConfig, factor_engine
+) -> None:
+    """With confirm_with_rain_sensor on and no rain confirmed today, today's peak is
+    ignored — the latest reading drives the factor, so a phantom forecast spike does
+    not suppress watering."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_confirm_with_sensor=True))
+        session.commit()
+    with Session(factor_engine) as session:
+        result = compute_factors(_peak_vs_current_snap(), minimal_config, session)
+    assert result.rain_factor_pct == pytest.approx(100.0)  # current 2mm/20% → no reduction
+
+
+def test_rain_sensor_gate_uses_peak_when_rain_confirmed(
+    minimal_config: AppConfig, factor_engine
+) -> None:
+    """With the flag on and the rain sensor confirmed today, today's peak applies."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_confirm_with_sensor=True))
+        session.commit()
+    snap = _peak_vs_current_snap()
+    snap.rain_confirmed_today = True
+    with Session(factor_engine) as session:
+        result = compute_factors(snap, minimal_config, session)
+    assert result.rain_factor_pct == pytest.approx(0.0)  # peak 40mm → full block
+
+
+def test_rain_sensor_gate_current_falls_back_to_peak_when_unset(
+    minimal_config: AppConfig, factor_engine
+) -> None:
+    """If the snapshot omits the current today fields (older snapshot), the gate falls
+    back to the peak field rather than treating today as zero rain."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_confirm_with_sensor=True))
+        session.commit()
+    # No *_current fields set, rain not confirmed → falls back to the peak values.
+    snap = _snap(precipitation_prob_today=90.0, precipitation_today_mm=40.0)
+    with Session(factor_engine) as session:
+        result = compute_factors(snap, minimal_config, session)
+    assert result.rain_factor_pct == pytest.approx(0.0)
