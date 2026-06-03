@@ -106,43 +106,87 @@ def test_refresh_daily_max_swallows_errors() -> None:
     assert client.get_cached_daily_max("sensor.temp") is None
 
 
-def test_refresh_rain_confirmed_today_detects_on_state() -> None:
+def test_max_forecast_during_rain_correlates_peak_timing() -> None:
+    """The confirmed peak is the forecast value while rain was on, not the day's max.
+
+    Timeline: forecast 5mm during morning rain (sensor on), then a phantom spike to
+    35mm at noon while the sensor is off, then back to 10mm. Only the 5mm coincided
+    with real rain."""
+    forecast = [(0.0, "5"), (100.0, "35"), (200.0, "10")]
+    rain = [(0.0, "off"), (10.0, "on"), (50.0, "off")]
+    assert HAClient._max_forecast_during_rain(forecast, rain) == pytest.approx(5.0)
+
+
+def test_max_forecast_during_rain_constant_forecast_during_rain() -> None:
+    """A forecast that does not change during the rain interval is still confirmed."""
+    forecast = [(0.0, "5")]  # constant 5mm all day
+    rain = [(0.0, "off"), (10.0, "on"), (50.0, "off")]
+    assert HAClient._max_forecast_during_rain(forecast, rain) == pytest.approx(5.0)
+
+
+def test_max_forecast_during_rain_never_rained_returns_zero() -> None:
+    """Rain history present but never on → provably unconfirmed → 0.0 (not None)."""
+    forecast = [(0.0, "5"), (100.0, "35")]
+    rain = [(0.0, "off")]
+    assert HAClient._max_forecast_during_rain(forecast, rain) == 0.0
+
+
+def test_max_forecast_during_rain_no_rain_history_returns_none() -> None:
+    """No rain history at all → unknown → None (callers fall back to the peak)."""
+    assert HAClient._max_forecast_during_rain([(0.0, "5")], []) is None
+
+
+def test_max_forecast_during_rain_ignores_unavailable_forecast() -> None:
+    """A non-numeric forecast state during rain is skipped, not treated as a value."""
+    forecast = [(0.0, "unavailable"), (20.0, "8")]
+    rain = [(0.0, "on")]
+    assert HAClient._max_forecast_during_rain(forecast, rain) == pytest.approx(8.0)
+
+
+def test_refresh_rain_confirmed_peak_caches_per_entity() -> None:
     from datetime import UTC, datetime
 
     client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
     client._connected.set()
     client._ws = object()  # type: ignore[assignment]
-    assert client.get_rain_confirmed_today() is False
+    assert client.get_rain_confirmed_peak("sensor.prec_today") is None
 
-    history: dict[str, list[dict[str, Any]]] = {"binary_sensor.rain": [{"s": "off"}, {"s": "on"}]}
+    history: dict[str, dict[str, list[dict[str, Any]]]] = {
+        "binary_sensor.rain": {
+            "binary_sensor.rain": [{"s": "off", "lu": 0.0}, {"s": "on", "lu": 10.0}]
+        },
+        "sensor.prec_today": {
+            "sensor.prec_today": [{"s": "5", "lu": 0.0}, {"s": "35", "lu": 100.0}]
+        },
+    }
 
     async def fake_send(ws: Any, msg: dict[str, Any], timeout: float = 10.0) -> Any:
-        assert msg["type"] == "history/history_during_period"
-        return history
+        return history[msg["entity_ids"][0]]
 
     client._send_command = fake_send  # type: ignore[assignment]
     start, end = datetime(2026, 6, 2, tzinfo=UTC), datetime(2026, 6, 3, tzinfo=UTC)
-    asyncio.run(client.refresh_rain_confirmed_today("binary_sensor.rain", start, end))
-    assert client.get_rain_confirmed_today() is True
-
-    # No "on" anywhere today → flag clears.
-    history["binary_sensor.rain"] = [{"s": "off"}]
-    asyncio.run(client.refresh_rain_confirmed_today("binary_sensor.rain", start, end))
-    assert client.get_rain_confirmed_today() is False
+    asyncio.run(
+        client.refresh_rain_confirmed_peak(["sensor.prec_today"], "binary_sensor.rain", start, end)
+    )
+    # Rain on from t=10 onwards; forecast is 5 then 35 (at t=100, still raining) → 35.
+    assert client.get_rain_confirmed_peak("sensor.prec_today") == pytest.approx(35.0)
 
 
-def test_refresh_rain_confirmed_today_swallows_errors_and_keeps_flag() -> None:
+def test_refresh_rain_confirmed_peak_swallows_errors() -> None:
     from datetime import UTC, datetime
 
     client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
-    client.set_rain_confirmed_today(True)
-    # Not connected → fetch raises; refresh must not propagate nor clear the flag.
+    client._rain_confirmed_peak_cache["sensor.prec_today"] = 12.0
+    # Not connected → fetch raises; refresh must not propagate nor clobber the cache.
     asyncio.run(
-        client.refresh_rain_confirmed_today(
-            "binary_sensor.rain", datetime(2026, 6, 2, tzinfo=UTC), datetime(2026, 6, 3, tzinfo=UTC)
+        client.refresh_rain_confirmed_peak(
+            ["sensor.prec_today"],
+            "binary_sensor.rain",
+            datetime(2026, 6, 2, tzinfo=UTC),
+            datetime(2026, 6, 3, tzinfo=UTC),
         )
     )
-    assert client.get_rain_confirmed_today() is True
+    assert client.get_rain_confirmed_peak("sensor.prec_today") == pytest.approx(12.0)
 
 
 def test_mark_disconnected_cancels_pending_and_fires_offline() -> None:
