@@ -81,9 +81,7 @@ def test_actual_rain_credit_ignored_in_forecast_mode(minimal_config: AppConfig) 
     assert result.factor_pct == pytest.approx(100.0)
 
 
-def test_water_balance_credit_reduces_factor(
-    minimal_config: AppConfig, factor_engine
-) -> None:
+def test_water_balance_credit_reduces_factor(minimal_config: AppConfig, factor_engine) -> None:
     with Session(factor_engine) as session:
         session.add(FactorOverride(id=1, rain_mode="water_balance"))
         session.commit()
@@ -96,9 +94,7 @@ def test_water_balance_credit_reduces_factor(
     assert result.rain_prob_pct == pytest.approx(100.0)
 
 
-def test_water_balance_credit_can_skip_run(
-    minimal_config: AppConfig, factor_engine
-) -> None:
+def test_water_balance_credit_can_skip_run(minimal_config: AppConfig, factor_engine) -> None:
     with Session(factor_engine) as session:
         session.add(FactorOverride(id=1, rain_mode="water_balance"))
         session.commit()

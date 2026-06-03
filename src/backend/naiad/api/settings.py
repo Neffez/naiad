@@ -57,12 +57,8 @@ def _read_settings(config: AppConfig, session: Session) -> AppSettingsResponse:
         reduce_above_mm=_r(fo.rain_reduce_above_mm if fo else None, rc.reduce_above_mm),
         zero_above_mm=_r(fo.rain_zero_above_mm if fo else None, rc.zero_above_mm),
         forecast_decay=_r(fo.rain_forecast_decay if fo else None, rc.forecast_decay),
-        water_balance_days=_r(
-            fo.rain_water_balance_days if fo else None, rc.water_balance_days
-        ),
-        water_balance_decay=_r(
-            fo.rain_water_balance_decay if fo else None, rc.water_balance_decay
-        ),
+        water_balance_days=_r(fo.rain_water_balance_days if fo else None, rc.water_balance_days),
+        water_balance_decay=_r(fo.rain_water_balance_decay if fo else None, rc.water_balance_decay),
         peak_tomorrow=_r(fo.rain_peak_tomorrow if fo else None, rc.peak_tomorrow),
         confirm_with_rain_sensor=_r(
             fo.rain_confirm_with_sensor if fo else None, rc.confirm_with_rain_sensor

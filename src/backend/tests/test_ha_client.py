@@ -128,9 +128,7 @@ def test_refresh_recent_rain_credit_counts_positive_deltas_and_ignores_resets() 
     client._state_cache["sensor.rain"] = {"state": "4"}
     client._send_command = fake_send  # type: ignore[assignment]
     asyncio.run(
-        client.refresh_recent_rain_credit(
-            "sensor.rain", now - timedelta(days=3), now, decay=1.0
-        )
+        client.refresh_recent_rain_credit("sensor.rain", now - timedelta(days=3), now, decay=1.0)
     )
     assert client.get_recent_rain_credit("sensor.rain") == pytest.approx(14.0)
 
@@ -193,9 +191,7 @@ def test_refresh_recent_rain_credit_with_confirmation_ignores_phantom_forecast()
                 {"s": "20", "lu": (base + timedelta(hours=1)).timestamp()},
             ]
         },
-        "binary_sensor.rain": {
-            "binary_sensor.rain": [{"s": "off", "lu": base.timestamp()}]
-        },
+        "binary_sensor.rain": {"binary_sensor.rain": [{"s": "off", "lu": base.timestamp()}]},
     }
 
     async def fake_send(ws: Any, msg: dict[str, Any], timeout: float = 10.0) -> Any:
