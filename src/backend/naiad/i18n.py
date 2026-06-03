@@ -26,6 +26,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "skip.zero_factor": "💧 {label}: factor 0 % — run skipped",
         "skip.conflict_sequence": "⚠️ Schedule conflict: {label} skipped — {running} still running",
         "skip.conflict_zone": "⚠️ Schedule conflict: zone {label} skipped — {running} still running",
+        "skip.expired": (
+            "⚠️ {label}: scheduled run dropped — valve safety work blocked it for too long"
+        ),
         "start.sequence": "🌿 {label} started ({trigger}, factor {pct} %)",
         "start.zone": "🌿 Zone {label} started ({trigger}, {minutes} min)",
         "abort.paused_rain": "🌧 Paused run discarded: rain ({label})",
@@ -60,6 +63,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
         "skip.conflict_zone": (
             "⚠️ Zeitplan-Konflikt: Zone {label} übersprungen — {running} läuft noch"
+        ),
+        "skip.expired": (
+            "⚠️ {label}: geplanter Lauf verworfen — Ventil-Sicherheitsarbeiten "
+            "blockierten ihn zu lange"
         ),
         # Starts
         "start.sequence": "🌿 {label} gestartet ({trigger}, Faktor {pct} %)",

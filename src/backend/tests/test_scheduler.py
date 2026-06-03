@@ -25,6 +25,7 @@ from naiad.scheduler import (
     _run_sequence_job,
     flush_notification_queue,
     push_notification,
+    refresh_rain_confirmed_peak,
     refresh_rain_forecast_max,
 )
 from tests.conftest import MINIMAL_CONFIG_DATA
@@ -66,6 +67,9 @@ class FakeHA:
         return self._states.get(entity_id)
 
     def get_cached_daily_max(self, entity_id: str) -> float | None:
+        return None
+
+    def get_rain_confirmed_peak(self, entity_id: str) -> float | None:
         return None
 
     @property
@@ -321,6 +325,38 @@ async def test_rain_noop_when_nothing_running_or_paused(fast_config: AppConfig, 
     await _on_rain("binary_sensor.regen", {"state": "on"}, runner, fast_config, FakeHA())
 
 
+class _ConfirmRecordingHA:
+    """Records the entities passed to refresh_rain_confirmed_peak."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[str], str]] = []
+
+    async def refresh_rain_confirmed_peak(
+        self, forecast_entities: list[str], rain_entity: str, start: datetime, end: datetime
+    ) -> None:
+        assert start <= end
+        self.calls.append((forecast_entities, rain_entity))
+
+
+async def test_refresh_rain_confirmed_peak_passes_today_sensors(minimal_config: AppConfig) -> None:
+    """The confirmed-peak refresh correlates only today's forecast sensors with the
+    rain sensor (tomorrow has not happened yet)."""
+    ha = _ConfirmRecordingHA()
+    await refresh_rain_confirmed_peak(minimal_config, ha)  # type: ignore[arg-type]
+    assert ha.calls == [(["sensor.prec_today", "sensor.prec_prob_today"], "binary_sensor.regen")]
+
+
+async def test_refresh_rain_confirmed_peak_skips_without_rain_sensor(
+    minimal_config: AppConfig,
+) -> None:
+    data = minimal_config.model_dump()
+    data["sensors"]["rain"] = ""
+    cfg = AppConfig.model_validate(data)
+    ha = _ConfirmRecordingHA()
+    await refresh_rain_confirmed_peak(cfg, ha)  # type: ignore[arg-type]
+    assert ha.calls == []
+
+
 def test_consume_skip_prunes_stale(engine) -> None:
     sf = lambda: Session(engine)  # noqa: E731
     now = datetime.now(UTC)
@@ -537,15 +573,22 @@ async def test_queue_caps_total_items() -> None:
 
 
 class _RefreshRecordingHA:
-    """Records the entity ids passed to refresh_daily_max."""
+    """Records the entity ids passed to refresh_daily_max / refresh_rain_confirmed_peak."""
 
     def __init__(self) -> None:
         self.refreshed: list[str] = []
+        self.confirmed_peak_calls: list[tuple[list[str], str]] = []
 
     async def refresh_daily_max(self, entity_id: str, start: datetime, end: datetime) -> None:
         # The window must cover today (local midnight up to now), not yesterday.
         assert start <= end
         self.refreshed.append(entity_id)
+
+    async def refresh_rain_confirmed_peak(
+        self, forecast_entities: list[str], rain_entity: str, start: datetime, end: datetime
+    ) -> None:
+        assert start <= end
+        self.confirmed_peak_calls.append((forecast_entities, rain_entity))
 
 
 async def test_refresh_rain_forecast_max_covers_all_precipitation_sensors(
@@ -559,3 +602,7 @@ async def test_refresh_rain_forecast_max_covers_all_precipitation_sensors(
         "sensor.prec_prob_today",
         "sensor.prec_prob_tomorrow",
     }
+    # The rain forecast refresh also recomputes the rain-confirmed peak for today.
+    assert ha.confirmed_peak_calls == [
+        (["sensor.prec_today", "sensor.prec_prob_today"], "binary_sensor.regen")
+    ]

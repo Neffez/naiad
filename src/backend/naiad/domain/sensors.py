@@ -74,5 +74,14 @@ def read_sensor_snapshot(ha: HAClient, config: AppConfig) -> SensorSnapshot:
         precipitation_tomorrow_mm=mm_tomorrow,
         precipitation_prob_tomorrow_peak=_peak(sensors.precipitation_prob_tomorrow, prob_tomorrow),
         precipitation_tomorrow_mm_peak=_peak(sensors.precipitation_tomorrow, mm_tomorrow),
+        # Latest (non-peak) today readings plus the peak confirmed by actual rain, so
+        # the rain factor can confirm today's peak against the rain sensor when
+        # confirm_with_rain_sensor is enabled (see rain_factor_inputs).
+        precipitation_prob_today_current=prob_today,
+        precipitation_today_mm_current=mm_today,
+        precipitation_prob_today_confirmed=ha.get_rain_confirmed_peak(
+            sensors.precipitation_prob_today
+        ),
+        precipitation_today_mm_confirmed=ha.get_rain_confirmed_peak(sensors.precipitation_today),
         unavailable=unavailable,
     )
