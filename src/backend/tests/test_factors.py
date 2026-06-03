@@ -303,3 +303,90 @@ def test_today_always_uses_peak(minimal_config: AppConfig) -> None:
         minimal_config,
     )
     assert result.rain_factor_pct == pytest.approx(0.0)
+
+
+def _peak_vs_current_snap(
+    confirmed_mm: float | None, confirmed_prob: float | None
+) -> SensorSnapshot:
+    # High peak earlier today (40mm/90%) but the latest reading has dropped back
+    # (2mm/20%): the day spiked in the forecast but may never have actually rained.
+    # ``confirmed_*`` is the peak that coincided with the rain sensor being on.
+    return _snap(
+        precipitation_prob_today=90.0,
+        precipitation_today_mm=40.0,
+        precipitation_prob_today_current=20.0,
+        precipitation_today_mm_current=2.0,
+        precipitation_prob_today_confirmed=confirmed_prob,
+        precipitation_today_mm_confirmed=confirmed_mm,
+    )
+
+
+def _enable_confirm(engine) -> None:
+    with Session(engine) as session:
+        session.add(FactorOverride(id=1, rain_confirm_with_sensor=True))
+        session.commit()
+
+
+def test_rain_sensor_gate_off_by_default_uses_peak(minimal_config: AppConfig) -> None:
+    """Without the opt-in flag, today keeps using the peak even if it never rained."""
+    result = compute_factors(
+        _peak_vs_current_snap(confirmed_mm=0.0, confirmed_prob=0.0), minimal_config
+    )
+    assert result.rain_factor_pct == pytest.approx(0.0)  # peak 40mm → full block
+
+
+def test_rain_sensor_gate_falls_back_to_current_when_no_rain(
+    minimal_config: AppConfig, factor_engine
+) -> None:
+    """With confirm_with_rain_sensor on and a confirmed peak of 0 (it never rained),
+    today's sticky peak is ignored — the latest reading drives the factor, so a phantom
+    forecast spike does not suppress watering."""
+    _enable_confirm(factor_engine)
+    with Session(factor_engine) as session:
+        result = compute_factors(
+            _peak_vs_current_snap(confirmed_mm=0.0, confirmed_prob=0.0), minimal_config, session
+        )
+    assert result.rain_factor_pct == pytest.approx(100.0)  # current 2mm/20% → no reduction
+
+
+def test_rain_sensor_gate_uses_confirmed_peak(minimal_config: AppConfig, factor_engine) -> None:
+    """The peak that actually coincided with rain (40mm/90%) drives the factor, even
+    after the live reading dropped back."""
+    _enable_confirm(factor_engine)
+    snap = _peak_vs_current_snap(confirmed_mm=40.0, confirmed_prob=90.0)
+    with Session(factor_engine) as session:
+        result = compute_factors(snap, minimal_config, session)
+    assert result.rain_factor_pct == pytest.approx(0.0)  # confirmed 40mm → full block
+
+
+def test_rain_sensor_gate_uses_max_of_current_and_confirmed(
+    minimal_config: AppConfig, factor_engine
+) -> None:
+    """Mixed case: it rained only lightly (confirmed 5mm) but the live reading is now
+    higher (10mm) — the live reading always counts, so today = max(current, confirmed)."""
+    _enable_confirm(factor_engine)
+    # current 10mm/80%, confirmed 5mm/75%, sticky peak 40mm/90% (never confirmed).
+    snap = _snap(
+        precipitation_prob_today=90.0,
+        precipitation_today_mm=40.0,
+        precipitation_prob_today_current=80.0,
+        precipitation_today_mm_current=10.0,
+        precipitation_prob_today_confirmed=75.0,
+        precipitation_today_mm_confirmed=5.0,
+    )
+    with Session(factor_engine) as session:
+        result = compute_factors(snap, minimal_config, session)
+    # 10mm with reduce_above=5, zero_above=20 → 1 - (5/15) ≈ 0.667 (neither phantom 40 nor 5)
+    assert result.rain_factor_pct == pytest.approx(100.0 * (1.0 - 5.0 / 15.0), rel=1e-3)
+
+
+def test_rain_sensor_gate_falls_back_to_peak_when_confirmed_unknown(
+    minimal_config: AppConfig, factor_engine
+) -> None:
+    """A None confirmed peak (not yet computed, e.g. before the first refresh) falls
+    back to the unconfirmed peak rather than dropping suppression."""
+    _enable_confirm(factor_engine)
+    snap = _peak_vs_current_snap(confirmed_mm=None, confirmed_prob=None)
+    with Session(factor_engine) as session:
+        result = compute_factors(snap, minimal_config, session)
+    assert result.rain_factor_pct == pytest.approx(0.0)  # conservative peak 40mm → full block

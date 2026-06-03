@@ -271,6 +271,7 @@ class RainFactorSettingsInput(BaseModel):
     zero_above_mm: float | None = None
     forecast_decay: float | None = None
     peak_tomorrow: bool | None = None
+    confirm_with_rain_sensor: bool | None = None
 
 
 class FactorSettingsInput(BaseModel):
@@ -309,6 +310,7 @@ class RainFactorSettingsResponse(BaseModel):
     zero_above_mm: float
     forecast_decay: float
     peak_tomorrow: bool
+    confirm_with_rain_sensor: bool
 
 
 class SequenceOverrideResponse(BaseModel):
