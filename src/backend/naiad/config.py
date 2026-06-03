@@ -383,6 +383,13 @@ class RainFactorConfig(BaseModel):
     # mirroring how today is handled. Today always uses the peak; tomorrow's
     # forecast is more volatile, so peaking it is opt-in. False = today only.
     peak_tomorrow: bool = False
+    # When True today's peak forecast only counts if the binary rain sensor
+    # (``sensors.rain``) actually fired at some point today; otherwise today falls
+    # back to the latest reading. This stops a forecast spike that never produced
+    # real rain from suppressing irrigation all day. Only meaningful for *today*
+    # (tomorrow has not happened yet). Opt-in so a noisy/misconfigured rain sensor
+    # can't silently reduce suppression. False = today always uses the peak.
+    confirm_with_rain_sensor: bool = False
 
     @model_validator(mode="after")
     def validate_mm_thresholds(self) -> "RainFactorConfig":

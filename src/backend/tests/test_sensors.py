@@ -3,15 +3,24 @@ from naiad.domain.sensors import read_sensor_snapshot
 
 
 class FakeHA:
-    def __init__(self, states: dict[str, str], daily_max: dict[str, float | None] | None = None):
+    def __init__(
+        self,
+        states: dict[str, str],
+        daily_max: dict[str, float | None] | None = None,
+        rain_confirmed_today: bool = False,
+    ):
         self._states = states
         self._daily_max = daily_max or {}
+        self._rain_confirmed_today = rain_confirmed_today
 
     def get_state_value(self, entity_id: str) -> str | None:
         return self._states.get(entity_id)
 
     def get_cached_daily_max(self, entity_id: str) -> float | None:
         return self._daily_max.get(entity_id)
+
+    def get_rain_confirmed_today(self) -> bool:
+        return self._rain_confirmed_today
 
 
 def _base_states() -> dict[str, str]:

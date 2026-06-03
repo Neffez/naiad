@@ -235,11 +235,12 @@ async def get_status(
     snapshot = read_sensor_snapshot(ha, config)
     factors = compute_factors(snapshot, config, session)
 
-    # Mirror the rain inputs compute_factors actually used (today peak, tomorrow per
-    # peak_tomorrow) so the displayed rain figures match the applied adjustment.
+    # Mirror the rain inputs compute_factors actually used (today peak — gated on the
+    # rain sensor when confirm_with_rain_sensor is on — and tomorrow per peak_tomorrow)
+    # so the displayed rain figures match the applied adjustment.
     _eff_temp, eff_rain = merge_factor_config(config, session.get(FactorOverride, 1))
-    _pt, rain_prob_tomorrow, _mt, rain_mm_tomorrow = rain_factor_inputs(
-        snapshot, eff_rain.peak_tomorrow
+    rain_prob_today, rain_prob_tomorrow, rain_mm_today, rain_mm_tomorrow = rain_factor_inputs(
+        snapshot, eff_rain.peak_tomorrow, eff_rain.confirm_with_rain_sensor
     )
 
     wind_blocking = [
@@ -260,7 +261,7 @@ async def get_status(
         ha_connected=ha.is_connected,
         weather=WeatherSummaryResponse(
             temp_c=snapshot.temperature_c,
-            rain_24h_mm=snapshot.precipitation_today_mm,
+            rain_24h_mm=rain_mm_today,
             wind_label="on" if snapshot.wind_on else "off",
             season_active=snapshot.season_on,
         ),
@@ -279,11 +280,11 @@ async def get_status(
                 else snapshot.temperature_c
             ),
             rain_prob_pct=max(
-                snapshot.precipitation_prob_today,
+                rain_prob_today,
                 rain_prob_tomorrow,
             ),
             rain_mm=max(
-                snapshot.precipitation_today_mm,
+                rain_mm_today,
                 rain_mm_tomorrow * eff_rain.forecast_decay,
             ),
         ),
