@@ -614,7 +614,7 @@ export interface components {
             forecast_decay?: number;
             /** @description When true the rain factor also uses tomorrow's daily peak forecast, not just the latest reading. Today always uses the peak. */
             peak_tomorrow?: boolean;
-            /** @description When true today's peak forecast only applies if the binary rain sensor actually fired today; otherwise today falls back to the latest reading. Opt-in; only affects today. */
+            /** @description When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain; otherwise today falls back to the latest reading. Opt-in; only affects today. */
             confirm_with_rain_sensor?: boolean;
         };
         SequenceOverride: {
