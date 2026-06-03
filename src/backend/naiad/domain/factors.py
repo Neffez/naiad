@@ -31,6 +31,15 @@ class SensorSnapshot:
     # tomorrow reading, so callers/tests that omit them keep the old behaviour.
     precipitation_prob_tomorrow_peak: float | None = None
     precipitation_tomorrow_mm_peak: float | None = None
+    # Today's *latest* (non-peak) reading, used when the peak is gated on the rain
+    # sensor (``RainFactorConfig.confirm_with_rain_sensor``) and it has not rained.
+    # None falls back to the peak field, so callers/tests that omit them keep the
+    # old behaviour.
+    precipitation_prob_today_current: float | None = None
+    precipitation_today_mm_current: float | None = None
+    # Whether the binary rain sensor fired at any point today (live or from the
+    # recorder). Only consulted when ``confirm_with_rain_sensor`` is enabled.
+    rain_confirmed_today: bool = False
     unavailable: list[str] = field(default_factory=list)
 
 
@@ -74,13 +83,29 @@ def _compute_rain_factor(
 
 
 def rain_factor_inputs(
-    snapshot: SensorSnapshot, peak_tomorrow: bool
+    snapshot: SensorSnapshot, peak_tomorrow: bool, confirm_with_rain_sensor: bool = False
 ) -> tuple[float, float, float, float]:
     """The (prob_today, prob_tomorrow, mm_today, mm_tomorrow) values fed to the rain
-    factor. Today always uses the day's peak forecast; tomorrow uses its peak only
-    when ``peak_tomorrow`` is enabled, otherwise the latest reading. Shared by
-    ``compute_factors`` and the status endpoint so the displayed rain figures match
-    what actually drives the adjustment."""
+    factor. Today uses the day's peak forecast; tomorrow uses its peak only when
+    ``peak_tomorrow`` is enabled, otherwise the latest reading.
+
+    When ``confirm_with_rain_sensor`` is enabled, today's peak only applies if the
+    binary rain sensor actually fired today (``snapshot.rain_confirmed_today``);
+    otherwise today falls back to its latest reading, so a forecast spike that never
+    produced real rain does not suppress irrigation. Shared by ``compute_factors``
+    and the status endpoint so the displayed rain figures match what actually drives
+    the adjustment."""
+    if confirm_with_rain_sensor and not snapshot.rain_confirmed_today:
+        prob_today = snapshot.precipitation_prob_today_current
+        if prob_today is None:
+            prob_today = snapshot.precipitation_prob_today
+        mm_today = snapshot.precipitation_today_mm_current
+        if mm_today is None:
+            mm_today = snapshot.precipitation_today_mm
+    else:
+        prob_today = snapshot.precipitation_prob_today
+        mm_today = snapshot.precipitation_today_mm
+
     if peak_tomorrow:
         prob_tomorrow = snapshot.precipitation_prob_tomorrow_peak
         if prob_tomorrow is None:
@@ -91,12 +116,7 @@ def rain_factor_inputs(
     else:
         prob_tomorrow = snapshot.precipitation_prob_tomorrow
         mm_tomorrow = snapshot.precipitation_tomorrow_mm
-    return (
-        snapshot.precipitation_prob_today,
-        prob_tomorrow,
-        snapshot.precipitation_today_mm,
-        mm_tomorrow,
-    )
+    return (prob_today, prob_tomorrow, mm_today, mm_tomorrow)
 
 
 def merge_factor_config(
@@ -135,6 +155,7 @@ def merge_factor_config(
         ("zero_above_mm", "rain_zero_above_mm"),
         ("forecast_decay", "rain_forecast_decay"),
         ("peak_tomorrow", "rain_peak_tomorrow"),
+        ("confirm_with_rain_sensor", "rain_confirm_with_sensor"),
     ]:
         val = getattr(fo, db_attr)
         if val is not None:
@@ -187,7 +208,7 @@ def compute_factors(
         )
 
     prob_today, prob_tomorrow, mm_today, mm_tomorrow = rain_factor_inputs(
-        snapshot, eff_rain.peak_tomorrow
+        snapshot, eff_rain.peak_tomorrow, eff_rain.confirm_with_rain_sensor
     )
     rain_factor = _compute_rain_factor(prob_today, prob_tomorrow, mm_today, mm_tomorrow, eff_rain)
 

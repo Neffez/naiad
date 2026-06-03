@@ -295,10 +295,15 @@ async def refresh_rain_forecast_max(config: AppConfig, ha: HAClient) -> None:
     evening drop would restart irrigation that the noon peak had correctly stopped.
     Caching the maximum the forecast reached since local midnight lets the rain
     factor scale to the worst forecast seen today (see ``read_sensor_snapshot``).
+
+    Also reconstructs ``rain_confirmed_today`` (was the binary rain sensor on at any
+    point today) from the recorder, so the same hourly/reconnect cadence resets it
+    across local midnight for the opt-in ``confirm_with_rain_sensor`` gate.
     """
     tz = ZoneInfo(config.timezone)
     now = datetime.now(tz)
     start = datetime.combine(now.date(), time.min, tzinfo=tz)
+    start_utc, now_utc = start.astimezone(UTC), now.astimezone(UTC)
     for entity_id in (
         config.sensors.precipitation_today,
         config.sensors.precipitation_tomorrow,
@@ -306,7 +311,9 @@ async def refresh_rain_forecast_max(config: AppConfig, ha: HAClient) -> None:
         config.sensors.precipitation_prob_tomorrow,
     ):
         if entity_id:
-            await ha.refresh_daily_max(entity_id, start.astimezone(UTC), now.astimezone(UTC))
+            await ha.refresh_daily_max(entity_id, start_utc, now_utc)
+    if config.sensors.rain:
+        await ha.refresh_rain_confirmed_today(config.sensors.rain, start_utc, now_utc)
 
 
 async def _run_sequence_job(
@@ -628,6 +635,10 @@ async def _on_rain(
         return
     if new_state.get("state") != "on":
         return
+
+    # Ground-truth that it rained today, so confirm_with_rain_sensor lets today's
+    # forecast peak apply (see read_sensor_snapshot / rain_factor_inputs).
+    ha.set_rain_confirmed_today(True)
 
     # Abort every live run. Each run is independent, so a failure on one must not
     # prevent aborting the others.
