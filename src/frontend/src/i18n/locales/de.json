@@ -131,7 +131,7 @@
       "zeroAbove": "Prognostizierte Regenmenge (mm), ab der die Bewässerung ganz entfällt.",
       "forecastDecay": "Gewichtung (0–1) des morgigen Regens gegenüber dem heutigen. 1 = zählt voll, 0 = wird ignoriert.",
       "peakTomorrow": "Für die Regenanpassung den höchsten heute gesehenen Vorhersagewert verwenden statt nur den aktuellen. „Heute“ wird immer so behandelt; mit „Heute + morgen“ gilt das auch für die morgige Prognose (vorsichtiger, aber empfindlicher gegenüber schwankenden Vorhersagen).",
-      "confirmRainSensor": "Wenn an, reduziert die heutige Höchstwert-Prognose die Bewässerung nur, wenn der Regensensor heute tatsächlich Regen erkannt hat; sonst gilt der aktuelle Wert. Verhindert, dass ein Prognose-Ausschlag ohne echten Regen den ganzen Tag die Bewässerung unterdrückt. Betrifft nur heute."
+      "confirmRainSensor": "Wenn an, reduziert die heutige Höchstwert-Prognose die Bewässerung nur bis zu dem Wert, der mit tatsächlich vom Regensensor erkanntem Regen zusammenfiel; sonst gilt der aktuelle Wert. Verhindert, dass ein Prognose-Ausschlag ohne echten Regen die Bewässerung unterdrückt. Betrifft nur heute."
     },
     "version": "Version",
     "haIntegration": "HA Integration",
