@@ -295,10 +295,14 @@ async def refresh_rain_forecast_max(config: AppConfig, ha: HAClient) -> None:
     evening drop would restart irrigation that the noon peak had correctly stopped.
     Caching the maximum the forecast reached since local midnight lets the rain
     factor scale to the worst forecast seen today (see ``read_sensor_snapshot``).
+
+    Also refreshes the rain-confirmed peak for the opt-in ``confirm_with_rain_sensor``
+    gate (see ``refresh_rain_confirmed_peak``).
     """
     tz = ZoneInfo(config.timezone)
     now = datetime.now(tz)
     start = datetime.combine(now.date(), time.min, tzinfo=tz)
+    start_utc, now_utc = start.astimezone(UTC), now.astimezone(UTC)
     for entity_id in (
         config.sensors.precipitation_today,
         config.sensors.precipitation_tomorrow,
@@ -306,7 +310,29 @@ async def refresh_rain_forecast_max(config: AppConfig, ha: HAClient) -> None:
         config.sensors.precipitation_prob_tomorrow,
     ):
         if entity_id:
-            await ha.refresh_daily_max(entity_id, start.astimezone(UTC), now.astimezone(UTC))
+            await ha.refresh_daily_max(entity_id, start_utc, now_utc)
+    await refresh_rain_confirmed_peak(config, ha)
+
+
+async def refresh_rain_confirmed_peak(config: AppConfig, ha: HAClient) -> None:
+    """Recompute today's rain-confirmed peak for the *today* forecast sensors.
+
+    For the ``confirm_with_rain_sensor`` gate: caches the highest forecast value that
+    coincided with the binary rain sensor actually being on today, so a forecast spike
+    that never produced real rain does not keep suppressing irrigation. Run on the
+    hourly/reconnect cadence and on rain transitions; only today's sensors are
+    meaningful (tomorrow has not happened yet)."""
+    if not config.sensors.rain:
+        return
+    tz = ZoneInfo(config.timezone)
+    now = datetime.now(tz)
+    start = datetime.combine(now.date(), time.min, tzinfo=tz)
+    await ha.refresh_rain_confirmed_peak(
+        [config.sensors.precipitation_today, config.sensors.precipitation_prob_today],
+        config.sensors.rain,
+        start.astimezone(UTC),
+        now.astimezone(UTC),
+    )
 
 
 async def _run_sequence_job(
@@ -528,6 +554,13 @@ async def _retry_deferred_cron_runs(
         if row.expires_at <= now:
             logger.warning("Dropping expired deferred cron occurrence for '%s'", row.sequence_id)
             result = "expired"
+            # A scheduled run is being silently lost — tell the user, since safety
+            # work (HA outage / valve cleanup at boot) blocked it past its TTL.
+            seq_cfg = config.sequences.get(row.sequence_id)
+            if seq_cfg is not None:
+                note = t("skip.expired", config.language, label=seq_cfg.label)
+                await push_notification(ha, config, note, category="skip")
+                await broadcast_notification(note, level="warning")
         else:
             result = await _run_sequence_job(
                 row.sequence_id,
@@ -877,6 +910,11 @@ def setup_scheduler(
 
     async def _rain_cb(entity_id: str, new_state: dict[str, Any]) -> None:
         await _on_rain(entity_id, new_state, runner, config, ha)
+        # On any rain-sensor transition (on or off), recompute the rain-confirmed peak
+        # promptly so suppression reflects a just-started/-ended rain before the next
+        # hourly refresh (best-effort; the recompute swallows fetch errors).
+        if entity_id == config.sensors.rain:
+            await refresh_rain_confirmed_peak(config, ha)
 
     ha.subscribe_state_changes(_rain_cb)
     logger.info("Rain listener registered: '%s'", config.sensors.rain)

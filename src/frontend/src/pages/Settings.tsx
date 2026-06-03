@@ -92,7 +92,7 @@ export default function Settings() {
         <SettingsRow label={t('settings.forecastDecay')} info={t('settings.help.forecastDecay')}>
           <NumInput label={t('settings.forecastDecay')} value={settings.factors.rain.forecast_decay} unit="" width={60} step={0.1} onBlur={(v) => mut.mutate({ factors: { rain: { forecast_decay: v } } })} />
         </SettingsRow>
-        <SettingsRow label={t('settings.peakTomorrow')} info={t('settings.help.peakTomorrow')} last>
+        <SettingsRow label={t('settings.peakTomorrow')} info={t('settings.help.peakTomorrow')}>
           <div role="group" aria-label={t('settings.peakTomorrow')} style={{ display: 'flex', gap: 6 }}>
             {([false, true] as const).map((val) => (
               <button
@@ -103,6 +103,21 @@ export default function Settings() {
                 onClick={() => mut.mutate({ factors: { rain: { peak_tomorrow: val } } })}
               >
                 {val ? t('settings.peakTomorrow_both') : t('settings.peakTomorrow_today')}
+              </button>
+            ))}
+          </div>
+        </SettingsRow>
+        <SettingsRow label={t('settings.confirmRainSensor')} info={t('settings.help.confirmRainSensor')} last>
+          <div role="group" aria-label={t('settings.confirmRainSensor')} style={{ display: 'flex', gap: 6 }}>
+            {([false, true] as const).map((val) => (
+              <button
+                key={String(val)}
+                className={`n-btn${settings.factors.rain.confirm_with_rain_sensor === val ? ' primary' : ''}`}
+                aria-pressed={settings.factors.rain.confirm_with_rain_sensor === val}
+                style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
+                onClick={() => mut.mutate({ factors: { rain: { confirm_with_rain_sensor: val } } })}
+              >
+                {val ? t('settings.confirmRainSensor_on') : t('settings.confirmRainSensor_off')}
               </button>
             ))}
           </div>

@@ -186,22 +186,28 @@ async def _staircase_retrigger_loop(
     """
     loop = asyncio.get_running_loop()
     deadline = loop.time() + window_s
+    # The current wait between triggers. Dropped to the short retry interval after a
+    # failure (to land a successful "on" before the actuator times out) and restored
+    # to the normal interval on the next success, so a single HA hiccup does not keep
+    # us re-triggering every few seconds for the rest of the zone.
+    current_interval_s = interval_s
     while True:
         remaining = deadline - loop.time()
         if remaining <= 0:
             error_event.set()
             return
-        await asyncio.sleep(min(interval_s, remaining))
+        await asyncio.sleep(min(current_interval_s, remaining))
         try:
             await retrigger()
             deadline = loop.time() + window_s
+            current_interval_s = interval_s
             logger.debug("staircase re-trigger sent")
         except Exception:
             logger.warning(
                 "staircase re-trigger failed — retrying before actuator timeout",
                 exc_info=True,
             )
-            interval_s = STAIRCASE_RETRY_ON_FAILURE_S
+            current_interval_s = STAIRCASE_RETRY_ON_FAILURE_S
 
 
 async def _wait_zone(
@@ -787,6 +793,15 @@ class SequenceRunner:
         """
         if not self._recovery_complete:
             return
+
+        # Fast path: with nothing to close, skip taking the cleanup lock and raising
+        # _cleanup_in_progress — that flag briefly blocks fresh starts and config
+        # reloads, and the plan tick calls this every 60s. A pending close written
+        # just after this check is durable and picked up on the next tick (and the
+        # failing path also attempts an immediate close), so missing it here is safe.
+        with self._session_factory() as session:
+            if not load_pending_closes(session) and not load_active_runs(session):
+                return
 
         async with self._cleanup_lock:
             self._cleanup_in_progress = True

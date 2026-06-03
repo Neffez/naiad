@@ -184,6 +184,7 @@ class FactorOverride(SQLModel, table=True):
     rain_zero_above_mm: float | None = None
     rain_forecast_decay: float | None = None
     rain_peak_tomorrow: bool | None = None
+    rain_confirm_with_sensor: bool | None = None
     # Manual adjustment override. When manual_mode is True the automatic
     # temp/rain/season factor is bypassed entirely and manual_pct is used as the
     # combined factor (clamped to the temperature factor's min/max bounds).

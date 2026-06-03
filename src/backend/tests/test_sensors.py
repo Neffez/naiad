@@ -3,15 +3,24 @@ from naiad.domain.sensors import read_sensor_snapshot
 
 
 class FakeHA:
-    def __init__(self, states: dict[str, str], daily_max: dict[str, float | None] | None = None):
+    def __init__(
+        self,
+        states: dict[str, str],
+        daily_max: dict[str, float | None] | None = None,
+        confirmed_peak: dict[str, float | None] | None = None,
+    ):
         self._states = states
         self._daily_max = daily_max or {}
+        self._confirmed_peak = confirmed_peak or {}
 
     def get_state_value(self, entity_id: str) -> str | None:
         return self._states.get(entity_id)
 
     def get_cached_daily_max(self, entity_id: str) -> float | None:
         return self._daily_max.get(entity_id)
+
+    def get_rain_confirmed_peak(self, entity_id: str) -> float | None:
+        return self._confirmed_peak.get(entity_id)
 
 
 def _base_states() -> dict[str, str]:
@@ -82,6 +91,24 @@ def test_precipitation_uses_daily_peak_over_current(minimal_config: AppConfig) -
     snap = read_sensor_snapshot(ha, minimal_config)  # type: ignore[arg-type]
     assert snap.precipitation_today_mm == 35.0
     assert snap.precipitation_prob_today == 90.0
+
+
+def test_precipitation_carries_rain_confirmed_peak(minimal_config: AppConfig) -> None:
+    """The snapshot exposes the rain-confirmed peak per today sensor (current,
+    unconfirmed peak, and the peak that coincided with actual rain) so the rain factor
+    can confirm today's peak against the rain sensor."""
+    states = _base_states()
+    states["sensor.prec_today"] = "10"
+    ha = FakeHA(
+        states,
+        daily_max={"sensor.prec_today": 35.0},
+        confirmed_peak={"sensor.prec_today": 5.0, "sensor.prec_prob_today": 80.0},
+    )
+    snap = read_sensor_snapshot(ha, minimal_config)  # type: ignore[arg-type]
+    assert snap.precipitation_today_mm == 35.0  # unconfirmed peak
+    assert snap.precipitation_today_mm_current == 10.0  # latest reading
+    assert snap.precipitation_today_mm_confirmed == 5.0  # peak during real rain
+    assert snap.precipitation_prob_today_confirmed == 80.0
 
 
 def test_precipitation_keeps_current_when_higher_than_peak(minimal_config: AppConfig) -> None:
