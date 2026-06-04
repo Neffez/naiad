@@ -1,4 +1,7 @@
 {
+  "common": {
+    "loadError": "Couldn't load — check the connection and try again."
+  },
   "toast": {
     "started": "{{name}} started",
     "resumed": "{{name}} resumed",
@@ -11,6 +14,7 @@
     "planner": "Planner",
     "history": "History",
     "settings": "Settings",
+    "config": "Configuration",
     "theme": "Theme"
   },
   "status": {
@@ -89,7 +93,7 @@
   },
   "settings": {
     "title": "Settings",
-    "basisMin": "Basis min/zone",
+    "basisMin": "Base min/zone",
     "watchdog": "Watchdog (min)",
     "factorTemp": "Temperature factor",
     "factorRain": "Rain factor",
@@ -103,7 +107,7 @@
     "system": "System",
     "connected": "Connected",
     "disconnected": "Disconnected",
-    "basisC": "Basis °C",
+    "basisC": "Base °C",
     "pctPerC": "% per °C",
     "minPct": "Min %",
     "maxPct": "Max %",
@@ -111,6 +115,17 @@
     "reduceAbove": "Reduce above mm",
     "zeroAbove": "Zero above mm",
     "forecastDecay": "Forecast weighting",
+    "rainMode": "Rain mode",
+    "rainMode_forecast": "Forecast",
+    "rainMode_water_balance": "Water balance",
+    "waterBalanceDays": "Balance window",
+    "waterBalanceDecay": "Rain carryover",
+    "peakTomorrow": "Peak forecast",
+    "peakTomorrow_today": "Today only",
+    "peakTomorrow_both": "Today + tomorrow",
+    "confirmRainSensor": "Confirm with rain sensor",
+    "confirmRainSensor_off": "Off",
+    "confirmRainSensor_on": "On",
     "help": {
       "basisC": "Reference temperature at which watering runs at 100%. Above it watering scales up, below it scales down.",
       "pctPerC": "How many percent the watering duration changes per degree away from the reference temperature.",
@@ -119,7 +134,12 @@
       "thresholdProb": "Minimum rain probability before a rain forecast reduces watering at all.",
       "reduceAbove": "Forecast rainfall (mm) above which watering starts to be reduced.",
       "zeroAbove": "Forecast rainfall (mm) at or above which watering is skipped entirely.",
-      "forecastDecay": "Weighting (0–1) of tomorrow's rain relative to today's. 1 = counts fully, 0 = ignored."
+      "forecastDecay": "Weighting (0–1) of tomorrow's rain relative to today's. 1 = counts fully, 0 = ignored.",
+      "rainMode": "Forecast uses today/tomorrow prediction only. Water balance also uses recent actual rain from the configured actual precipitation sensor.",
+      "waterBalanceDays": "How many recent days of actual rain are retained as watering credit.",
+      "waterBalanceDecay": "Daily carryover for actual rain. 1 = rain keeps full weight, 0 = only the latest sample matters.",
+      "peakTomorrow": "Use the highest forecast value seen today for the rain adjustment instead of just the latest reading. Today is always treated this way; \"Today + tomorrow\" extends it to tomorrow's forecast too (more conservative, but more sensitive to fluctuating forecasts).",
+      "confirmRainSensor": "When on, today's forecast peak only reduces watering up to the level that coincided with the rain sensor actually detecting rain. In water-balance mode it also counts actual-rain deltas only while the rain sensor was on. Use this when the precipitation source comes from a forecast integration."
     },
     "version": "Version",
     "haIntegration": "HA integration",
@@ -168,7 +188,20 @@
       "precipitation_prob_today": "Rain probability today",
       "precipitation_prob_tomorrow": "Rain probability tomorrow",
       "precipitation_today": "Precipitation today",
-      "precipitation_tomorrow": "Precipitation tomorrow"
+      "precipitation_tomorrow": "Precipitation tomorrow",
+      "precipitation_actual": "Actual precipitation"
+    },
+    "sensorHelp": {
+      "rain": "Required. Binary sensor detecting rain. When \"on\", a running watering is aborted immediately.",
+      "wind": "Optional. Binary sensor for wind alert. When \"on\", sequences with \"wind blocks\" are skipped.",
+      "season": "Optional. Binary sensor for the irrigation season. When \"off\", all runs are skipped (winter pause).",
+      "temperature": "Required. Current outdoor temperature in °C. Basis for the temperature factor.",
+      "temperature_max": "Optional. Forecast daily max temperature in °C. Preferred over current temperature when available.",
+      "precipitation_prob_today": "Optional. Rain probability today (0–100 %). Feeds into the rain factor.",
+      "precipitation_prob_tomorrow": "Optional. Rain probability tomorrow (0–100 %). Feeds into the rain factor.",
+      "precipitation_today": "Optional. Expected precipitation today in mm. Together with the threshold determines the reduction.",
+      "precipitation_tomorrow": "Optional. Expected precipitation tomorrow in mm. Weighted by the forecast decay factor.",
+      "precipitation_actual": "Optional. Actual precipitation amount in mm. In water-balance mode Naiad reads recent positive deltas from Home Assistant history and keeps them as rain credit. If this comes from a forecast integration, enable rain-sensor confirmation."
     },
     "zones": "Zones",
     "addZone": "Add zone",
@@ -194,11 +227,19 @@
     },
     "switch": "Switch",
     "flowLph": "Flow (L/h)",
+    "staircase": "Staircase timer",
+    "staircaseHint": "Use actuator staircase timer",
+    "staircaseMin": "Actuator on-time (min)",
+    "staircaseHelp": "For actuators with a hardware staircase-light timer that closes the valve on its own. Naiad re-sends \"on\" before it expires to keep the valve open, while the timer stays as a hardware safety net. Set the actuator's configured on-time in minutes.",
     "sequences": "Sequences",
     "addSequence": "Add sequence",
     "noSequences": "No sequences",
     "enabled": "Enabled",
     "windBlocks": "Wind blocks",
+    "sequenceColors": "Colored bars",
+    "sequenceColorsHint": "Show colored bars on sequence cards",
+    "color": "Color",
+    "colorDefault": "Default",
     "seqZones": "Zones (order)",
     "basisMin": "Base (min/zone)",
     "watchdogMin": "Watchdog (min)",
@@ -207,6 +248,9 @@
     "cron": "Cron",
     "schedule": "Schedule",
     "notifyReminderTime": "Reminder time",
+    "notifyQueueMaxHours": "Offline buffer",
+    "notifyQueueMaxHoursUnit": "h",
+    "notifyQueueMaxHoursHelp": "If Home Assistant is briefly unreachable when a notification is sent, it is buffered and delivered on reconnect. Entries older than this many hours are dropped instead of arriving late. 0 disables the buffer.",
     "advanced": "Advanced",
     "timezone": "Timezone",
     "authMode": "Auth mode",
@@ -222,6 +266,7 @@
     "restartRequired": "HA connection changed — a restart is required for the new connection to take effect.",
     "addEntry": "Add",
     "add": "OK",
+    "cancel": "Cancel",
     "delete": "Delete",
     "deleteZoneTitle": "Delete zone?",
     "deleteZoneMsg": "Really delete zone “{{name}}”? It will also be removed from all sequences.",
@@ -276,11 +321,6 @@
     "login": "Log in",
     "error": "Wrong password"
   },
-  "emergency": {
-    "title": "Emergency stop — stop system + all zones immediately",
-    "label": "Emergency",
-    "confirm": "Confirm?"
-  },
   "confirm": {
     "startNow": "Start now",
     "zones": "Zones",
@@ -296,6 +336,11 @@
     "title": "Stop run?",
     "message": "{{name}} will be stopped immediately."
   },
+  "confirmParallel": {
+    "title": "Start in parallel?",
+    "message": "Another run is already active. {{name}} will start in addition — make sure there is enough flow for both.",
+    "confirm": "Start anyway"
+  },
   "confirmSkip": {
     "title": "Skip run?",
     "message": "{{name}} at {{time}} will be skipped and will only run again at the next schedule."
@@ -306,7 +351,6 @@
     "configured": "configured",
     "running": "running",
     "ready": "ready",
-    "valvesLive": "Zones · Live",
     "valves": "Zones",
     "live": "live",
     "usageWeek": "Usage · this week",
@@ -320,11 +364,18 @@
     "after": "Next up",
     "adjustment": "Adjustment",
     "auto": "auto",
+    "manual": "manual",
+    "toggleMode": "Switch between automatic and manual adjustment",
+    "editPct": "Click to set the adjustment manually",
+    "manualHint": "Manual · {{min}}–{{max}} %",
     "blocked": "{{seqs}} blocked",
     "today": "Today",
     "tomorrow": "Tomorrow",
+    "live": "Live",
     "skip": "Skip",
-    "skipped": "{{name}} skipped"
+    "skipped": "{{name}} skipped",
+    "tempTip": "Reading: {{input}} · Base: {{basis}} °C · {{pct}} % per °C · Range: {{min}}–{{max}} %",
+    "rainTip": "Prob.: {{prob}} · Amount: {{mm}} · Threshold: {{threshold}} % · Reduce above {{reduce}} mm · Zero above {{zero}} mm · Weight: {{decay}}"
   },
   "time": {
     "now": "now",
@@ -344,7 +395,10 @@
     "rain": "Rain",
     "watchdog": "Watchdog",
     "manual_stop": "Manual stop",
-    "ha_disconnect": "HA disconnected"
+    "ha_disconnect": "HA disconnected",
+    "staircase_retrigger_failed": "Staircase timer failed",
+    "close_failed": "Valve not closed",
+    "start_failed": "Start failed"
   },
   "weekdaysShort": [
     "Mon",
@@ -363,5 +417,20 @@
   },
   "confirmZone": {
     "subtitle": "Single zone — start now"
+  },
+  "a11y": {
+    "close": "Close",
+    "skipToContent": "Skip to main content",
+    "dismissNotification": "Dismiss notification",
+    "notificationsRegion": "Notifications",
+    "primaryNav": "Primary navigation",
+    "systemToggle": "Toggle system on or off",
+    "durationSlider": "Watering duration per zone in minutes",
+    "date": "Date",
+    "time": "Time",
+    "targetSelect": "Select target",
+    "modeSelect": "Schedule mode",
+    "weeklyUsageChart": "Weekly water usage",
+    "moreInfo": "More information"
   }
 }

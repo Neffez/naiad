@@ -1,23 +1,11 @@
-import type { TFunction } from 'i18next'
+import { useQuery } from '@tanstack/react-query'
+import { queryKeys } from '../api/queryKeys'
 import { useTranslation } from 'react-i18next'
-import type { FactorNotes, SequenceState } from '../api/client'
+import { getConfig, type SequenceState } from '../api/client'
 import { formatSchedule } from '../lib/schedule'
-import { seqColor } from '../theme/sequenceColors'
+import { resolveSeqColor } from '../theme/sequenceColors'
 import { ICal, IPause, IPlay, IStop } from './icons'
 import { StatusChip } from './StatusChip'
-
-/** Localized one-line summary of why the factor deviates from 100%. */
-function buildFactorNote(notes: FactorNotes, t: TFunction): string | null {
-  const parts: string[] = []
-  if (notes.season_off) parts.push(t('sequence.noteSeasonOff'))
-  if (notes.wind_blocked) parts.push(t('sequence.noteWindBlocked'))
-  if (notes.rain_factor_pct != null) parts.push(t('sequence.noteRain', { pct: notes.rain_factor_pct }))
-  if (notes.temp_delta_pct != null) {
-    const sign = notes.temp_delta_pct > 0 ? '+' : ''
-    parts.push(t('sequence.noteTemp', { pct: `${sign}${notes.temp_delta_pct}` }))
-  }
-  return parts.length > 0 ? parts.join(' · ') : null
-}
 
 interface SequenceCardProps {
   seq: SequenceState
@@ -37,24 +25,27 @@ function runProgress(run: { elapsed_min: number; remaining_min: number } | null 
 }
 
 export function SequenceCard({ seq, size = 'regular', onStart, onPause, onResume, onStop, onSchedule }: SequenceCardProps) {
+  const { data: config } = useQuery({ queryKey: queryKeys.config, queryFn: getConfig })
+  const color = resolveSeqColor(config, seq.id)
   if (size === 'rich') {
     return (
-      <SequenceCardRich seq={seq} onStart={onStart} onPause={onPause} onResume={onResume} onStop={onStop} onSchedule={onSchedule} />
+      <SequenceCardRich seq={seq} color={color} onStart={onStart} onPause={onPause} onResume={onResume} onStop={onStop} onSchedule={onSchedule} />
     )
   }
   return (
-    <SequenceCardRegular seq={seq} onStart={onStart} onPause={onPause} onResume={onResume} onStop={onStop} onSchedule={onSchedule} />
+    <SequenceCardRegular seq={seq} color={color} onStart={onStart} onPause={onPause} onResume={onResume} onStop={onStop} onSchedule={onSchedule} />
   )
 }
 
-function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedule }: Omit<SequenceCardProps, 'size'>) {
+type CardVariantProps = Omit<SequenceCardProps, 'size'> & { color: string | null }
+
+function SequenceCardRegular({ seq, color, onStart, onPause, onResume, onStop, onSchedule }: CardVariantProps) {
   const { t, i18n } = useTranslation()
   const isRunning = seq.status === 'running'
   const isPaused = seq.status === 'paused'
   const isDisabled = seq.status === 'disabled' || !seq.enabled
 
   const progress = runProgress(seq.current_run)
-  const color = seqColor(seq.id)
 
   return (
     <div
@@ -69,17 +60,20 @@ function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedu
         overflow: 'hidden',
       }}
     >
-      <span
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          bottom: 0,
-          width: 3,
-          background: color,
-          opacity: isDisabled ? 0.3 : 0.85,
-        }}
-      />
+      {color && (
+        <span
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            bottom: 0,
+            width: 3,
+            background: color,
+            opacity: isDisabled ? 0.3 : 0.85,
+          }}
+        />
+      )}
 
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
@@ -110,35 +104,19 @@ function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedu
             {isDisabled && <span style={{ color: 'var(--n-fg-dim)' }}>{t('status.disabled')}</span>}
           </div>
         </div>
-
-        {!isDisabled && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flex: '0 0 auto' }}>
-            <span
-              className="mono"
-              style={{
-                fontSize: 18,
-                fontWeight: 500,
-                letterSpacing: '-0.02em',
-                color:
-                  seq.factor_pct === 0
-                    ? 'var(--n-paused)'
-                    : seq.factor_pct > 100
-                      ? 'var(--n-teal-200)'
-                      : 'var(--n-fg)',
-              }}
-            >
-              {seq.factor_pct}%
-            </span>
-            <span className="n-eyebrow" style={{ fontSize: 9 }}>
-              {buildFactorNote(seq.factor_notes, t) || t('sequence.factor')}
-            </span>
-          </div>
-        )}
       </div>
 
       {isRunning && seq.current_run && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div className="n-progress" style={{ flex: 1 }}>
+          <div
+            className="n-progress"
+            role="progressbar"
+            aria-label={t('status.running')}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress)}
+            style={{ flex: 1 }}
+          >
             <i style={{ width: `${progress}%` }} />
           </div>
           <span className="mono" style={{ fontSize: 13, color: 'var(--n-teal-200)', letterSpacing: '-0.01em', fontWeight: 500 }}>
@@ -154,6 +132,7 @@ function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedu
           disabled={isDisabled}
           style={{ width: 44, height: 44, opacity: isDisabled ? 0.4 : 1 }}
           title={isRunning ? t('sequence.pause') : t('sequence.start')}
+          aria-label={isRunning ? t('sequence.pause') : t('sequence.start')}
         >
           {isRunning ? <IPause size={18} /> : <IPlay size={16} />}
         </button>
@@ -163,6 +142,7 @@ function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedu
           disabled={isDisabled}
           style={{ width: 44, height: 44, opacity: isDisabled ? 0.4 : 1 }}
           title={t('planner.schedule')}
+          aria-label={t('planner.schedule')}
         >
           <ICal size={17} />
         </button>
@@ -171,6 +151,7 @@ function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedu
           onClick={onStop}
           disabled={isDisabled || (!isRunning && !isPaused)}
           title={t('sequence.stop')}
+          aria-label={t('sequence.stop')}
           style={{
             width: 44,
             height: 44,
@@ -186,12 +167,11 @@ function SequenceCardRegular({ seq, onStart, onPause, onResume, onStop, onSchedu
   )
 }
 
-function SequenceCardRich({ seq, onStart, onPause, onResume, onStop, onSchedule }: Omit<SequenceCardProps, 'size'>) {
+function SequenceCardRich({ seq, color, onStart, onPause, onResume, onStop, onSchedule }: CardVariantProps) {
   const { t, i18n } = useTranslation()
   const isRunning = seq.status === 'running'
   const isPaused = seq.status === 'paused'
   const isDisabled = seq.status === 'disabled' || !seq.enabled
-  const color = seqColor(seq.id)
 
   const progress = runProgress(seq.current_run)
 
@@ -210,17 +190,20 @@ function SequenceCardRich({ seq, onStart, onPause, onResume, onStop, onSchedule 
         lineHeight: '1',
       }}
     >
-      <span
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          bottom: 0,
-          width: 4,
-          background: color,
-          opacity: isDisabled ? 0.3 : 0.9,
-        }}
-      />
+      {color && (
+        <span
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            bottom: 0,
+            width: 4,
+            background: color,
+            opacity: isDisabled ? 0.3 : 0.9,
+          }}
+        />
+      )}
 
       {/* header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}>
@@ -237,29 +220,6 @@ function SequenceCardRich({ seq, onStart, onPause, onResume, onStop, onSchedule 
               : ''}
           </span>
         </div>
-        {!isDisabled && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flex: '0 0 auto' }}>
-            <span
-              className="n-bignum"
-              style={{
-                fontSize: 40,
-                lineHeight: 1,
-                letterSpacing: '-0.02em',
-                color:
-                  seq.factor_pct === 0
-                    ? 'var(--n-paused)'
-                    : seq.factor_pct > 100
-                      ? 'var(--n-teal-200)'
-                      : 'var(--n-fg)',
-              }}
-            >
-              {seq.factor_pct}%
-            </span>
-            <span className="n-eyebrow" style={{ fontSize: 9.5 }}>
-              {buildFactorNote(seq.factor_notes, t) || t('sequence.factor')}
-            </span>
-          </div>
-        )}
       </div>
 
       {/* live progress */}
@@ -277,10 +237,18 @@ function SequenceCardRich({ seq, onStart, onPause, onResume, onStop, onSchedule 
               {(seq.current_run.elapsed_min + seq.current_run.remaining_min).toFixed(0)} min
             </span>
           </div>
-          <div className="n-progress" style={{ height: 6 }}>
+          <div
+            className="n-progress"
+            role="progressbar"
+            aria-label={t('status.running')}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress)}
+            style={{ height: 6 }}
+          >
             <i style={{ width: `${progress}%` }} />
           </div>
-          <div className="n-ripple-line" />
+          <div className="n-ripple-line" aria-hidden="true" />
         </div>
       )}
 
@@ -361,6 +329,7 @@ function SequenceCardRich({ seq, onStart, onPause, onResume, onStop, onSchedule 
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                   <span
+                    aria-hidden="true"
                     style={{
                       width: 6,
                       height: 6,
@@ -417,6 +386,7 @@ function SequenceCardRich({ seq, onStart, onPause, onResume, onStop, onSchedule 
           onClick={onStop}
           disabled={isDisabled || (!isRunning && !isPaused)}
           title={t('sequence.stop')}
+          aria-label={t('sequence.stop')}
           style={{ width: 44, height: 44, flex: '0 0 44px', opacity: isDisabled || (!isRunning && !isPaused) ? 0.4 : 1 }}
         >
           <IStop size={16} />

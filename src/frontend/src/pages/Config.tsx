@@ -1,14 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { queryKeys } from '../api/queryKeys'
 import {
-  NOTIFICATION_CATEGORIES,
   type ConfigDoc,
   type EntityInfo,
-  type NotifyTarget,
-  type ScheduleSummary,
-  type SequenceConfig,
   exportConfig,
   getConfig,
   getEntities,
@@ -18,44 +14,40 @@ import {
   testNotify,
 } from '../api/client'
 import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
+import { InfoTip } from '../components/InfoTip'
 import { NumberField } from '../components/NumberField'
 import { toast } from '../components/Toast'
+import { NotifyTargetList, ReminderTime, SequenceEditor } from '../components/config/editors'
+import { inputStyle } from '../components/config/formStyles'
 import {
-  MAX_TIMES,
-  WEEKDAYS,
-  dailyCronToTime,
-  isDaily,
-  isWeekdays,
-  isWeekend,
-  timeToDailyCron,
-  weekdayShort,
-} from '../lib/schedule'
-
-const inputStyle: CSSProperties = {
-  height: 36,
-  padding: '0 10px',
-  background: 'var(--n-card-elev)',
-  border: '1px solid var(--n-line-strong)',
-  borderRadius: 'var(--n-r-sm)',
-  color: 'var(--n-fg)',
-  fontSize: 14,
-  fontFamily: 'var(--n-sans)',
-  outline: 'none',
-  minWidth: 0,
-}
+  AddButton,
+  Banner,
+  CardRow,
+  Check,
+  DeleteButton,
+  Empty,
+  EntityCombobox,
+  IdTag,
+  Labeled,
+  Num,
+  Pill,
+  Row,
+  Section,
+  StringList,
+} from '../components/config/primitives'
 
 export default function Config() {
   const { t } = useTranslation()
   const qc = useQueryClient()
-  const { data } = useQuery({ queryKey: ['config'], queryFn: getConfig })
-  const switches = useQuery({ queryKey: ['entities', 'switch'], queryFn: () => getEntities('switch') })
-  const sensors = useQuery({ queryKey: ['entities', 'sensor'], queryFn: () => getEntities('sensor') })
+  const { data } = useQuery({ queryKey: queryKeys.config, queryFn: getConfig })
+  const switches = useQuery({ queryKey: queryKeys.entities('switch'), queryFn: () => getEntities('switch') })
+  const sensors = useQuery({ queryKey: queryKeys.entities('sensor'), queryFn: () => getEntities('sensor') })
   const binarySensors = useQuery({
-    queryKey: ['entities', 'binary_sensor'],
+    queryKey: queryKeys.entities('binary_sensor'),
     queryFn: () => getEntities('binary_sensor'),
   })
   const notifyServices = useQuery({
-    queryKey: ['services', 'notify'],
+    queryKey: queryKeys.services('notify'),
     queryFn: () => getServices('notify'),
   })
 
@@ -78,9 +70,9 @@ export default function Config() {
       setRestart(resp.restart_required)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
-      qc.invalidateQueries({ queryKey: ['config'] })
-      qc.invalidateQueries({ queryKey: ['sequences'] })
-      qc.invalidateQueries({ queryKey: ['status'] })
+      qc.invalidateQueries({ queryKey: queryKeys.config })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
+      qc.invalidateQueries({ queryKey: queryKeys.status })
     },
     onError: (e: Error) => setError(e.message),
   })
@@ -92,8 +84,8 @@ export default function Config() {
       setRestart(resp.restart_required)
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
-      qc.invalidateQueries({ queryKey: ['config'] })
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      qc.invalidateQueries({ queryKey: queryKeys.config })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
     },
     onError: (e: Error) => setError(e.message),
   })
@@ -101,7 +93,7 @@ export default function Config() {
   if (!draft) {
     return (
       <div style={{ padding: 20, color: 'var(--n-fg-muted)' }}>
-        {t('config.loading', { defaultValue: 'Laden…' })}
+        {t('config.loading')}
       </div>
     )
   }
@@ -136,11 +128,9 @@ export default function Config() {
       // always a way to get the config out.
       try {
         await navigator.clipboard.writeText(text)
-        toast(t('config.exportedCopied', {
-          defaultValue: 'Konfiguration exportiert (auch in die Zwischenablage kopiert).',
-        }), 'success')
+        toast(t('config.exportedCopied'), 'success')
       } catch {
-        toast(t('config.exported', { defaultValue: 'Konfiguration exportiert.' }), 'success')
+        toast(t('config.exported'), 'success')
       }
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -157,7 +147,7 @@ export default function Config() {
   async function handleTestNotify() {
     try {
       const r = await testNotify()
-      toast(t('config.notifyTestOk', { count: r.sent, defaultValue: `Test an ${r.sent} Ziel(e) gesendet` }), 'success')
+      toast(t('config.notifyTestOk', { count: r.sent }), 'success')
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     }
@@ -176,25 +166,36 @@ export default function Config() {
     <div className="config-page" style={{ maxWidth: 940, display: 'flex', flexDirection: 'column', gap: 22, paddingBottom: 88 }}>
 
       {/* HA connection */}
-      <Section title={t('config.ha', { defaultValue: 'Home Assistant' })}>
-        <Row label={t('config.haUrl', { defaultValue: 'WebSocket-URL' })} last>
+      <Section title={t('config.ha')}>
+        <Row label={t('config.haUrl')} last>
           <input
             style={{ ...inputStyle, width: 360 }}
             value={draft.ha.url}
+            aria-label={t('config.haUrl')}
             onChange={(e) => patch((d) => { d.ha.url = e.target.value })}
           />
         </Row>
       </Section>
 
       {/* Sensors */}
-      <Section title={t('config.sensors', { defaultValue: 'Sensoren' })}>
+      <Section title={t('config.sensors')}>
         {SENSOR_FIELDS.map((f, i) => (
-          <Row key={f.key} label={t(`config.sensor.${f.key}`, { defaultValue: f.fallback })} last={i === SENSOR_FIELDS.length - 1}>
+          <Row
+            key={f.key}
+            label={
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                {t(`config.sensor.${f.key}`, { defaultValue: f.fallback })}
+                <InfoTip text={t(`config.sensorHelp.${f.infoKey}`)} />
+              </span>
+            }
+            last={i === SENSOR_FIELDS.length - 1}
+          >
             <EntityCombobox
               value={draft.sensors[f.key]}
               onChange={(v) => patch((d) => { d.sensors[f.key] = v })}
               entities={entitiesByDomain[f.domain]}
               domain={f.domain}
+              ariaLabel={t(`config.sensor.${f.key}`, { defaultValue: f.fallback })}
             />
           </Row>
         ))}
@@ -202,26 +203,26 @@ export default function Config() {
 
       {/* Zones */}
       <Section
-        title={t('config.zones', { defaultValue: 'Zonen' })}
+        title={t('config.zones')}
         action={
           <AddButton
-            label={t('config.addZone', { defaultValue: 'Zone hinzufügen' })}
+            label={t('config.addZone')}
             existing={zoneIds}
-            onAdd={(id, name) => patch((d) => { d.zones[id] = { label: name, switch: '', flow_lph: 0 } })}
+            onAdd={(id, name) => patch((d) => { d.zones[id] = { label: name, switch: '', flow_lph: 0, staircase_enabled: false, staircase_min: 0 } })}
           />
         }
       >
-        {zoneIds.length === 0 && <Empty>{t('config.noZones', { defaultValue: 'Keine Zonen' })}</Empty>}
+        {zoneIds.length === 0 && <Empty>{t('config.noZones')}</Empty>}
         {zoneIds.map((id, i) => {
           const z = draft.zones[id]
           return (
             <CardRow key={id} last={i === zoneIds.length - 1}>
               <IdTag id={id} />
-              <Labeled label={t('config.label', { defaultValue: 'Bezeichnung' })}>
+              <Labeled label={t('config.label')}>
                 <input style={{ ...inputStyle, width: 160 }} value={z.label}
                   onChange={(e) => patch((d) => { d.zones[id].label = e.target.value })} />
               </Labeled>
-              <Labeled label={t('config.switch', { defaultValue: 'Switch' })}>
+              <Labeled label={t('config.switch')}>
                 <EntityCombobox
                   value={z.switch}
                   onChange={(v) => patch((d) => { d.zones[id].switch = v })}
@@ -230,10 +231,28 @@ export default function Config() {
                   width={240}
                 />
               </Labeled>
-              <Labeled label={t('config.flowLph', { defaultValue: 'Durchfluss (L/h)' })}>
+              <Labeled label={t('config.flowLph')}>
                 <NumberField value={z.flow_lph} width={90}
                   onChange={(v) => patch((d) => { d.zones[id].flow_lph = v })} />
               </Labeled>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 11, color: 'var(--n-fg-muted)', letterSpacing: '0.02em' }}>
+                  {t('config.staircase')}
+                  <InfoTip text={t('config.staircaseHelp')} />
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 34 }}>
+                  <Check
+                    label={t('config.staircaseHint')}
+                    checked={z.staircase_enabled}
+                    onChange={(v) => patch((d) => { d.zones[id].staircase_enabled = v })}
+                  />
+                  {z.staircase_enabled && (
+                    <NumberField value={z.staircase_min} width={90} step={0.5} min={0}
+                      aria-label={t('config.staircaseMin')}
+                      onChange={(v) => patch((d) => { d.zones[id].staircase_min = v })} />
+                  )}
+                </div>
+              </div>
               <DeleteButton onClick={() => setPendingDelete({ type: 'zone', id })} />
             </CardRow>
           )
@@ -242,22 +261,30 @@ export default function Config() {
 
       {/* Sequences */}
       <Section
-        title={t('config.sequences', { defaultValue: 'Sequenzen' })}
+        title={t('config.sequences')}
         action={
           <AddButton
-            label={t('config.addSequence', { defaultValue: 'Sequenz hinzufügen' })}
+            label={t('config.addSequence')}
             existing={Object.keys(draft.sequences)}
             onAdd={(id, name) => patch((d) => {
               d.sequences[id] = {
                 label: name, zones: [], basis_min_per_zone: 30, range: [5, 240],
                 watchdog_min: 60, schedule: { days: [], times: ['06:00'], cron: null }, enabled: false, wind_blocks: false,
+                color: null,
               }
             })}
           />
         }
       >
+        <Row label={t('config.sequenceColors')}>
+          <Check
+            label={t('config.sequenceColorsHint')}
+            checked={draft.sequence_colors_enabled}
+            onChange={(v) => patch((d) => { d.sequence_colors_enabled = v })}
+          />
+        </Row>
         {Object.keys(draft.sequences).length === 0 && (
-          <Empty>{t('config.noSequences', { defaultValue: 'Keine Sequenzen' })}</Empty>
+          <Empty>{t('config.noSequences')}</Empty>
         )}
         {Object.entries(draft.sequences).map(([id, s], i, arr) => (
           <SequenceEditor
@@ -267,6 +294,7 @@ export default function Config() {
             zoneIds={zoneIds}
             zones={draft.zones}
             last={i === arr.length - 1}
+            colorsEnabled={draft.sequence_colors_enabled}
             onChange={(mut) => patch((d) => mut(d.sequences[id]))}
             onDelete={() => setPendingDelete({ type: 'sequence', id })}
           />
@@ -274,50 +302,75 @@ export default function Config() {
       </Section>
 
       {/* MQTT statistics bridge — publishes tracked liters/durations to HA */}
-      <Section title={t('config.mqtt', { defaultValue: 'MQTT-Statistik' })}>
-        <Row label={t('config.mqttEnabled', { defaultValue: 'Aktiviert' })}>
+      <Section title={t('config.mqtt')}>
+        <Row label={t('config.mqttEnabled')}>
           <Check
-              label={t('config.mqttEnabledHint', { defaultValue: 'Liter & Laufzeiten als Sensoren an Home Assistant senden' })}
+              label={t('config.mqttEnabledHint')}
               checked={draft.mqtt.enabled}
               onChange={(v) => patch((d) => { d.mqtt.enabled = v })}
           />
         </Row>
-        <Row label={t('config.mqttHost', { defaultValue: 'Broker-Host' })}>
+        <Row label={t('config.mqttHost')}>
           <input
               style={{ ...inputStyle, width: 280 }}
               value={draft.mqtt.host}
               placeholder="core-mosquitto"
+              aria-label={t('config.mqttHost')}
               onChange={(e) => patch((d) => { d.mqtt.host = e.target.value })}
           />
         </Row>
-        <Row label={t('config.mqttPort', { defaultValue: 'Port' })}>
-          <Num value={draft.mqtt.port} onChange={(v) => patch((d) => { d.mqtt.port = v })} />
+        <Row label={t('config.mqttPort')}>
+          <Num value={draft.mqtt.port} ariaLabel={t('config.mqttPort')} onChange={(v) => patch((d) => { d.mqtt.port = v })} />
         </Row>
-        <Row label={t('config.mqttUsername', { defaultValue: 'Benutzername' })}>
+        <Row label={t('config.mqttUsername')}>
           <input
               style={{ ...inputStyle, width: 200 }}
               value={draft.mqtt.username}
+              aria-label={t('config.mqttUsername')}
               onChange={(e) => patch((d) => { d.mqtt.username = e.target.value })}
           />
         </Row>
-        <Row label={t('config.mqttBaseTopic', { defaultValue: 'Basis-Topic' })} last>
+        <Row label={t('config.mqttBaseTopic')} last>
           <input
               style={{ ...inputStyle, width: 200, fontFamily: 'var(--n-mono, monospace)' }}
               value={draft.mqtt.base_topic}
+              aria-label={t('config.mqttBaseTopic')}
               onChange={(e) => patch((d) => { d.mqtt.base_topic = e.target.value })}
           />
         </Row>
       </Section>
 
       {/* Notifications (global) — per-recipient choices live on each notify target below */}
-      <Section title={t('config.notifications', { defaultValue: 'Benachrichtigungen' })}>
-        <Row label={t('config.notifyReminderTime', { defaultValue: 'Erinnerungszeit' })}>
+      <Section title={t('config.notifications')}>
+        <Row label={t('config.notifyReminderTime')}>
           <ReminderTime
               value={draft.notifications.evening_reminder_cron}
               onChange={(cron) => patch((d) => { d.notifications.evening_reminder_cron = cron })}
           />
         </Row>
-        <Row label={t('config.notifyTargets', { defaultValue: 'Notify-Ziele' })} last align="start">
+        <Row
+            label={
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                {t('config.notifyQueueMaxHours')}
+                <InfoTip text={t('config.notifyQueueMaxHoursHelp')} />
+              </span>
+            }
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+                type="number" min={0} step={1}
+                aria-label={t('config.notifyQueueMaxHours')}
+                style={{ ...inputStyle, width: 120, fontVariantNumeric: 'tabular-nums' }}
+                value={draft.notifications.queue_max_hours}
+                onChange={(e) => patch((d) => {
+                  const n = Number(e.target.value)
+                  d.notifications.queue_max_hours = e.target.value === '' || Number.isNaN(n) ? 0 : Math.max(0, n)
+                })}
+            />
+            <span style={{ color: 'var(--n-dim)', fontSize: 13 }}>{t('config.notifyQueueMaxHoursUnit')}</span>
+          </div>
+        </Row>
+        <Row label={t('config.notifyTargets')} last align="start">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
             <NotifyTargetList
                 values={draft.ha.notify_targets}
@@ -329,10 +382,10 @@ export default function Config() {
                 className="n-btn"
                 style={{ height: 32, padding: '0 12px', fontSize: 12.5, alignSelf: 'flex-start' }}
                 disabled={dirty || draft.ha.notify_targets.length === 0}
-                title={dirty ? t('config.saveFirst', { defaultValue: 'Erst speichern' }) : undefined}
+                title={dirty ? t('config.saveFirst') : undefined}
                 onClick={handleTestNotify}
             >
-              {t('config.notifyTest', { defaultValue: 'Test-Benachrichtigung senden' })}
+              {t('config.notifyTest')}
             </button>
           </div>
         </Row>
@@ -343,13 +396,15 @@ export default function Config() {
           here too would be misleading, so the section lives only in Settings. */}
 
       {/* Advanced */}
-      <Section title={t('config.advanced', { defaultValue: 'Erweitert' })}>
-        <Row label={t('config.timezone', { defaultValue: 'Zeitzone' })}>
+      <Section title={t('config.advanced')}>
+        <Row label={t('config.timezone')}>
           <input style={{ ...inputStyle, width: 220 }} value={draft.timezone}
+            aria-label={t('config.timezone')}
             onChange={(e) => patch((d) => { d.timezone = e.target.value })} />
         </Row>
-        <Row label={t('config.authMode', { defaultValue: 'Auth-Modus' })}>
+        <Row label={t('config.authMode')}>
           <select style={{ ...inputStyle, width: 200 }} value={draft.auth.mode}
+            aria-label={t('config.authMode')}
             onChange={(e) => patch((d) => { d.auth.mode = e.target.value as ConfigDoc['auth']['mode'] })}>
             <option value="password">password</option>
             <option value="forward_header">forward_header</option>
@@ -359,13 +414,11 @@ export default function Config() {
         {draft.auth.mode === 'none' && (
           <div style={{ padding: '0 20px 14px' }}>
             <Banner tone="amber">
-              {t('config.authNoneWarning', {
-                defaultValue: 'Kein Login aktiv — jeder im Netzwerk kann Naiad bedienen. Für den dauerhaften Betrieb auf „password" umstellen (NAIAD_PASSWORD_HASH setzen) oder hinter einen Auth-Proxy stellen.',
-              })}
+              {t('config.authNoneWarning')}
             </Banner>
           </div>
         )}
-        <Row label={t('config.frameAncestors', { defaultValue: 'frame-ancestors' })} last align="start">
+        <Row label={t('config.frameAncestors')} last align="start">
           <StringList
             values={draft.auth.frame_ancestors}
             placeholder="'self'"
@@ -387,33 +440,31 @@ export default function Config() {
           style={{ height: 38, padding: '0 20px', fontSize: 13 }}
           onClick={() => saveMut.mutate(draft)}>
           {saveMut.isPending
-            ? t('config.saving', { defaultValue: 'Speichern…' })
-            : t('config.save', { defaultValue: 'Speichern' })}
+            ? t('config.saving')
+            : t('config.save')}
         </button>
         <button className="n-btn" disabled={!dirty}
           style={{ height: 38, padding: '0 16px', fontSize: 13 }}
           onClick={() => data && setDraft(structuredClone(data))}>
-          {t('config.reset', { defaultValue: 'Verwerfen' })}
+          {t('config.reset')}
         </button>
         <div style={{ flex: 1 }} />
         <button className="n-btn" style={{ height: 38, padding: '0 16px', fontSize: 13 }} onClick={handleExport}>
-          {t('config.export', { defaultValue: 'Export' })}
+          {t('config.export')}
         </button>
         <button className="n-btn" style={{ height: 38, padding: '0 16px', fontSize: 13 }}
           onClick={() => fileRef.current?.click()}>
-          {t('config.import', { defaultValue: 'Import' })}
+          {t('config.import')}
         </button>
-        <input ref={fileRef} type="file" accept=".yaml,.yml,.json" style={{ display: 'none' }} onChange={handleImportFile} />
+        <input ref={fileRef} type="file" accept=".yaml,.yml,.json" aria-hidden="true" tabIndex={-1} style={{ display: 'none' }} onChange={handleImportFile} />
 
-        {dirty && <Pill tone="muted">{t('config.unsaved', { defaultValue: 'Ungespeichert' })}</Pill>}
-        {saved && <Pill tone="teal">✓ {t('config.saved', { defaultValue: 'Gespeichert' })}</Pill>}
+        {dirty && <Pill tone="muted">{t('config.unsaved')}</Pill>}
+        {saved && <Pill tone="teal">✓ {t('config.saved')}</Pill>}
       </div>
 
       {restart && (
         <Banner tone="amber">
-          {t('config.restartRequired', {
-            defaultValue: 'HA-Verbindung geändert — ein Neustart ist nötig, damit die neue Verbindung aktiv wird.',
-          })}
+          {t('config.restartRequired')}
         </Banner>
       )}
       {error && <Banner tone="danger">{error}</Banner>}
@@ -423,21 +474,15 @@ export default function Config() {
         tone="danger"
         title={
           pendingDelete?.type === 'sequence'
-            ? t('config.deleteSequenceTitle', { defaultValue: 'Sequenz löschen?' })
-            : t('config.deleteZoneTitle', { defaultValue: 'Zone löschen?' })
+            ? t('config.deleteSequenceTitle')
+            : t('config.deleteZoneTitle')
         }
         message={
           pendingDelete?.type === 'sequence'
-            ? t('config.deleteSequenceMsg', {
-                name: draft.sequences[pendingDelete.id]?.label || pendingDelete?.id,
-                defaultValue: `Sequenz „${draft.sequences[pendingDelete.id]?.label || pendingDelete?.id}" wirklich löschen?`,
-              })
-            : t('config.deleteZoneMsg', {
-                name: pendingDelete ? draft.zones[pendingDelete.id]?.label || pendingDelete.id : '',
-                defaultValue: `Zone „${pendingDelete ? draft.zones[pendingDelete.id]?.label || pendingDelete.id : ''}" wirklich löschen? Sie wird auch aus allen Sequenzen entfernt.`,
-              })
+            ? t('config.deleteSequenceMsg', { name: draft.sequences[pendingDelete.id]?.label || pendingDelete?.id })
+            : t('config.deleteZoneMsg', { name: pendingDelete ? draft.zones[pendingDelete.id]?.label || pendingDelete.id : '' })
         }
-        confirmLabel={t('config.delete', { defaultValue: 'Löschen' })}
+        confirmLabel={t('config.delete')}
         onCancel={() => setPendingDelete(null)}
         onConfirm={() => {
           if (!pendingDelete) return
@@ -463,673 +508,16 @@ export default function Config() {
 
 // ── Field metadata ─────────────────────────────────────────────────────────────
 
-const SENSOR_FIELDS: { key: keyof ConfigDoc['sensors']; domain: string; fallback: string }[] = [
-  { key: 'rain', domain: 'binary_sensor', fallback: 'Regen' },
-  { key: 'wind', domain: 'binary_sensor', fallback: 'Wind' },
-  { key: 'season', domain: 'binary_sensor', fallback: 'Saison' },
-  { key: 'temperature', domain: 'sensor', fallback: 'Temperatur' },
-  { key: 'temperature_max', domain: 'sensor', fallback: 'Max-Temperatur (Prognose)' },
-  { key: 'precipitation_prob_today', domain: 'sensor', fallback: 'Regenwahrscheinlichkeit heute' },
-  { key: 'precipitation_prob_tomorrow', domain: 'sensor', fallback: 'Regenwahrscheinlichkeit morgen' },
-  { key: 'precipitation_today', domain: 'sensor', fallback: 'Niederschlag heute' },
-  { key: 'precipitation_tomorrow', domain: 'sensor', fallback: 'Niederschlag morgen' },
+const SENSOR_FIELDS: { key: keyof ConfigDoc['sensors']; domain: string; fallback: string; infoKey: string }[] = [
+  { key: 'rain', domain: 'binary_sensor', fallback: 'Regen', infoKey: 'rain' },
+  { key: 'wind', domain: 'binary_sensor', fallback: 'Wind', infoKey: 'wind' },
+  { key: 'season', domain: 'binary_sensor', fallback: 'Saison', infoKey: 'season' },
+  { key: 'temperature', domain: 'sensor', fallback: 'Temperatur', infoKey: 'temperature' },
+  { key: 'temperature_max', domain: 'sensor', fallback: 'Max-Temperatur (Prognose)', infoKey: 'temperature_max' },
+  { key: 'precipitation_prob_today', domain: 'sensor', fallback: 'Regenwahrscheinlichkeit heute', infoKey: 'precipitation_prob_today' },
+  { key: 'precipitation_prob_tomorrow', domain: 'sensor', fallback: 'Regenwahrscheinlichkeit morgen', infoKey: 'precipitation_prob_tomorrow' },
+  { key: 'precipitation_today', domain: 'sensor', fallback: 'Niederschlag heute', infoKey: 'precipitation_today' },
+  { key: 'precipitation_tomorrow', domain: 'sensor', fallback: 'Niederschlag morgen', infoKey: 'precipitation_tomorrow' },
+  { key: 'precipitation_actual', domain: 'sensor', fallback: 'Tatsächlicher Niederschlag', infoKey: 'precipitation_actual' },
 ]
 
-// ── Sequence editor ─────────────────────────────────────────────────────────────
-
-function SequenceEditor({ id, seq, zoneIds, zones, last, onChange, onDelete }: {
-  id: string
-  seq: SequenceConfig
-  zoneIds: string[]
-  zones: ConfigDoc['zones']
-  last: boolean
-  onChange: (mut: (s: SequenceConfig) => void) => void
-  onDelete: () => void
-}) {
-  const { t } = useTranslation()
-  return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', gap: 12,
-      padding: '16px 20px',
-      borderBottom: last ? 'none' : '1px solid var(--n-line)',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <IdTag id={id} />
-        <Labeled label={t('config.label', { defaultValue: 'Bezeichnung' })}>
-          <input style={{ ...inputStyle, width: 160 }} value={seq.label}
-            onChange={(e) => onChange((s) => { s.label = e.target.value })} />
-        </Labeled>
-        <Check label={t('config.enabled', { defaultValue: 'Aktiv' })} checked={seq.enabled}
-          onChange={(c) => onChange((s) => { s.enabled = c })} />
-        <Check label={t('config.windBlocks', { defaultValue: 'Wind blockt' })} checked={seq.wind_blocks}
-          onChange={(c) => onChange((s) => { s.wind_blocks = c })} />
-        <div style={{ flex: 1 }} />
-        <DeleteButton onClick={onDelete} />
-      </div>
-
-      <Labeled label={t('config.seqZones', { defaultValue: 'Zonen (Reihenfolge)' })} align="start">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {zoneIds.length === 0 ? (
-            <span style={{ fontSize: 12, color: 'var(--n-paused)' }}>
-              {t('config.seqNoZonesDefined', { defaultValue: 'Lege zuerst oben eine Zone an.' })}
-            </span>
-          ) : seq.zones.length === 0 ? (
-            <span style={{ fontSize: 12, color: 'var(--n-paused)' }}>
-              {t('config.seqNoZonesAssigned', {
-                defaultValue: 'Keine Zone zugewiesen — unten anklicken (sonst startet die Sequenz nicht).',
-              })}
-            </span>
-          ) : null}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {zoneIds.map((zid) => {
-              const active = seq.zones.includes(zid)
-              return (
-                <button key={zid} className={`n-chip${active ? ' active' : ''}`}
-                  style={{ cursor: 'pointer', opacity: active ? 1 : 0.55 }}
-                  onClick={() => onChange((s) => {
-                    s.zones = active ? s.zones.filter((z) => z !== zid) : [...s.zones, zid]
-                  })}>
-                  {active ? `${seq.zones.indexOf(zid) + 1}. ` : ''}{zones[zid]?.label || zid}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      </Labeled>
-
-      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-        <Labeled label={t('config.basisMin', { defaultValue: 'Basis (min/Zone)' })}>
-          <Num value={seq.basis_min_per_zone} onChange={(v) => onChange((s) => { s.basis_min_per_zone = v })} />
-        </Labeled>
-        <Labeled label={t('config.watchdogMin', { defaultValue: 'Watchdog (min)' })}>
-          <Num value={seq.watchdog_min} onChange={(v) => onChange((s) => { s.watchdog_min = v })} />
-        </Labeled>
-        <Labeled label={t('config.rangeMin', { defaultValue: 'Min' })}>
-          <Num value={seq.range[0]} onChange={(v) => onChange((s) => { s.range = [v, s.range[1]] })} />
-        </Labeled>
-        <Labeled label={t('config.rangeMax', { defaultValue: 'Max' })}>
-          <Num value={seq.range[1]} onChange={(v) => onChange((s) => { s.range = [s.range[0], v] })} />
-        </Labeled>
-      </div>
-
-      <Labeled label={t('config.schedule', { defaultValue: 'Zeitplan' })} align="start">
-        <SchedulePicker
-          value={seq.schedule}
-          onChange={(next) => onChange((s) => { s.schedule = next })}
-        />
-      </Labeled>
-    </div>
-  )
-}
-
-// Friendly schedule editor: weekday chips + up to five clock times, with a raw
-// cron escape hatch for expressions the picker can't represent. Internally the
-// backend turns this into one cron trigger per time (see ScheduleConfig).
-function SchedulePicker({ value, onChange }: {
-  value: ScheduleSummary
-  onChange: (next: ScheduleSummary) => void
-}) {
-  const { t } = useTranslation()
-  const [showAdvanced, setShowAdvanced] = useState(!!value.cron)
-  const advancedActive = !!value.cron
-  const dimmed: CSSProperties = advancedActive ? { opacity: 0.45, pointerEvents: 'none' } : {}
-  const labelStyle: CSSProperties = { fontSize: 11, color: 'var(--n-fg-muted)', letterSpacing: '0.02em' }
-
-  const setDays = (days: number[]) => onChange({ ...value, days })
-  const toggleDay = (d: number) => {
-    const next = value.days.includes(d)
-      ? value.days.filter((x) => x !== d)
-      : [...value.days, d].sort((a, b) => a - b)
-    // All seven selected means "every day" — store the canonical empty form.
-    setDays(next.length === 7 ? [] : next)
-  }
-  const setTimes = (times: string[]) => onChange({ ...value, times })
-
-  const presets: { label: string; active: boolean; days: number[] }[] = [
-    { label: t('schedule.daily', { defaultValue: 'Täglich' }), active: isDaily(value.days), days: [] },
-    { label: t('schedule.weekdays', { defaultValue: 'Werktags' }), active: isWeekdays(value.days), days: [1, 2, 3, 4, 5] },
-    { label: t('schedule.weekend', { defaultValue: 'Wochenende' }), active: isWeekend(value.days), days: [6, 7] },
-  ]
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* Weekdays */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, ...dimmed }}>
-        <span style={labelStyle}>{t('schedule.days', { defaultValue: 'Wochentage' })}</span>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {presets.map((p) => (
-            <button key={p.label} className={`n-chip${p.active ? ' active' : ''}`}
-              style={{ cursor: 'pointer', opacity: p.active ? 1 : 0.6 }}
-              onClick={() => setDays(p.days)}>{p.label}</button>
-          ))}
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {WEEKDAYS.map((d) => {
-            const active = value.days.includes(d)
-            return (
-              <button key={d} className={`n-chip${active ? ' active' : ''}`}
-                style={{ cursor: 'pointer', opacity: active ? 1 : 0.55, minWidth: 42, textAlign: 'center' }}
-                onClick={() => toggleDay(d)}>{weekdayShort(d, t)}</button>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Times */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, ...dimmed }}>
-        <span style={labelStyle}>{t('schedule.times', { defaultValue: 'Uhrzeiten' })}</span>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-          {value.times.length === 0 && (
-            <span style={{ fontSize: 12, color: 'var(--n-paused)' }}>
-              {t('schedule.noTimes', { defaultValue: 'Keine Uhrzeit — läuft nicht automatisch.' })}
-            </span>
-          )}
-          {value.times.map((tm, i) => (
-            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <input type="time" value={tm} style={{ ...inputStyle, width: 120, fontVariantNumeric: 'tabular-nums' }}
-                onChange={(e) => setTimes(value.times.map((x, j) => (j === i ? e.target.value : x)))} />
-              <button className="n-btn" title={t('config.delete', { defaultValue: 'Löschen' })}
-                style={{ height: 30, width: 30, padding: 0, fontSize: 13, color: 'var(--n-danger)' }}
-                onClick={() => setTimes(value.times.filter((_, j) => j !== i))}>✕</button>
-            </span>
-          ))}
-          {value.times.length < MAX_TIMES && (
-            <button className="n-btn" style={{ height: 34, padding: '0 12px', fontSize: 12.5 }}
-              onClick={() => setTimes([...value.times, '06:00'])}>
-              + {t('schedule.addTime', { defaultValue: 'Uhrzeit' })}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Advanced cron escape hatch */}
-      {!showAdvanced ? (
-        <button className="n-btn" style={{ height: 28, padding: '0 10px', fontSize: 12, alignSelf: 'flex-start' }}
-          onClick={() => setShowAdvanced(true)}>{t('schedule.advanced', { defaultValue: 'Erweitert (Cron)' })}</button>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={labelStyle}>{t('schedule.advanced', { defaultValue: 'Erweitert (Cron)' })}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <input style={{ ...inputStyle, width: 160, fontFamily: 'var(--n-mono, monospace)' }}
-              placeholder="*/30 * * * *" value={value.cron ?? ''}
-              onChange={(e) => onChange({ ...value, cron: e.target.value })} />
-            <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12 }}
-              onClick={() => { onChange({ ...value, cron: null }); setShowAdvanced(false) }}>
-              {t('schedule.usePicker', { defaultValue: 'Auswahl verwenden' })}
-            </button>
-          </div>
-          {advancedActive && (
-            <span style={{ fontSize: 11, color: 'var(--n-paused)' }}>
-              {t('schedule.advancedActive', { defaultValue: 'Cron-Ausdruck überschreibt die Auswahl oben.' })}
-            </span>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Evening-reminder time: a daily clock-time picker that reads/writes the stored
-// "M H * * *" cron, with a raw cron fallback for non-daily expressions.
-export function ReminderTime({ value, onChange }: { value: string; onChange: (cron: string) => void }) {
-  const { t } = useTranslation()
-  const time = dailyCronToTime(value)
-  const [advanced, setAdvanced] = useState(time === null)
-
-  if (advanced) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-        <input style={{ ...inputStyle, width: 160, fontFamily: 'var(--n-mono, monospace)' }}
-          value={value} onChange={(e) => onChange(e.target.value)} />
-        {dailyCronToTime(value) !== null && (
-          <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12 }}
-            onClick={() => setAdvanced(false)}>{t('schedule.usePicker', { defaultValue: 'Auswahl verwenden' })}</button>
-        )}
-      </div>
-    )
-  }
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <input type="time" style={{ ...inputStyle, width: 120, fontVariantNumeric: 'tabular-nums' }}
-        value={time ?? '21:00'} onChange={(e) => onChange(timeToDailyCron(e.target.value))} />
-      <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12 }}
-        onClick={() => setAdvanced(true)}>{t('schedule.advanced', { defaultValue: 'Erweitert (Cron)' })}</button>
-    </div>
-  )
-}
-
-// ── Small reusable building blocks ──────────────────────────────────────────────
-
-function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
-  return (
-    <div style={{
-      display: 'flex', flexDirection: 'column',
-      border: '1px solid var(--n-line)', borderRadius: 'var(--n-r-lg)', overflow: 'hidden',
-    }}>
-      <div style={{
-        padding: '14px 20px', background: 'rgba(255,255,255,0.015)',
-        borderBottom: '1px solid var(--n-line)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-      }}>
-        <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.01em' }}>{title}</span>
-        {action}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function Row({ label, children, last = false, align = 'center' }: {
-  label: ReactNode; children: ReactNode; last?: boolean; align?: 'center' | 'start'
-}) {
-  return (
-    <div className="n-cfg-row" style={{
-      display: 'flex', alignItems: align === 'start' ? 'flex-start' : 'center',
-      justifyContent: 'space-between', gap: 16,
-      padding: '12px 20px', borderBottom: last ? 'none' : '1px solid var(--n-line)', minHeight: 52,
-    }}>
-      <span style={{ fontSize: 14, color: 'var(--n-fg-soft)', paddingTop: align === 'start' ? 6 : 0 }}>{label}</span>
-      <div className="n-cfg-control" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>{children}</div>
-    </div>
-  )
-}
-
-function CardRow({ children, last }: { children: ReactNode; last: boolean }) {
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap',
-      padding: '14px 20px', borderBottom: last ? 'none' : '1px solid var(--n-line)',
-    }}>
-      {children}
-    </div>
-  )
-}
-
-function Labeled({ label, children, align = 'center' }: { label: string; children: ReactNode; align?: 'center' | 'start' }) {
-  return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: align === 'start' ? 'flex-start' : undefined }}>
-      <span style={{ fontSize: 11, color: 'var(--n-fg-muted)', letterSpacing: '0.02em' }}>{label}</span>
-      {children}
-    </label>
-  )
-}
-
-function IdTag({ id }: { id: string }) {
-  return (
-    <span className="mono" style={{
-      fontSize: 12, color: 'var(--n-teal-200)',
-      background: 'var(--n-teal-glow)', border: '1px solid rgba(94,200,216,0.25)',
-      padding: '4px 8px', borderRadius: 'var(--n-r-sm)', alignSelf: 'flex-end',
-    }}>{id}</span>
-  )
-}
-
-function Num({ value, step = 1, onChange }: { value: number; step?: number; onChange: (v: number) => void }) {
-  return <NumberField value={value} step={step} width={90} onChange={onChange} />
-}
-
-function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (c: boolean) => void }) {
-  return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 13, color: 'var(--n-fg-muted)', userSelect: 'none' }}>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
-        style={{ width: 16, height: 16, accentColor: 'var(--n-teal-400)', cursor: 'pointer' }} />
-      {label}
-    </label>
-  )
-}
-
-function StringList({ values, placeholder, onChange }: {
-  values: string[]; placeholder?: string; onChange: (vals: string[]) => void
-}) {
-  const { t } = useTranslation()
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', maxWidth: 344 }}>
-      {values.map((v, i) => (
-        <div key={i} style={{ display: 'flex', gap: 6 }}>
-          <input style={{ ...inputStyle, flex: 1, minWidth: 0 }} value={v} placeholder={placeholder}
-            onChange={(e) => onChange(values.map((x, j) => (j === i ? e.target.value : x)))} />
-          <DeleteButton onClick={() => onChange(values.filter((_, j) => j !== i))} />
-        </div>
-      ))}
-      <button className="n-btn" style={{ height: 32, padding: '0 12px', fontSize: 12.5, alignSelf: 'flex-start' }}
-        onClick={() => onChange([...values, ''])}>
-        + {t('config.addEntry', { defaultValue: 'Hinzufügen' })}
-      </button>
-    </div>
-  )
-}
-
-// Per-recipient notify targets: each is an HA notify.* service plus which
-// categories it wants, whether to deliver quietly, and a platform hint.
-export function NotifyTargetList({ values, services, dirty, onChange }: {
-  values: NotifyTarget[]; services?: string[]; dirty: boolean; onChange: (vals: NotifyTarget[]) => void
-}) {
-  const { t } = useTranslation()
-  const [testStates, setTestStates] = useState<Record<number, 'pending' | 'ok' | 'error'>>({})
-  const options = (services ?? []).map((s) => ({ value: s, label: s }))
-  const update = (i: number, mut: (tg: NotifyTarget) => NotifyTarget) =>
-    onChange(values.map((x, j) => (j === i ? mut(x) : x)))
-
-  async function handleTestTarget(i: number, service: string) {
-    setTestStates((prev) => ({ ...prev, [i]: 'pending' }))
-    try {
-      const r = await testNotify(service)
-      setTestStates((prev) => ({ ...prev, [i]: 'ok' }))
-      setTimeout(() => setTestStates((prev) => { const n = { ...prev }; delete n[i]; return n }), 2500)
-      toast(t('config.notifyTestOk', { count: r.sent, defaultValue: `Test an ${r.sent} Ziel(e) gesendet` }), 'success')
-    } catch (e) {
-      setTestStates((prev) => { const n = { ...prev }; delete n[i]; return n })
-      toast(e instanceof Error ? e.message : String(e), 'error')
-    }
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
-      {values.map((tg, i) => (
-        <div key={i} style={{
-          display: 'flex', flexDirection: 'column', gap: 8,
-          padding: '12px', border: '1px solid var(--n-line)', borderRadius: 'var(--n-r-md)',
-        }}>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-            <EntityCombobox
-              value={tg.service}
-              onChange={(nv) => update(i, (x) => ({ ...x, service: nv }))}
-              options={options}
-              hint={t('config.entityType.notify', { defaultValue: 'Notify-Service' })}
-              width={300}
-            />
-            <button
-              className="n-btn"
-              title={dirty ? t('config.saveFirst', { defaultValue: 'Erst speichern' }) : t('config.notifyTestThis', { defaultValue: 'Test-Benachrichtigung an dieses Ziel senden' })}
-              style={{ height: 36, width: 36, padding: 0, fontSize: 15, color: testStates[i] === 'ok' ? 'var(--n-teal-400)' : 'var(--n-fg-muted)' }}
-              disabled={dirty || !tg.service || testStates[i] === 'pending'}
-              onClick={() => handleTestTarget(i, tg.service)}
-            >
-              {testStates[i] === 'ok' ? '✓' : '✉'}
-            </button>
-            <DeleteButton onClick={() => onChange(values.filter((_, j) => j !== i))} />
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {NOTIFICATION_CATEGORIES.map((cat) => {
-              const on = tg.categories.includes(cat)
-              return (
-                <button key={cat} type="button" className={`n-chip${on ? ' active' : ''}`}
-                  style={{ cursor: 'pointer', opacity: on ? 1 : 0.55 }}
-                  onClick={() => update(i, (x) => ({
-                    ...x,
-                    categories: on ? x.categories.filter((c) => c !== cat) : [...x.categories, cat],
-                  }))}>
-                  {t(`config.notifyCat.${cat}`, { defaultValue: cat })}
-                </button>
-              )
-            })}
-          </div>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Check label={t('config.notifyQuiet', { defaultValue: 'Leise' })} checked={tg.quiet}
-              onChange={(c) => update(i, (x) => ({ ...x, quiet: c }))} />
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--n-fg-muted)' }}>
-              {t('config.notifyPlatform', { defaultValue: 'Plattform' })}
-              <select value={tg.platform}
-                onChange={(e) => update(i, (x) => ({ ...x, platform: e.target.value as NotifyTarget['platform'] }))}
-                style={{ ...inputStyle, height: 30, width: 110 }}>
-                <option value="auto">{t('config.platformAuto', { defaultValue: 'Auto' })}</option>
-                <option value="ios">iOS</option>
-                <option value="android">Android</option>
-              </select>
-            </label>
-          </div>
-        </div>
-      ))}
-      <button className="n-btn" style={{ height: 32, padding: '0 12px', fontSize: 12.5, alignSelf: 'flex-start' }}
-        onClick={() => onChange([...values, { service: '', categories: [...NOTIFICATION_CATEGORIES], quiet: false, platform: 'auto' }])}>
-        + {t('config.addEntry', { defaultValue: 'Hinzufügen' })}
-      </button>
-    </div>
-  )
-}
-
-// Derive an internal snake_case id from a human name. Umlauts/diacritics are
-// stripped (NFKD), everything non-alphanumeric collapses to single underscores.
-function slugify(name: string): string {
-  return name
-    .normalize('NFKD')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-}
-
-// Ensure the generated id doesn't collide with an existing one.
-function uniqueId(base: string, existing: string[]): string {
-  const root = base || 'item'
-  if (!existing.includes(root)) return root
-  let n = 2
-  while (existing.includes(`${root}_${n}`)) n++
-  return `${root}_${n}`
-}
-
-function AddButton({ label, existing, onAdd }: {
-  label: string; existing: string[]; onAdd: (id: string, name: string) => void
-}) {
-  const { t } = useTranslation()
-  const [adding, setAdding] = useState(false)
-  const [name, setName] = useState('')
-  // The user types a name; the id is generated for them. Valid as long as the
-  // name yields a non-empty slug.
-  const valid = slugify(name).length > 0
-  function submit() {
-    if (!valid) return
-    onAdd(uniqueId(slugify(name), existing), name.trim())
-    setName('')
-    setAdding(false)
-  }
-  if (!adding) {
-    return (
-      <button className="n-btn" style={{ height: 32, padding: '0 12px', fontSize: 12.5 }} onClick={() => setAdding(true)}>
-        + {label}
-      </button>
-    )
-  }
-  return (
-    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-      <input autoFocus style={{ ...inputStyle, width: 180, height: 32 }} value={name}
-        placeholder={t('config.namePlaceholder', { defaultValue: 'Bezeichnung' })}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />
-      <button className="n-btn primary" disabled={!valid} style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
-        onClick={submit}>
-        {t('config.add', { defaultValue: 'OK' })}
-      </button>
-      <button className="n-btn" style={{ height: 32, padding: '0 10px', fontSize: 12.5 }}
-        onClick={() => { setName(''); setAdding(false) }}>✕</button>
-    </div>
-  )
-}
-
-function DeleteButton({ onClick }: { onClick: () => void }) {
-  const { t } = useTranslation()
-  return (
-    <button className="n-btn" title={t('config.delete', { defaultValue: 'Löschen' })}
-      style={{ height: 36, width: 36, padding: 0, fontSize: 15, color: 'var(--n-danger)' }}
-      onClick={onClick}>✕</button>
-  )
-}
-
-// Searchable entity picker populated from Home Assistant. Filters by friendly
-// name or entity_id as you type, shows a type hint, and still accepts a pasted /
-// typed entity_id that isn't in the list. The dropdown is portalled to <body> so
-// the Section's `overflow: hidden` can't clip it.
-type ComboOption = { value: string; label: string; sub?: string }
-
-function entityOptions(entities?: EntityInfo[]): ComboOption[] {
-  return (entities ?? []).map((e) => ({
-    value: e.entity_id,
-    label: e.friendly_name || e.entity_id,
-    sub: e.friendly_name ? e.entity_id : undefined,
-  }))
-}
-
-// Searchable picker. Pass either `entities` (HA entities, with a type hint from
-// `domain`) or a ready-made `options` list (e.g. notify services) plus a `hint`.
-function EntityCombobox({ value, onChange, entities, options, domain, hint, width = 320 }: {
-  value: string
-  onChange: (v: string) => void
-  entities?: EntityInfo[]
-  options?: ComboOption[]
-  domain?: string
-  hint?: string
-  width?: number
-}) {
-  const { t } = useTranslation()
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const [active, setActive] = useState(0)
-  const [rect, setRect] = useState<DOMRect | null>(null)
-
-  const list = options ?? entityOptions(entities)
-  const q = query.trim().toLowerCase()
-  const matches = (
-    q
-      ? list.filter(
-          (o) =>
-            o.value.toLowerCase().includes(q) ||
-            o.label.toLowerCase().includes(q) ||
-            (o.sub?.toLowerCase().includes(q) ?? false),
-        )
-      : list
-  ).slice(0, 50)
-  const hintText = hint ?? (domain ? t(`config.entityType.${domain}`, { defaultValue: domain }) : '')
-
-  function reposition() {
-    if (inputRef.current) setRect(inputRef.current.getBoundingClientRect())
-  }
-
-  useEffect(() => {
-    if (!open) return
-    const onScroll = () => reposition()
-    const onDown = (e: MouseEvent) => {
-      const target = e.target as Node
-      if (wrapRef.current?.contains(target)) return
-      if (document.getElementById('entity-combobox-pop')?.contains(target)) return
-      setOpen(false)
-    }
-    window.addEventListener('scroll', onScroll, true)
-    window.addEventListener('resize', onScroll)
-    document.addEventListener('mousedown', onDown)
-    return () => {
-      window.removeEventListener('scroll', onScroll, true)
-      window.removeEventListener('resize', onScroll)
-      document.removeEventListener('mousedown', onDown)
-    }
-  }, [open])
-
-  function choose(o: ComboOption) {
-    onChange(o.value)
-    setQuery('')
-    setOpen(false)
-  }
-
-  // Commit free text only if it looks like an entity id (so an abandoned search
-  // term doesn't overwrite the saved value).
-  function commitFreeText() {
-    if (query && query.includes('.') && query !== value) onChange(query)
-    setOpen(false)
-  }
-
-  const looksLikeId = q.includes('.')
-
-  return (
-    <div ref={wrapRef} style={{ width, maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <input
-        ref={inputRef}
-        style={{ ...inputStyle, width: '100%' }}
-        value={open ? query : value}
-        placeholder={
-          open && value ? value : t('config.entitySearch', { defaultValue: 'Suchen oder Entity-ID…' })
-        }
-        onFocus={() => { setQuery(''); setActive(0); reposition(); setOpen(true) }}
-        onChange={(e) => { setQuery(e.target.value); setActive(0); if (!open) { reposition(); setOpen(true) } }}
-        onBlur={() => { if (open) commitFreeText() }}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, matches.length - 1)) }
-          else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)) }
-          else if (e.key === 'Enter') {
-            if (open && matches[active]) { e.preventDefault(); choose(matches[active]) }
-            else if (looksLikeId) { e.preventDefault(); commitFreeText() }
-          } else if (e.key === 'Escape') { setQuery(''); setOpen(false) }
-        }}
-      />
-      {hintText && (
-        <span style={{ fontSize: 10.5, color: 'var(--n-fg-dim)', letterSpacing: '0.02em' }}>
-          {t('config.expects', { defaultValue: 'Erwartet' })}: {hintText}
-        </span>
-      )}
-      {open && rect && createPortal(
-        <div
-          id="entity-combobox-pop"
-          className="n-card"
-          style={{
-            position: 'fixed', top: rect.bottom + 4, left: rect.left, width: rect.width,
-            maxHeight: 260, overflowY: 'auto', padding: 4, zIndex: 1000,
-          }}
-        >
-          {matches.length === 0 ? (
-            <div style={{ padding: '8px 10px', fontSize: 12.5, color: 'var(--n-fg-muted)' }}>
-              {t('config.noEntities', { defaultValue: 'Keine passenden Entitäten' })}
-            </div>
-          ) : (
-            matches.map((o, i) => (
-              <button
-                key={o.value}
-                type="button"
-                onMouseEnter={() => setActive(i)}
-                onMouseDown={(ev) => { ev.preventDefault(); choose(o) }}
-                style={{
-                  display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px',
-                  background: i === active ? 'var(--n-teal-glow)' : 'transparent',
-                  border: 0, borderRadius: 6, cursor: 'pointer',
-                }}
-              >
-                <div style={{ fontSize: 13, color: 'var(--n-fg)' }}>{o.label}</div>
-                {o.sub && (
-                  <div className="mono" style={{ fontSize: 11, color: 'var(--n-fg-muted)' }}>{o.sub}</div>
-                )}
-              </button>
-            ))
-          )}
-        </div>,
-        document.body,
-      )}
-    </div>
-  )
-}
-
-function Empty({ children }: { children: ReactNode }) {
-  return <div style={{ padding: '16px 20px', fontSize: 13, color: 'var(--n-fg-dim)' }}>{children}</div>
-}
-
-function Pill({ tone, children }: { tone: 'teal' | 'muted'; children: ReactNode }) {
-  const teal = tone === 'teal'
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999,
-      fontSize: 12.5, fontWeight: 500,
-      background: teal ? 'var(--n-teal-glow)' : 'transparent',
-      border: `1px solid ${teal ? 'rgba(94,200,216,0.25)' : 'var(--n-line-strong)'}`,
-      color: teal ? 'var(--n-teal-200)' : 'var(--n-fg-muted)',
-    }}>{children}</span>
-  )
-}
-
-function Banner({ tone, children }: { tone: 'amber' | 'danger'; children: ReactNode }) {
-  const amber = tone === 'amber'
-  return (
-    <div style={{
-      padding: '12px 16px', borderRadius: 'var(--n-r-md, 12px)', fontSize: 13,
-      background: amber ? 'rgba(217,166,72,0.10)' : 'rgba(196,90,90,0.10)',
-      border: `1px solid ${amber ? 'var(--n-paused)' : 'var(--n-danger)'}`,
-      color: amber ? 'var(--n-paused)' : 'var(--n-danger)',
-    }}>{children}</div>
-  )
-}

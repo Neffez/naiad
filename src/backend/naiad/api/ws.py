@@ -9,6 +9,7 @@ from sqlmodel import Session
 
 from naiad.auth_rules import INGRESS_HEADER, forward_header_ok, ingress_request_ok
 from naiad.config import AppConfig
+from naiad.dependencies import touch_token_last_used
 from naiad.domain.factors import compute_factors
 from naiad.domain.models import AuthToken
 from naiad.domain.sensors import read_sensor_snapshot
@@ -146,8 +147,7 @@ def _authenticate(token_str: str, session: Session) -> bool:
         return False
     if db_token.expires_at.replace(tzinfo=UTC) < datetime.now(UTC):
         return False
-    db_token.last_used_at = datetime.now(UTC)
-    session.commit()
+    touch_token_last_used(session, db_token, datetime.now(UTC))
     return True
 
 
@@ -162,12 +162,12 @@ def _status_snapshot(
 ) -> dict[str, Any]:
     snapshot = read_sensor_snapshot(ha, config)
     factors = compute_factors(snapshot, config, session)
-    status = runner.status()
+    running = runner.running_run_ids()
     return {
         "type": "status_snapshot",
         "data": {
             "ha_connected": ha.is_connected,
-            "sequence_running": status.sequence_id,
+            "sequences_running": running,
             "factor_pct": int(round(factors.factor_pct)),
             "season_off": factors.season_off,
             "wind_on": factors.wind_on,
@@ -255,7 +255,9 @@ async def websocket_endpoint(
             except json.JSONDecodeError:
                 continue
             if client_msg.get("type") == "ping":
-                await websocket.send_text(json.dumps({"type": "pong"}))
+                # Route through the manager so the pong is serialized with
+                # broadcasts/heartbeat/run-tick on this connection's send lock.
+                await manager.send(websocket, {"type": "pong"})
     except WebSocketDisconnect:
         pass
     except Exception:
@@ -288,23 +290,23 @@ async def _heartbeat(
 async def _run_tick(ws: WebSocket, runner: SequenceRunner) -> None:
     while True:
         await asyncio.sleep(10)
-        status = runner.status()
-        if status.sequence_id is None or status.current_zone is None:
-            continue
-        z = status.current_zone
-        elapsed = (datetime.now(UTC) - z.started_at).total_seconds() / 60.0
-        remaining = max(0.0, z.duration_min - elapsed)
-        ok = await manager.send(
-            ws,
-            {
-                "type": "run_tick",
-                "data": {
-                    "sequence_id": status.sequence_id,
-                    "zone_id": z.zone_id,
-                    "elapsed_min": round(elapsed, 2),
-                    "remaining_min": round(remaining, 2),
+        for status in runner.iter_runs():
+            if status.current_zone is None:
+                continue
+            z = status.current_zone
+            elapsed = (datetime.now(UTC) - z.started_at).total_seconds() / 60.0
+            remaining = max(0.0, z.duration_min - elapsed)
+            ok = await manager.send(
+                ws,
+                {
+                    "type": "run_tick",
+                    "data": {
+                        "sequence_id": status.sequence_id,
+                        "zone_id": z.zone_id,
+                        "elapsed_min": round(elapsed, 2),
+                        "remaining_min": round(remaining, 2),
+                    },
                 },
-            },
-        )
-        if not ok:
-            break
+            )
+            if not ok:
+                return

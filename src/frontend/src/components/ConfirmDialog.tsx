@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useDialog } from '../hooks/useDialog'
 import { IGauge, IPlay, IX } from './icons'
 
 // 1 min, then 5-minute increments up to 90. A manual run may need just a minute
@@ -44,6 +45,8 @@ export function ConfirmDialog({
   const { t } = useTranslation()
   const [duration, setDuration] = useState(defaultDuration)
   const backdropRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useDialog<HTMLDivElement>(open, onCancel)
+  const titleId = useId()
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -68,6 +71,11 @@ export function ConfirmDialog({
   return (
     <div className="n-backdrop" ref={backdropRef} onClick={handleBackdropClick}>
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         className="n-dialog"
         style={{
           position: 'absolute',
@@ -86,12 +94,12 @@ export function ConfirmDialog({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <span className="n-eyebrow">{t('confirm.startNow')}</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ width: 4, height: 28, background: color, borderRadius: 2 }} />
-              <span style={{ fontSize: 28, fontWeight: 600, letterSpacing: '-0.02em' }}>{title}</span>
+              <span aria-hidden="true" style={{ width: 4, height: 28, background: color, borderRadius: 2 }} />
+              <span id={titleId} style={{ fontSize: 28, fontWeight: 600, letterSpacing: '-0.02em' }}>{title}</span>
             </div>
             {subtitle && <span className="n-label" style={{ fontSize: 12.5 }}>{subtitle}</span>}
           </div>
-          <button className="n-iconbtn" style={{ width: 40, height: 40 }} onClick={onCancel}>
+          <button className="n-iconbtn" style={{ width: 40, height: 40 }} onClick={onCancel} aria-label={t('a11y.close')}>
             <IX size={16} />
           </button>
         </div>
@@ -105,7 +113,7 @@ export function ConfirmDialog({
             gridTemplateColumns: 'repeat(3, 1fr)',
             padding: '10px 0',
             borderRadius: 12,
-            background: 'rgba(255,255,255,0.015)',
+            background: 'var(--n-surface-overlay)',
             border: '1px solid var(--n-line)',
           }}
         >
@@ -141,6 +149,8 @@ export function ConfirmDialog({
             value={sliderIdx}
             onChange={(e) => setDuration(DURATION_STEPS[+e.target.value])}
             className="n-slider"
+            aria-label={t('a11y.durationSlider')}
+            aria-valuetext={`${duration} min`}
             style={{ '--p': `${pct}%` } as React.CSSProperties}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--n-fg-muted)', fontSize: 11 }}>

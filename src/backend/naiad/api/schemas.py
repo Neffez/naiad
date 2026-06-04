@@ -133,7 +133,14 @@ class FactorBreakdownResponse(BaseModel):
     temp_pct: int
     rain_pct: int
     combined_pct: int  # overall factor as a percentage (100 = neutral)
+    # True when combined_pct comes from a manual override; the temp/rain deltas
+    # above are neutral (0) in that case and should not be shown as a breakdown.
+    manual: bool = False
     wind_blocking_sequences: list[str]
+    # Sensor inputs used in the factor calculation, for UI traceability.
+    temp_input_c: float | None = None
+    rain_prob_pct: float | None = None
+    rain_mm: float | None = None
 
 
 class NextRunResponse(BaseModel):
@@ -144,6 +151,9 @@ class NextRunResponse(BaseModel):
     # Set for one-off planned runs; the skip endpoint deletes the plan directly.
     # None for recurring cron runs, which are skipped via a SkippedRun record.
     plan_id: str | None = None
+    # True when this entry is the run currently executing (started, not upcoming).
+    # The UI marks it as live and hides the skip action.
+    in_progress: bool = False
 
 
 class SystemStatusResponse(BaseModel):
@@ -153,8 +163,10 @@ class SystemStatusResponse(BaseModel):
     today_factor: FactorBreakdownResponse
     next_run: NextRunResponse | None
     after_next: NextRunResponse | None
-    # All upcoming runs of the next day that has any: today if more runs remain
-    # today, otherwise the next day with scheduled runs.
+    # Upcoming (not-yet-started) runs: today's remaining runs plus all runs of the
+    # next future day that has any. Spans at most two calendar days (today + next),
+    # or one day if nothing remains today. Currently-running runs are excluded —
+    # they are shown live on the sequence/zone cards instead.
     upcoming_runs: list[NextRunResponse]
     liters_today: float
     liters_week: float
@@ -178,6 +190,9 @@ class ValveStateResponse(BaseModel):
     state: str
     on_since: UtcDatetime | None
     runtime_min: float | None
+    # Total planned duration of a standalone single-zone run, so the UI can show
+    # remaining time (e.g. "5 / 10 min"). None unless single_run is True.
+    total_min: float | None = None
     # True when this zone is currently running as a standalone single-zone run
     # (started directly, not as part of a sequence) — so the UI can offer a stop.
     single_run: bool = False
@@ -250,16 +265,23 @@ class TempFactorSettingsInput(BaseModel):
 
 
 class RainFactorSettingsInput(BaseModel):
+    mode: Literal["forecast", "water_balance"] | None = None
     forecast_days: int | None = None
     threshold_prob: int | None = None
     reduce_above_mm: float | None = None
     zero_above_mm: float | None = None
     forecast_decay: float | None = None
+    water_balance_days: int | None = None
+    water_balance_decay: float | None = None
+    peak_tomorrow: bool | None = None
+    confirm_with_rain_sensor: bool | None = None
 
 
 class FactorSettingsInput(BaseModel):
     temp: TempFactorSettingsInput | None = None
     rain: RainFactorSettingsInput | None = None
+    manual_mode: bool | None = None
+    manual_pct: int | None = None
 
 
 class SequenceOverrideInput(BaseModel):
@@ -271,7 +293,9 @@ class SequenceOverrideInput(BaseModel):
 class UpdateSettingsRequest(BaseModel):
     sequences: dict[str, SequenceOverrideInput] | None = None
     factors: FactorSettingsInput | None = None
-    token_lifetime_days: int | None = None
+    # Bounded so a login can't mint an already-expired token (<= 0) or one that
+    # effectively never expires. 365 days is the documented upper limit.
+    token_lifetime_days: int | None = Field(default=None, gt=0, le=365)
     auto_login_enabled: bool | None = None
 
 
@@ -283,11 +307,16 @@ class TempFactorSettingsResponse(BaseModel):
 
 
 class RainFactorSettingsResponse(BaseModel):
+    mode: Literal["forecast", "water_balance"]
     forecast_days: int
     threshold_prob: int
     reduce_above_mm: float
     zero_above_mm: float
     forecast_decay: float
+    water_balance_days: int
+    water_balance_decay: float
+    peak_tomorrow: bool
+    confirm_with_rain_sensor: bool
 
 
 class SequenceOverrideResponse(BaseModel):
@@ -299,6 +328,8 @@ class SequenceOverrideResponse(BaseModel):
 class FactorSettingsResponse(BaseModel):
     temp: TempFactorSettingsResponse
     rain: RainFactorSettingsResponse
+    manual_mode: bool = False
+    manual_pct: int | None = None
 
 
 class AppSettingsResponse(BaseModel):
@@ -383,6 +414,7 @@ class ConfigResponse(BaseModel):
     factors: FactorsConfig
     notifications: NotificationsConfig
     timezone: str
+    sequence_colors_enabled: bool = True
     # True after an update that changed ha.url/token: the live HA socket is not
     # reconnected automatically, so a restart is needed for the connection change.
     restart_required: bool = False
@@ -398,6 +430,7 @@ class ConfigUpdateRequest(BaseModel):
     factors: FactorsConfig
     notifications: NotificationsConfig = NotificationsConfig()
     timezone: str = "Europe/Berlin"
+    sequence_colors_enabled: bool = True
 
 
 class EntityInfo(BaseModel):

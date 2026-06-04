@@ -33,6 +33,50 @@ def test_unknown_zone_reference_raises() -> None:
         AppConfig.model_validate(data)
 
 
+@pytest.mark.parametrize("bad_flow", [0, -1, -500.0])
+def test_non_positive_flow_lph_rejected(bad_flow: float) -> None:
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["zones"]["zone_a"]["flow_lph"] = bad_flow
+    with pytest.raises(ValidationError, match="flow_lph"):
+        AppConfig.model_validate(data)
+
+
+@pytest.mark.parametrize("field", ["watchdog_min", "basis_min_per_zone"])
+@pytest.mark.parametrize("bad", [0, -5])
+def test_non_positive_sequence_runtimes_rejected(field: str, bad: int) -> None:
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["sequences"]["seq_1"][field] = bad
+    with pytest.raises(ValidationError, match=field):
+        AppConfig.model_validate(data)
+
+
+def test_negative_range_lower_bound_rejected() -> None:
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["sequences"]["seq_1"]["range"] = [-1.0, 240.0]
+    with pytest.raises(ValidationError, match="range"):
+        AppConfig.model_validate(data)
+
+
+def test_duplicate_switch_across_zones_rejected() -> None:
+    """Two zones may not share a switch entity — ownership/reservation is tracked
+    by switch, so a shared switch could be driven by two parallel runs."""
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["zones"]["zone_b"]["switch"] = data["zones"]["zone_a"]["switch"]
+    with pytest.raises(ValidationError, match="share switch"):
+        AppConfig.model_validate(data)
+
+
+def test_multiple_empty_switch_zones_allowed() -> None:
+    """Empty switches mean 'not yet configured' and must not collide — a config with
+    several prepared-but-unconfigured zones has to be saveable."""
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["zones"]["zone_a"]["switch"] = ""
+    data["zones"]["zone_b"]["switch"] = ""
+    config = AppConfig.model_validate(data)  # must not raise
+    assert config.zones["zone_a"].switch == ""
+    assert config.zones["zone_b"].switch == ""
+
+
 def test_missing_ha_token_raises() -> None:
     data = copy.deepcopy(MINIMAL_CONFIG_DATA)
     del data["ha"]["token"]

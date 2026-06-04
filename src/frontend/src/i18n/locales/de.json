@@ -1,4 +1,7 @@
 {
+  "common": {
+    "loadError": "Konnte nicht geladen werden — Verbindung prüfen und erneut versuchen."
+  },
   "toast": {
     "started": "{{name}} gestartet",
     "resumed": "{{name}} fortgesetzt",
@@ -11,6 +14,7 @@
     "planner": "Planen",
     "history": "Verlauf",
     "settings": "Einstellungen",
+    "config": "Konfiguration",
     "theme": "Theme"
   },
   "status": {
@@ -111,6 +115,17 @@
     "reduceAbove": "Reduz. ab mm",
     "zeroAbove": "Null ab mm",
     "forecastDecay": "Prognose-Gewichtung",
+    "rainMode": "Regen-Modus",
+    "rainMode_forecast": "Prognose",
+    "rainMode_water_balance": "Wasserbilanz",
+    "waterBalanceDays": "Bilanzfenster",
+    "waterBalanceDecay": "Regen-Nachlauf",
+    "peakTomorrow": "Höchstwert-Prognose",
+    "peakTomorrow_today": "Nur heute",
+    "peakTomorrow_both": "Heute + morgen",
+    "confirmRainSensor": "Mit Regensensor bestätigen",
+    "confirmRainSensor_off": "Aus",
+    "confirmRainSensor_on": "An",
     "help": {
       "basisC": "Referenztemperatur, bei der die Bewässerung 100 % beträgt. Darüber wird länger, darunter kürzer bewässert.",
       "pctPerC": "Um wie viel Prozent sich die Bewässerungsdauer je Grad Abweichung von der Basistemperatur ändert.",
@@ -119,7 +134,12 @@
       "thresholdProb": "Mindest-Regenwahrscheinlichkeit, ab der eine Regenprognose die Bewässerung überhaupt reduziert.",
       "reduceAbove": "Prognostizierte Regenmenge (mm), ab der die Bewässerung reduziert wird.",
       "zeroAbove": "Prognostizierte Regenmenge (mm), ab der die Bewässerung ganz entfällt.",
-      "forecastDecay": "Gewichtung (0–1) des morgigen Regens gegenüber dem heutigen. 1 = zählt voll, 0 = wird ignoriert."
+      "forecastDecay": "Gewichtung (0–1) des morgigen Regens gegenüber dem heutigen. 1 = zählt voll, 0 = wird ignoriert.",
+      "rainMode": "Prognose nutzt nur heute/morgen. Wasserbilanz nutzt zusätzlich kürzlich tatsächlich gefallenen Regen aus dem konfigurierten Niederschlagssensor.",
+      "waterBalanceDays": "Wie viele zurückliegende Tage tatsächlicher Regen als Guthaben behalten wird.",
+      "waterBalanceDecay": "Täglicher Nachlauf für tatsächlichen Regen. 1 = Regen bleibt voll wirksam, 0 = nur der jüngste Wert zählt.",
+      "peakTomorrow": "Für die Regenanpassung den höchsten heute gesehenen Vorhersagewert verwenden statt nur den aktuellen. „Heute“ wird immer so behandelt; mit „Heute + morgen“ gilt das auch für die morgige Prognose (vorsichtiger, aber empfindlicher gegenüber schwankenden Vorhersagen).",
+      "confirmRainSensor": "Wenn an, reduziert die heutige Höchstwert-Prognose die Bewässerung nur bis zu dem Wert, der mit tatsächlich vom Regensensor erkanntem Regen zusammenfiel. Im Wasserbilanz-Modus zählen auch Niederschlags-Deltas nur, während der Regensensor an war. Nutze das, wenn die Niederschlagsquelle aus einer Forecast-Integration kommt."
     },
     "version": "Version",
     "haIntegration": "HA Integration",
@@ -168,7 +188,20 @@
       "precipitation_prob_today": "Regenwahrscheinlichkeit heute",
       "precipitation_prob_tomorrow": "Regenwahrscheinlichkeit morgen",
       "precipitation_today": "Niederschlag heute",
-      "precipitation_tomorrow": "Niederschlag morgen"
+      "precipitation_tomorrow": "Niederschlag morgen",
+      "precipitation_actual": "Tatsächlicher Niederschlag"
+    },
+    "sensorHelp": {
+      "rain": "Notwendig. Binärsensor, der Regen erkennt. Bei „an“ wird ein laufender Lauf sofort abgebrochen.",
+      "wind": "Optional. Binärsensor für Windalarm. Bei „an“ werden Sequenzen mit „Wind blockt“ übersprungen.",
+      "season": "Optional. Binärsensor für die Bewässerungssaison. Bei „aus“ werden alle Läufe übersprungen (Winterpause).",
+      "temperature": "Notwendig. Aktuelle Außentemperatur in °C. Basis für den Temperatur-Faktor.",
+      "temperature_max": "Optional. Prognostizierte Tageshöchsttemperatur in °C. Wird bevorzugt, wenn vorhanden.",
+      "precipitation_prob_today": "Optional. Regenwahrscheinlichkeit heute (0–100 %). Fließt in den Regen-Faktor ein.",
+      "precipitation_prob_tomorrow": "Optional. Regenwahrscheinlichkeit morgen (0–100 %). Fließt in den Regen-Faktor ein.",
+      "precipitation_today": "Optional. Erwarteter Niederschlag heute in mm. Bestimmt zusammen mit der Schwelle die Reduktion.",
+      "precipitation_tomorrow": "Optional. Erwarteter Niederschlag morgen in mm. Wird mit dem Prognose-Gewichtungsfaktor verrechnet.",
+      "precipitation_actual": "Optional. Tatsächliche Niederschlagsmenge in mm. Im Wasserbilanz-Modus liest Naiad positive Änderungen aus der Home-Assistant-Historie und behält sie als Regen-Guthaben. Wenn die Quelle aus einer Forecast-Integration kommt, aktiviere die Regensensor-Bestätigung."
     },
     "zones": "Zonen",
     "addZone": "Zone hinzufügen",
@@ -194,11 +227,19 @@
     },
     "switch": "Switch",
     "flowLph": "Durchfluss (L/h)",
+    "staircase": "Treppenlichtfunktion",
+    "staircaseHint": "Treppenlichtfunktion des Aktors nutzen",
+    "staircaseMin": "Aktor-Laufzeit (min)",
+    "staircaseHelp": "Für Aktoren mit Hardware-Treppenlichtfunktion, die das Ventil von selbst abschalten. Naiad sendet vor Ablauf erneut \"Ein\", damit das Ventil offen bleibt, während der Timer als Hardware-Sicherheitsnetz erhalten bleibt. Trage die am Aktor eingestellte Laufzeit in Minuten ein.",
     "sequences": "Sequenzen",
     "addSequence": "Sequenz hinzufügen",
     "noSequences": "Keine Sequenzen",
     "enabled": "Aktiv",
     "windBlocks": "Wind blockt",
+    "sequenceColors": "Farbliche Balken",
+    "sequenceColorsHint": "Farbige Balken an Sequenz-Karten anzeigen",
+    "color": "Farbe",
+    "colorDefault": "Standard",
     "seqZones": "Zonen (Reihenfolge)",
     "basisMin": "Basis (min/Zone)",
     "watchdogMin": "Watchdog (min)",
@@ -207,6 +248,9 @@
     "cron": "Cron",
     "schedule": "Zeitplan",
     "notifyReminderTime": "Erinnerungszeit",
+    "notifyQueueMaxHours": "Offline-Puffer",
+    "notifyQueueMaxHoursUnit": "Std.",
+    "notifyQueueMaxHoursHelp": "Ist Home Assistant beim Senden kurz nicht erreichbar, werden Benachrichtigungen zwischengespeichert und beim Wiederverbinden zugestellt. Einträge, die älter als diese Stundenzahl sind, werden verworfen statt verspätet zugestellt. 0 schaltet den Puffer aus.",
     "advanced": "Erweitert",
     "timezone": "Zeitzone",
     "authMode": "Auth-Modus",
@@ -222,6 +266,7 @@
     "restartRequired": "HA-Verbindung geändert — ein Neustart ist nötig, damit die neue Verbindung aktiv wird.",
     "addEntry": "Hinzufügen",
     "add": "OK",
+    "cancel": "Abbrechen",
     "delete": "Löschen",
     "deleteZoneTitle": "Zone löschen?",
     "deleteZoneMsg": "Zone „{{name}}\" wirklich löschen? Sie wird auch aus allen Sequenzen entfernt.",
@@ -276,11 +321,6 @@
     "login": "Einloggen",
     "error": "Falsches Passwort"
   },
-  "emergency": {
-    "title": "Notaus — System + alle Zonen sofort stoppen",
-    "label": "Notaus",
-    "confirm": "Bestätigen?"
-  },
   "confirm": {
     "startNow": "Sofort starten",
     "zones": "Zonen",
@@ -296,6 +336,11 @@
     "title": "Lauf stoppen?",
     "message": "{{name}} wird sofort gestoppt."
   },
+  "confirmParallel": {
+    "title": "Parallel starten?",
+    "message": "Es läuft bereits ein anderer Lauf. {{name}} wird zusätzlich gestartet — achte darauf, dass genug Durchfluss für beide vorhanden ist.",
+    "confirm": "Trotzdem starten"
+  },
   "confirmSkip": {
     "title": "Lauf überspringen?",
     "message": "{{name}} um {{time}} wird übersprungen und läuft erst beim nächsten Zeitplan wieder."
@@ -306,8 +351,7 @@
     "configured": "konfiguriert",
     "running": "läuft",
     "ready": "bereit",
-    "valvesLive": "Zonen · Live",
-    "valves": "Zonen",
+    "zones": "Zonen",
     "live": "live",
     "usageWeek": "Verbrauch · diese Woche",
     "usage": "Verbrauch",
@@ -320,11 +364,18 @@
     "after": "Danach",
     "adjustment": "Anpassung",
     "auto": "auto",
+    "manual": "manuell",
+    "toggleMode": "Zwischen automatischer und manueller Anpassung wechseln",
+    "editPct": "Klicken, um die Anpassung manuell zu setzen",
+    "manualHint": "Manuell · {{min}}–{{max}} %",
     "blocked": "{{seqs}} blockiert",
     "today": "Heute",
     "tomorrow": "Morgen",
+    "live": "Live",
     "skip": "Überspringen",
-    "skipped": "{{name}} übersprungen"
+    "skipped": "{{name}} übersprungen",
+    "tempTip": "Messwert: {{input}} · Basis: {{basis}} °C · {{pct}} % pro °C · Bereich: {{min}}–{{max}} %",
+    "rainTip": "Wahrsch.: {{prob}} · Menge: {{mm}} · Schwelle: {{threshold}} % · Reduz. ab {{reduce}} mm · Null ab {{zero}} mm · Gewichtung: {{decay}}"
   },
   "time": {
     "now": "jetzt",
@@ -344,7 +395,10 @@
     "rain": "Regen",
     "watchdog": "Watchdog",
     "manual_stop": "Manuell gestoppt",
-    "ha_disconnect": "HA getrennt"
+    "ha_disconnect": "HA getrennt",
+    "staircase_retrigger_failed": "Treppenlicht-Timer fehlgeschlagen",
+    "close_failed": "Ventil nicht geschlossen",
+    "start_failed": "Start fehlgeschlagen"
   },
   "weekdaysShort": [
     "Mo",
@@ -363,5 +417,20 @@
   },
   "confirmZone": {
     "subtitle": "Einzelne Zone — Sofortstart"
+  },
+  "a11y": {
+    "close": "Schließen",
+    "skipToContent": "Zum Hauptinhalt springen",
+    "dismissNotification": "Benachrichtigung schließen",
+    "notificationsRegion": "Benachrichtigungen",
+    "primaryNav": "Hauptnavigation",
+    "systemToggle": "System ein- oder ausschalten",
+    "durationSlider": "Bewässerungsdauer pro Zone in Minuten",
+    "date": "Datum",
+    "time": "Uhrzeit",
+    "targetSelect": "Ziel auswählen",
+    "modeSelect": "Planungsmodus",
+    "weeklyUsageChart": "Wasserverbrauch der Woche",
+    "moreInfo": "Mehr Informationen"
   }
 }

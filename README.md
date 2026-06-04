@@ -1,4 +1,4 @@
-<div style="text-align:center"> 
+<div align="center">
 <img src="docs/assets/logo.svg" alt="Naiad" width="420">
 
   **Garden irrigation controller for Home Assistant.**
@@ -6,9 +6,13 @@
 
 ---
 
-> **Status:** alpha. Backend functional (schedules, sequences, factors, HA integration). Frontend implements the full "Naiad Control Surface" design across all four screens (Dashboard, Planner, History, Settings).
+[![Release](https://github.com/Neffez/naiad/actions/workflows/release.yml/badge.svg)](https://github.com/Neffez/naiad/actions/workflows/release.yml)
 
 Naiad replaces the irrigation automation logic that typically lives inside Home Assistant (Irrigation Unlimited, automations, pyscript, helpers, dashboard cards) with a single standalone web application. Home Assistant remains the driver for the physical switches and the source of weather and sensor data; everything else, like schedules, factor calculation, manual planning, history and UI happens in Naiad. For the Home Assistant app repo see [app-naiad](https://github.com/Neffez/app-naiad).
+
+<div align="center">
+<img src="docs/naiad.gif" alt="Naiad Gif" width="420" height="200">
+</div>
 
 ## Table of Contents
 
@@ -27,6 +31,7 @@ Naiad replaces the irrigation automation logic that typically lives inside Home 
 * [Scheduling & Safety](#scheduling--safety)
 * [Statistics in Home Assistant](#statistics-in-home-assistant)
 * [Hardware Compatibility](#hardware-compatibility)
+* [Screenshots](#screenshots)
 * [Disclaimer](#disclaimer)
 * [License](#license)
 
@@ -48,6 +53,10 @@ A HA-native irrigation stack is spread across too many layers. A small change, l
 - APScheduler for cron-style scheduling
 - Real-time updates via WebSocket (sequence state, valve changes, factor updates, HA status)
 - Docker images published to GHCR for `amd64` + `arm64`
+
+The built frontend is a release artifact, not committed source. `npm run build`
+generates `static/` locally; the Docker release build regenerates it from
+`src/frontend/` and copies it into the runtime image.
 
 ## Architecture
 
@@ -173,10 +182,10 @@ environment only (see [`.env.example`](.env.example)).
 | Section         | Purpose                                                                                                                                                                                                                                                                                                                                                 |
 |-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `ha`            | HA WebSocket URL.                                                                                                                                                                                                                                                                                                                                       |
-| `sensors`       | Entity IDs for rain, wind, season, temperature, the four precipitation forecast sensors, and an optional `temperature_max` (forecast daily peak).                                                                                                                                                                                                       |
+| `sensors`       | Entity IDs for rain, wind, season, temperature, the four precipitation forecast sensors, an optional `temperature_max` (forecast daily peak), and optional `precipitation_actual` (actual precipitation amount in mm for water-balance mode).                                                                                                             |
 | `zones`         | Per-zone `label`, `switch` entity, and `flow_lph` (used for liter tracking).                                                                                                                                                                                                                                                                            |
 | `sequences`     | Ordered `zones`, `basis_min_per_zone`, allowed `range`, `watchdog_min`, `enabled`, `wind_blocks` (skips the run on a wind alarm), and a `schedule` — `days` (ISO 1=Mon…7=Sun, empty = every day) + `times` (`HH:MM`), with an advanced `cron` escape hatch that overrides them when set.                                                                |
-| `factors`       | `temp` (linear scaling around `basis_c`, clamped to `min_pct`..`max_pct`) and `rain` (forecast-based reduction with `threshold_prob`, `reduce_above_mm`, `zero_above_mm`, `forecast_decay`). The temperature input prefers the forecast daily max, then falls back to yesterday's recorded max, and only uses the current temperature as a last resort. |
+| `factors`       | `temp` (linear scaling around `basis_c`, clamped to `min_pct`..`max_pct`) and `rain`. `rain.mode: forecast` keeps the existing forecast-based reduction with `threshold_prob`, `reduce_above_mm`, `zero_above_mm`, `forecast_decay`, `peak_tomorrow`. `rain.mode: water_balance` additionally uses recent actual precipitation from `sensors.precipitation_actual` as a decaying rain credit (`water_balance_days`, `water_balance_decay`) so rain earlier in the week can reduce a later scheduled run. When `confirm_with_rain_sensor` is enabled, forecast peaks and water-balance precipitation deltas only count while the binary rain sensor actually detected rain. The temperature input prefers the forecast daily max, then falls back to yesterday's recorded max, and only uses the current temperature as a last resort. |
 | `mqtt`          | Optional MQTT statistics bridge — see [Statistics in Home Assistant](#statistics-in-home-assistant). `enabled`, broker `host`/`port`/`username`, `discovery_prefix`, `base_topic`.                                                                                                                                                                      |
 | `notifications` | Optional HA push notifications.                                                                                                                                                                                                                                                                                                                         |
 | `auth`          | `mode` (`password` \| `forward_header` \| `none`), the shared `password`, optional `auto_login` for trusted embedding contexts, `ingress` trust for the HA App sidebar (additive — coexists with `mode`), and `frame_ancestors` for the CSP header.                                                                                                     |
@@ -215,9 +224,12 @@ Each sequence registers 1-5 cron triggers per scheduled time. When a run fires
    entirely rather than watering the range minimum. The factor is *not* applied
    to single-zone plans, which water for exactly the requested duration. A
    *manual* start always runs (it isn't subject to the factor-0 skip).
-3. **Runs the zones in order**, one valve at a time under a single global mutex
-   (only one run anywhere at a time). A run history row is written at zone start
-   and finalized (duration, liters, abort reason) when the zone ends.
+3. **Runs the zones in order**, one valve at a time within a run. Runs are
+   serialized per *zone*, not globally: several runs can proceed in parallel as
+   long as their zone sets are disjoint, while a run requesting a zone already
+   reserved by another run (or by a pending valve close) is rejected. A run
+   history row is written at zone start and finalized (duration, liters, abort
+   reason) when the zone ends.
 
 Two independent safety mechanisms bound a run:
 
@@ -261,11 +273,16 @@ discovery configs and state under one **Naiad** device. The entities:
 | `sensor.naiad_last_run_liters` | `measurement`, `water`, `L` | Liters of the most recent run |
 | `sensor.naiad_last_run_duration` | `measurement`, `duration`, `min` | Minutes of the most recent run |
 | `sensor.naiad_last_run` | `timestamp` | When the most recent run ended |
+| `sensor.naiad_rain_credit` | `measurement`, `precipitation`, `mm` | Recent actual-rain credit used by water-balance mode |
+| `sensor.naiad_rain_factor` | `measurement`, `%` | Current rain multiplier applied to automatic runs |
+| `sensor.naiad_adjustment_factor` | `measurement`, `%` | Current combined automatic watering factor |
 
-The values are recomputed from the SQLite history on every publish (after each
-run, including external/manual valve activity, and on every (re)connect), so they
-never drift from what Naiad recorded. Messages are retained, so the figures
-survive both Naiad and Home Assistant restarts.
+The water/runtime values are recomputed from the SQLite history on every publish
+(after each run, including external/manual valve activity, and on every
+(re)connect), so they never drift from what Naiad recorded. The rain/adjustment
+values are published from Naiad's current factor calculation after weather
+refreshes and reconnects. Messages are retained, so the figures survive both
+Naiad and Home Assistant restarts.
 
 For the Grafana path: HA's InfluxDB integration exports **state changes** (not
 the statistics tables), so it picks these sensors up automatically. Point Grafana
@@ -287,6 +304,64 @@ types.
 | OpenWeatherMap precipitation sensors | ✅ tested | Probability + amount, today and tomorrow. |
 | Push via `notify.mobile_app_*` | ✅ tested | HA Companion app. |
 | Direct KNX/IP (xknx) driver | ⬜ planned | Designed for via the driver layer; not implemented. v1 talks to hardware only through Home Assistant. |
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/dashboard_light.png" alt="Dashboard (light)" width="100%"></td>
+    <td width="50%"><img src="docs/dashboard_dark.png" alt="Dashboard (dark)" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Dashboard</b> — light</sub></td>
+    <td align="center"><sub><b>Dashboard</b> — dark</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/planner.png" alt="Planner" width="100%"></td>
+    <td width="50%"><img src="docs/sequences.png" alt="Sequences" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Planner</b> — manual one-off plans</sub></td>
+    <td align="center"><sub><b>Sequences</b> — ordered zones &amp; schedules</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/zones.png" alt="Zones" width="100%"></td>
+    <td width="50%"><img src="docs/history.png" alt="History" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Zones</b> — valve &amp; flow configuration</sub></td>
+    <td align="center"><sub><b>History</b> — per-run liters &amp; durations</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/system_config.png" alt="System configuration" width="100%"></td>
+    <td width="50%"><img src="docs/mqtt_and_notifications.png" alt="MQTT and notifications" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>System configuration</b></sub></td>
+    <td align="center"><sub><b>MQTT &amp; notifications</b></sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/settings.png" alt="Settings" width="100%"></td>
+    <td width="50%"><img src="docs/system.png" alt="System" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Settings</b></sub></td>
+    <td align="center"><sub><b>System</b> — status &amp; diagnostics</sub></td>
+  </tr>
+</table>
+
+### Mobile
+
+<table>
+  <tr>
+    <td width="50%" align="center"><img src="docs/dashboard_mobile.png" alt="Dashboard (mobile)" width="280"></td>
+    <td width="50%" align="center"><img src="docs/naiad_mobile.gif" alt="Naiad on mobile" width="280"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Dashboard</b> — mobile</sub></td>
+    <td align="center"><sub><b>Naiad</b> — mobile walkthrough</sub></td>
+  </tr>
+</table>
 
 ## Disclaimer
 

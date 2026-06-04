@@ -41,18 +41,21 @@ function ValveCell({
       style={{ minHeight: dense ? 74 : 88, padding: dense ? '10px 11px' : '12px 12px 10px' }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <span className="led" />
+        <span className="led" aria-hidden="true" />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {state === 'on' && valve.runtime_min != null && (
             <span className="mono" style={{ fontSize: 11, color: 'var(--n-teal-200)' }}>
-              {valve.runtime_min.toFixed(0)} min
+              {valve.total_min != null
+                ? `${valve.runtime_min.toFixed(0)} / ${valve.total_min.toFixed(0)} min`
+                : `${valve.runtime_min.toFixed(0)} min`}
             </span>
           )}
           {canStop ? (
             <button
               className="n-iconbtn"
               style={{ width: 26, height: 26 }}
-              title={t('valve.stop', { defaultValue: 'Zone stoppen' })}
+              title={t('valve.stop')}
+              aria-label={t('valve.stop')}
               onPointerDown={stop}
               onClick={(e) => { stop(e); onStopZone(valve.zone_id) }}
             >
@@ -62,7 +65,8 @@ function ValveCell({
             <button
               className="n-iconbtn"
               style={{ width: 26, height: 26 }}
-              title={t('valve.start', { defaultValue: 'Zone starten' })}
+              title={t('valve.start')}
+              aria-label={t('valve.start')}
               onPointerDown={stop}
               onClick={(e) => { stop(e); onStartZone(valve.zone_id) }}
             >

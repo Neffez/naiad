@@ -1,9 +1,12 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '../api/queryKeys'
 import type { TFunction } from 'i18next'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { type NextRun, type SystemStatus, skipRun } from '../api/client'
+import { type NextRun, type SystemStatus, getSettings, skipRun, updateSettings } from '../api/client'
 import { ConfirmActionDialog } from './ConfirmActionDialog'
+import { InfoTip } from './InfoTip'
+import { NumberField } from './NumberField'
 import { toast } from './Toast'
 import { IClock, IX } from './icons'
 
@@ -32,7 +35,19 @@ function formatClock(isoDate: string, lng: string): string {
   return new Date(isoDate).toLocaleString(lng, { hour: '2-digit', minute: '2-digit' })
 }
 
-/** Day heading shared by all runs in the block (they're all on the same day). */
+/** Group consecutive runs by their local calendar day, preserving order. */
+function groupByDay(runs: NextRun[]): { day: string; runs: NextRun[] }[] {
+  const groups: { day: string; runs: NextRun[] }[] = []
+  for (const run of runs) {
+    const day = new Date(run.scheduled_at).toDateString()
+    const last = groups[groups.length - 1]
+    if (last && last.day === day) last.runs.push(run)
+    else groups.push({ day, runs: [run] })
+  }
+  return groups
+}
+
+/** Day heading for a run, relative ("today"/"tomorrow") or an explicit date. */
 function formatDayLabel(isoDate: string, t: TFunction, lng: string): string {
   const d = new Date(isoDate)
   const now = new Date()
@@ -52,33 +67,176 @@ function useSkip() {
     mutationFn: (run: NextRun) =>
       skipRun({ sequence_id: run.sequence_id, scheduled_at: run.scheduled_at, plan_id: run.plan_id }),
     onSuccess: (_d, run) => {
-      toast(t('today.skipped', { name: run.sequence_label, defaultValue: `${run.sequence_label} übersprungen` }), 'success')
-      qc.invalidateQueries({ queryKey: ['status'] })
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      toast(t('today.skipped', { name: run.sequence_label }), 'success')
+      qc.invalidateQueries({ queryKey: queryKeys.status })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
     },
     onError: (e) => toast(e instanceof Error ? e.message : String(e), 'error'),
   })
 }
 
+type BreakdownItem = { label: string; delta: string; positive: boolean; tip?: string }
+
+/**
+ * Adjustment factor block: a clickable auto/manual mode chip and the combined
+ * percentage. In auto mode the percentage reflects the automatic temp/rain
+ * calculation and is read-only. In manual mode the breakdown is hidden and the
+ * percentage becomes click-to-edit, clamped to the configured min/max bounds.
+ */
+function AdjustmentSection({ sys, breakdown, compact = false }: {
+  sys: SystemStatus
+  breakdown: BreakdownItem[]
+  compact?: boolean
+}) {
+  const { t } = useTranslation()
+  const qc = useQueryClient()
+  const f = sys.today_factor
+  const { data: settings } = useQuery({ queryKey: queryKeys.settings, queryFn: getSettings })
+  const [editing, setEditing] = useState(false)
+
+  const mut = useMutation({
+    mutationFn: (factors: { manual_mode?: boolean; manual_pct?: number }) =>
+      updateSettings({ factors }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.status })
+      qc.invalidateQueries({ queryKey: queryKeys.settings })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
+    },
+    onError: (e) => toast(e instanceof Error ? e.message : String(e), 'error'),
+  })
+
+  const manual = f.manual
+  const minPct = settings?.factors.temp.min_pct ?? 0
+  const maxPct = settings?.factors.temp.max_pct ?? 200
+
+  const toggleMode = () => {
+    setEditing(false)
+    // Switching to auto discards the manual value; switching to manual seeds it
+    // with the current (automatic) percentage so editing starts from there.
+    if (manual) mut.mutate({ manual_mode: false })
+    else mut.mutate({ manual_mode: true, manual_pct: f.combined_pct })
+  }
+
+  // Commit on every change (incl. stepper/arrows) but keep the editor open; it
+  // only closes when focus actually leaves the field (Enter blurs the input,
+  // see NumberField; clicking away triggers the wrapper's blur below).
+  const commitPct = (v: number) => {
+    mut.mutate({ manual_pct: v })
+  }
+
+  const bigSize = compact ? 28 : 42
+  const unitSize = compact ? 12 : 16
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: compact ? 6 : 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {!compact && <span className="n-eyebrow">{t('today.adjustment')}</span>}
+          <button
+            type="button"
+            onClick={toggleMode}
+            disabled={mut.isPending}
+            title={t('today.toggleMode')}
+            style={{
+              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+              fontSize: 10,
+              color: manual ? 'var(--n-leaf-300)' : 'var(--n-teal-300)',
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+            }}
+          >
+            <span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />
+            {manual ? t('today.manual') : t('today.auto')}
+          </button>
+        </div>
+        {!manual && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {breakdown.map((b, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: compact ? 8 : 10, fontSize: compact ? 11.5 : 12.5 }}>
+                <span style={{ color: 'var(--n-fg-soft)', minWidth: compact ? 70 : 80, display: 'inline-flex', alignItems: 'center', gap: compact ? 4 : 5 }}>
+                  {b.label}
+                  {b.tip && <InfoTip text={b.tip} />}
+                </span>
+                <span className="mono" style={{ color: !b.positive ? 'var(--n-paused)' : 'var(--n-leaf-300)', fontWeight: 500 }}>
+                  {b.delta}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {manual && (
+          <span style={{ fontSize: compact ? 11 : 12, color: 'var(--n-fg-muted)' }}>
+            {t('today.manualHint', { min: minPct, max: maxPct })}
+          </span>
+        )}
+      </div>
+
+      {manual && editing ? (
+        <span
+          style={{ display: 'inline-flex' }}
+          onBlur={(e) => {
+            // Close only when focus leaves the whole field (not when moving
+            // between the input and its stepper buttons).
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setEditing(false)
+          }}
+        >
+          <NumberField
+            value={f.combined_pct}
+            unit="%"
+            min={minPct}
+            max={maxPct}
+            step={1}
+            width={64}
+            autoFocus
+            aria-label={t('today.adjustment')}
+            onChange={commitPct}
+          />
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={manual ? () => setEditing(true) : undefined}
+          disabled={!manual}
+          title={manual ? t('today.editPct') : undefined}
+          style={{
+            background: 'none', border: 'none', padding: 0,
+            display: 'flex', alignItems: 'baseline', gap: 2,
+            cursor: manual ? 'pointer' : 'default',
+          }}
+        >
+          <span className="n-bignum" style={{ fontSize: bigSize, color: 'var(--n-teal-200)', letterSpacing: '-0.03em', lineHeight: 1 }}>
+            {f.combined_pct}
+          </span>
+          <span style={{ fontSize: unitSize, color: 'var(--n-fg-muted)' }}>%</span>
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
   const { t, i18n } = useTranslation()
   const skip = useSkip()
+  const { data: settings } = useQuery({ queryKey: queryKeys.settings, queryFn: getSettings })
   // A run pending skip confirmation — guards against an accidental tap.
   const [pendingSkip, setPendingSkip] = useState<NextRun | null>(null)
   const f = sys.today_factor
   const runs = sys.upcoming_runs ?? []
 
+  const tempTip = settings
+    ? t('today.tempTip', { input: f.temp_input_c != null ? `${f.temp_input_c.toFixed(1)} °C` : '–', basis: settings.factors.temp.basis_c, pct: settings.factors.temp.pct_per_c, min: settings.factors.temp.min_pct, max: settings.factors.temp.max_pct })
+    : undefined
+
+  const rainTip = settings
+    ? t('today.rainTip', { prob: f.rain_prob_pct != null ? `${Math.round(f.rain_prob_pct)} %` : '–', mm: f.rain_mm != null ? `${f.rain_mm.toFixed(1)} mm` : '–', threshold: settings.factors.rain.threshold_prob, reduce: settings.factors.rain.reduce_above_mm, zero: settings.factors.rain.zero_above_mm, decay: settings.factors.rain.forecast_decay })
+    : undefined
+
   // Shared confirmation dialog for skipping a future run (both layouts).
   const skipDialog = pendingSkip && (
     <ConfirmActionDialog
       open={!!pendingSkip}
-      title={t('confirmSkip.title', { defaultValue: 'Lauf überspringen?' })}
-      message={t('confirmSkip.message', {
-        name: pendingSkip.sequence_label,
-        time: formatClock(pendingSkip.scheduled_at, i18n.language),
-        defaultValue: `${pendingSkip.sequence_label} um ${formatClock(pendingSkip.scheduled_at, i18n.language)} wird übersprungen und läuft erst beim nächsten Zeitplan wieder.`,
-      })}
-      confirmLabel={t('today.skip', { defaultValue: 'Überspringen' })}
+      title={t('confirmSkip.title')}
+      message={t('confirmSkip.message', { name: pendingSkip.sequence_label, time: formatClock(pendingSkip.scheduled_at, i18n.language) })}
+      confirmLabel={t('today.skip')}
       onConfirm={() => {
         skip.mutate(pendingSkip)
         setPendingSkip(null)
@@ -88,9 +246,9 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
   )
 
   // temp_pct and rain_pct are signed deltas from neutral (0 = no adjustment).
-  const breakdown = [
-    { label: t('weather.temp'), delta: fmtDelta(f.temp_pct), positive: f.temp_pct >= 0 },
-    { label: t('weather.rain'), delta: fmtDelta(f.rain_pct), positive: f.rain_pct >= 0 },
+  const breakdown: { label: string; delta: string; positive: boolean; tip?: string }[] = [
+    { label: t('weather.temp'), delta: fmtDelta(f.temp_pct), positive: f.temp_pct >= 0, tip: tempTip },
+    { label: t('weather.rain'), delta: fmtDelta(f.rain_pct), positive: f.rain_pct >= 0, tip: rainTip },
   ]
 
   if (f.wind_blocking_sequences.length > 0) {
@@ -110,7 +268,9 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
     )
   }
 
-  const dayLabel = runs.length > 0 ? formatDayLabel(runs[0].scheduled_at, t, i18n.language) : null
+  // Runs may span two calendar days (today's remaining + the next day with runs),
+  // so they are grouped with a per-day heading rather than one shared label.
+  const groups = groupByDay(runs)
 
   return (
     <>
@@ -129,86 +289,46 @@ export function TodayBlock({ sys, dense = false }: TodayBlockProps) {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span className="n-eyebrow">{t('today.title')}</span>
-        {dayLabel && (
-          <span className="n-eyebrow" style={{ fontSize: 9.5, color: 'var(--n-teal-300)' }}>{dayLabel}</span>
-        )}
       </div>
 
-      {/* Upcoming runs of the day */}
+      {/* Upcoming runs, grouped by day. The page root grows with content
+          (min-height, not a fixed viewport height), so flex alone never bounds
+          this list — we cap it relative to the viewport so it fills most of the
+          column and scrolls internally once the runs exceed that, instead of
+          stretching the column indefinitely. */}
       {runs.length > 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {runs.map((run, i) => (
-            <RunRow
-              key={`${run.sequence_id}-${run.scheduled_at}`}
-              run={run}
-              hero={i === 0}
-              t={t}
-              lng={i18n.language}
-              onSkip={() => setPendingSkip(run)}
-              skipping={skip.isPending}
-            />
+        <div className="n-scroll-y" style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, maxHeight: 'calc(100vh - 340px)' }}>
+          {groups.map((group) => (
+            <div key={group.day} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span className="n-eyebrow" style={{ fontSize: 9.5, color: 'var(--n-teal-300)' }}>
+                {formatDayLabel(group.runs[0].scheduled_at, t, i18n.language)}
+              </span>
+              {group.runs.map((run) => (
+                <RunRow
+                  key={`${run.sequence_id}-${run.scheduled_at}`}
+                  run={run}
+                  hero={run === runs[0]}
+                  t={t}
+                  lng={i18n.language}
+                  onSkip={() => setPendingSkip(run)}
+                  skipping={skip.isPending}
+                />
+              ))}
+            </div>
           ))}
         </div>
       ) : (
-        <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--n-line)' }}>
-          <span style={{ fontSize: 14, color: 'var(--n-fg-muted)' }}>{t('today.noRun')}</span>
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <div style={{ padding: '14px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--n-line)' }}>
+            <span style={{ fontSize: 14, color: 'var(--n-fg-muted)' }}>{t('today.noRun')}</span>
+          </div>
         </div>
       )}
 
-      {/* Spacer to push adjustment to bottom */}
-      <div style={{ flex: 1 }} />
       <div className="n-divider" />
 
       {/* Adjustment factor — compact / tertiary */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="n-eyebrow">{t('today.adjustment')}</span>
-            <span
-              style={{
-                fontSize: 10,
-                color: 'var(--n-teal-300)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
-              {t('today.auto')}
-            </span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {breakdown.map((b, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 }}>
-                <span style={{ color: 'var(--n-fg-soft)', minWidth: 80 }}>{b.label}</span>
-                <span
-                  className="mono"
-                  style={{
-                    color: !b.positive ? 'var(--n-paused)' : 'var(--n-leaf-300)',
-                    fontWeight: 500,
-                  }}
-                >
-                  {b.delta}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
-          <span
-            className="n-bignum"
-            style={{
-              fontSize: 42,
-              color: 'var(--n-teal-200)',
-              letterSpacing: '-0.03em',
-              lineHeight: 1,
-            }}
-          >
-            {f.combined_pct}
-          </span>
-          <span style={{ fontSize: 16, color: 'var(--n-fg-muted)' }}>%</span>
-        </div>
-      </div>
+      <AdjustmentSection sys={sys} breakdown={breakdown} />
     </div>
     {skipDialog}
     </>
@@ -249,23 +369,27 @@ function RunRow({
         </span>
         <span className="mono" style={{ fontSize: hero ? 14 : 12.5, color: 'var(--n-teal-200)', fontWeight: 500 }}>
           {formatClock(run.scheduled_at, lng)} · {run.duration_min} min
-          {hero && <span style={{ color: 'var(--n-fg-soft)' }}> · {formatRelative(run.scheduled_at, t)}</span>}
+          {run.in_progress
+            ? <span style={{ color: 'var(--n-leaf-300)' }}> · {t('today.live')}</span>
+            : hero && <span style={{ color: 'var(--n-fg-soft)' }}> · {formatRelative(run.scheduled_at, t)}</span>}
         </span>
       </div>
-      <button
-        className="n-btn ghost"
-        onClick={onSkip}
-        disabled={skipping}
-        title={t('today.skip', { defaultValue: 'Überspringen' })}
-        style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-          height: 32, padding: '0 10px', fontSize: 12, flex: '0 0 auto',
-          color: 'var(--n-fg-muted)',
-        }}
-      >
-        <IX size={13} />
-        <span>{t('today.skip', { defaultValue: 'Überspringen' })}</span>
-      </button>
+      {!run.in_progress && (
+        <button
+          className="n-btn ghost"
+          onClick={onSkip}
+          disabled={skipping}
+          title={t('today.skip')}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            height: 32, padding: '0 10px', fontSize: 12, flex: '0 0 auto',
+            color: 'var(--n-fg-muted)',
+          }}
+        >
+          <IX size={13} />
+          <span>{t('today.skip')}</span>
+        </button>
+      )}
     </div>
   )
 }
@@ -276,46 +400,50 @@ function DenseTodayBlock({
   onSkip,
 }: {
   sys: SystemStatus
-  breakdown: { label: string; delta: string; positive: boolean }[]
+  breakdown: { label: string; delta: string; positive: boolean; tip?: string }[]
   onSkip: (run: NextRun) => void
 }) {
   const { t, i18n } = useTranslation()
-  const f = sys.today_factor
   const runs = sys.upcoming_runs ?? []
-  const dayLabel = runs.length > 0 ? formatDayLabel(runs[0].scheduled_at, t, i18n.language) : null
+  const groups = groupByDay(runs)
 
   return (
     <div className="n-card" style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
       {runs.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span className="n-eyebrow" style={{ fontSize: 9.5 }}>{t('today.title')}</span>
-            {dayLabel && <span className="n-eyebrow" style={{ fontSize: 9, color: 'var(--n-teal-300)' }}>{dayLabel}</span>}
-          </div>
-          {runs.map((run, i) => (
-            <div
-              key={`${run.sequence_id}-${run.scheduled_at}`}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                padding: '8px 10px', borderRadius: 8,
-                background: i === 0 ? 'var(--n-teal-glow)' : 'rgba(255,255,255,0.018)',
-                border: i === 0 ? '1px solid rgba(94,200,216,0.15)' : '1px solid var(--n-line)',
-              }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{run.sequence_label}</div>
-                <span className="mono" style={{ fontSize: 11.5, color: 'var(--n-teal-200)' }}>
-                  {formatClock(run.scheduled_at, i18n.language)} · {run.duration_min} min
-                </span>
-              </div>
-              <button
-                className="n-iconbtn"
-                onClick={() => onSkip(run)}
-                title={t('today.skip', { defaultValue: 'Überspringen' })}
-                style={{ width: 32, height: 32, flex: '0 0 32px', color: 'var(--n-fg-muted)' }}
-              >
-                <IX size={14} />
-              </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <span className="n-eyebrow" style={{ fontSize: 9.5 }}>{t('today.title')}</span>
+          {groups.map((group) => (
+            <div key={group.day} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span className="n-eyebrow" style={{ fontSize: 9, color: 'var(--n-teal-300)' }}>
+                {formatDayLabel(group.runs[0].scheduled_at, t, i18n.language)}
+              </span>
+              {group.runs.map((run) => (
+                <div
+                  key={`${run.sequence_id}-${run.scheduled_at}`}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                    padding: '8px 10px', borderRadius: 8,
+                    background: run === runs[0] ? 'var(--n-teal-glow)' : 'rgba(255,255,255,0.018)',
+                    border: run === runs[0] ? '1px solid rgba(94,200,216,0.15)' : '1px solid var(--n-line)',
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{run.sequence_label}</div>
+                    <span className="mono" style={{ fontSize: 11.5, color: 'var(--n-teal-200)' }}>
+                      {formatClock(run.scheduled_at, i18n.language)} · {run.duration_min} min
+                    </span>
+                  </div>
+                  <button
+                    className="n-iconbtn"
+                    onClick={() => onSkip(run)}
+                    title={t('today.skip')}
+                    aria-label={t('today.skip')}
+                    style={{ width: 32, height: 32, flex: '0 0 32px', color: 'var(--n-fg-muted)' }}
+                  >
+                    <IX size={14} />
+                  </button>
+                </div>
+              ))}
             </div>
           ))}
         </div>
@@ -329,24 +457,7 @@ function DenseTodayBlock({
       <div className="n-divider" />
 
       {/* Adjustment — inline */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {breakdown.map((b, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
-              <span style={{ color: 'var(--n-fg-soft)', minWidth: 70 }}>{b.label}</span>
-              <span className="mono" style={{ color: !b.positive ? 'var(--n-paused)' : 'var(--n-leaf-300)' }}>
-                {b.delta}
-              </span>
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
-          <span className="n-bignum" style={{ fontSize: 28, color: 'var(--n-teal-200)', lineHeight: 1 }}>
-            {f.combined_pct}
-          </span>
-          <span style={{ fontSize: 12, color: 'var(--n-fg-muted)' }}>%</span>
-        </div>
-      </div>
+      <AdjustmentSection sys={sys} breakdown={breakdown} compact />
     </div>
   )
 }

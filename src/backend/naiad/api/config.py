@@ -81,6 +81,7 @@ def build_config_response(config: AppConfig, *, restart_required: bool = False) 
         factors=config.factors,
         notifications=config.notifications,
         timezone=config.timezone,
+        sequence_colors_enabled=config.sequence_colors_enabled,
         restart_required=restart_required,
     )
 
@@ -173,8 +174,13 @@ async def replace_configuration(
     stats_publisher: StatsPublisher = Depends(get_stats_publisher),
     session_factory: Callable[[], Session] = Depends(get_session_factory),
 ) -> ConfigResponse:
-    if runner.status().sequence_id is not None:
-        raise HTTPException(409, "Cannot change configuration while a sequence is running")
+    # The path from this guard to the in-place mutation in _persist_and_reload is
+    # deliberately ``await``-free: on the single-threaded event loop no scheduler
+    # job or other request can interleave between the check and the swap, so the
+    # reload is atomic against a run starting or a valve operation entering its
+    # protected section. Keep it synchronous.
+    if not runner.can_reload_config():
+        raise HTTPException(409, "Cannot change configuration while valve operations are active")
     try:
         fresh = build_validated_config(body.model_dump(), config)
     except (ValidationError, ValueError) as e:
@@ -218,8 +224,8 @@ async def import_configuration(
     stats_publisher: StatsPublisher = Depends(get_stats_publisher),
     session_factory: Callable[[], Session] = Depends(get_session_factory),
 ) -> ConfigResponse:
-    if runner.status().sequence_id is not None:
-        raise HTTPException(409, "Cannot change configuration while a sequence is running")
+    if not runner.can_reload_config():
+        raise HTTPException(409, "Cannot change configuration while valve operations are active")
     raw = await request.body()
     try:
         data = yaml.safe_load(raw)  # YAML is a JSON superset
@@ -231,6 +237,12 @@ async def import_configuration(
         fresh = build_validated_config(data, config)
     except (ValidationError, ValueError) as e:
         raise HTTPException(422, f"Invalid configuration: {e}") from e
+
+    # ``await request.body()`` above is a yield point, so a run could have started
+    # since the first guard. Re-check right before the (synchronous) swap so the
+    # reload can never race a just-started run or protected valve operation.
+    if not runner.can_reload_config():
+        raise HTTPException(409, "Cannot change configuration while valve operations are active")
 
     restart_required = _persist_and_reload(
         fresh,

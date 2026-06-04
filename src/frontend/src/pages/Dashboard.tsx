@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '../api/queryKeys'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -22,6 +23,7 @@ import {
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
 import { ILogo } from '../components/icons'
+import { LoadError } from '../components/LoadError'
 import { MasterToggle } from '../components/MasterToggle'
 import { SequenceCard } from '../components/SequenceCard'
 import { SortableGrid } from '../components/SortableGrid'
@@ -40,29 +42,29 @@ export default function Dashboard() {
   const qc = useQueryClient()
   const navigate = useNavigate()
 
-  const { data: status } = useQuery<SystemStatus>({
-    queryKey: ['status'],
+  const { data: status, isError: statusError } = useQuery<SystemStatus>({
+    queryKey: queryKeys.status,
     queryFn: getStatus,
     refetchInterval: 30_000,
   })
   const { data: sequences = [] } = useQuery<SequenceState[]>({
-    queryKey: ['sequences'],
+    queryKey: queryKeys.sequences,
     queryFn: getSequences,
     refetchInterval: 15_000,
   })
   const { data: valves = [] } = useQuery({
-    queryKey: ['valves'],
+    queryKey: queryKeys.valves,
     queryFn: getValves,
     refetchInterval: 15_000,
   })
   const { data: prefs } = useQuery<UserPreferences>({
-    queryKey: ['preferences'],
+    queryKey: queryKeys.preferences,
     queryFn: getPreferences,
   })
 
   const masterMut = useMutation({
     mutationFn: (on: boolean) => setMaster(on),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['status'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.status }),
   })
 
   // Persist a new card order. The dashboard derives its display order from the
@@ -70,16 +72,16 @@ export default function Dashboard() {
   const reorderMut = useMutation({
     mutationFn: (body: Partial<UserPreferences>) => updatePreferences(body),
     onMutate: async (body) => {
-      await qc.cancelQueries({ queryKey: ['preferences'] })
-      const previous = qc.getQueryData<UserPreferences>(['preferences'])
-      qc.setQueryData<UserPreferences>(['preferences'], (old) => (old ? { ...old, ...body } : old))
+      await qc.cancelQueries({ queryKey: queryKeys.preferences })
+      const previous = qc.getQueryData<UserPreferences>(queryKeys.preferences)
+      qc.setQueryData<UserPreferences>(queryKeys.preferences, (old) => (old ? { ...old, ...body } : old))
       return { previous }
     },
     onError: (_err, _body, ctx) => {
-      if (ctx?.previous) qc.setQueryData(['preferences'], ctx.previous)
-      toast(t('toast.reorderFailed', { defaultValue: 'Reihenfolge konnte nicht gespeichert werden' }), 'error')
+      if (ctx?.previous) qc.setQueryData(queryKeys.preferences, ctx.previous)
+      toast(t('toast.reorderFailed'), 'error')
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ['preferences'] }),
+    onSettled: () => qc.invalidateQueries({ queryKey: queryKeys.preferences }),
   })
 
   const orderedSequences = applyOrder(sequences, prefs?.sequence_order ?? [])
@@ -87,21 +89,24 @@ export default function Dashboard() {
 
   useWebSocket((msg) => {
     if (['status_snapshot', 'sequence_changed', 'run_tick', 'valve_changed', 'factor_updated'].includes(msg.type)) {
-      qc.invalidateQueries({ queryKey: ['sequences'] })
-      qc.invalidateQueries({ queryKey: ['status'] })
-      qc.invalidateQueries({ queryKey: ['valves'] })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
+      qc.invalidateQueries({ queryKey: queryKeys.status })
+      qc.invalidateQueries({ queryKey: queryKeys.valves })
     }
   })
 
   const [confirmSeq, setConfirmSeq] = useState<SequenceState | null>(null)
   const [confirmStop, setConfirmStop] = useState<SequenceState | null>(null)
   const [confirmZone, setConfirmZone] = useState<ValveState | null>(null)
+  // Flow warning when starting a sequence while another run is already active —
+  // parallel runs share the water supply, which is the user's responsibility.
+  const [confirmParallel, setConfirmParallel] = useState<{ seq: SequenceState; dur?: number } | null>(null)
 
   async function handleStart(seq: SequenceState, durationMin?: number) {
     try {
       await startSequence(seq.id, durationMin)
-      toast(t('toast.started', { name: seq.label, defaultValue: `${seq.label} gestartet` }), 'success')
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      toast(t('toast.started', { name: seq.label }), 'success')
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     }
@@ -113,7 +118,7 @@ export default function Dashboard() {
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
     }
   }
 
@@ -123,15 +128,15 @@ export default function Dashboard() {
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
     }
   }
 
   async function handleStartZone(zone: ValveState, durationMin: number) {
     try {
       await startZone(zone.zone_id, durationMin)
-      toast(t('toast.zoneStarted', { name: zone.label, defaultValue: `${zone.label} gestartet` }), 'success')
-      qc.invalidateQueries({ queryKey: ['valves'] })
+      toast(t('toast.zoneStarted', { name: zone.label }), 'success')
+      qc.invalidateQueries({ queryKey: queryKeys.valves })
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     }
@@ -143,7 +148,7 @@ export default function Dashboard() {
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
-      qc.invalidateQueries({ queryKey: ['valves'] })
+      qc.invalidateQueries({ queryKey: queryKeys.valves })
     }
   }
 
@@ -152,11 +157,11 @@ export default function Dashboard() {
     // a paused sequence with no override resumes it from the saved remaining time.
     try {
       await startSequence(seq.id)
-      toast(t('toast.resumed', { name: seq.label, defaultValue: `${seq.label} fortgesetzt` }), 'success')
+      toast(t('toast.resumed', { name: seq.label }), 'success')
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
     } finally {
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
     }
   }
 
@@ -165,6 +170,8 @@ export default function Dashboard() {
   const weekData = buildWeekData(status, t('weekdaysShort', { returnObjects: true }) as string[])
   const running = sequences.filter((s) => s.status === 'running').length
   const idle = sequences.filter((s) => s.status === 'idle').length
+  const zonesRunning = valves.filter((v) => v.state === 'on').length
+  const zonesIdle = valves.length - zonesRunning
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -217,6 +224,12 @@ export default function Dashboard() {
         </div>
       </header>
 
+      {statusError && (
+        <div style={{ padding: '12px 24px 0' }}>
+          <LoadError />
+        </div>
+      )}
+
       {/* mobile-only: weather + master below header */}
       {status && (
         <div className="mobile-only" style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -239,21 +252,20 @@ export default function Dashboard() {
         </div>
 
         {/* col 2: Sequences */}
-        <section style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+        <section aria-label={t('dashboard.sequences')} style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '0 2px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <span className="n-eyebrow">{t('dashboard.sequences')}</span>
-              <span style={{ fontSize: 16, fontWeight: 500 }}>{sequences.length} {t('dashboard.configured')}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12.5 }}>
               {running > 0 && (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--n-teal-200)' }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
+                  <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
                   {running} {t('dashboard.running')}
                 </span>
               )}
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--n-fg-muted)' }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-fg-dim)' }} />
+                <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-fg-dim)' }} />
                 {idle} {t('dashboard.ready')}
               </span>
             </div>
@@ -287,15 +299,20 @@ export default function Dashboard() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span className="n-eyebrow">{t('dashboard.valvesLive')}</span>
-                  <span style={{ fontSize: 16, fontWeight: 500 }}>{valves.length} {t('sequence.zones')}</span>
+                  <span className="n-eyebrow">{t('dashboard.zones')}</span>
                 </div>
-                {valves.some((v) => v.state === 'on') && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--n-teal-200)', fontSize: 12.5 }}>
-                    <span className="n-drop" />
-                    {valves.filter((v) => v.state === 'on').length} {t('dashboard.live')}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12.5 }}>
+                  {zonesRunning > 0 && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--n-teal-200)' }}>
+                      <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
+                      {zonesRunning} {t('dashboard.running')}
+                    </span>
+                  )}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--n-fg-muted)' }}>
+                    <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-fg-dim)' }} />
+                    {zonesIdle} {t('dashboard.ready')}
                   </span>
-                )}
+                </div>
               </div>
               <ValveGrid valves={orderedValves} cols={2} onReorder={(ids) => reorderMut.mutate({ zone_order: ids })} onStartZone={(id) => setConfirmZone(valves.find((v) => v.zone_id === id) ?? null)} onStopZone={handleStopZone} />
             </div>
@@ -310,7 +327,7 @@ export default function Dashboard() {
                 </span>
               </div>
             </div>
-            <WeekChart data={weekData} height={150} />
+            <WeekChart data={weekData} height={150} label={t('a11y.weeklyUsageChart')} />
           </div>
         </section>
       </main>
@@ -329,7 +346,7 @@ export default function Dashboard() {
       >
         {status && <TodayBlock sys={status} dense />}
 
-        <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <section aria-label={t('dashboard.sequences')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '0 2px' }}>
             <span className="n-eyebrow">{t('dashboard.sequences')}</span>
             <span className="n-label" style={{ fontSize: 11 }}>
@@ -356,14 +373,13 @@ export default function Dashboard() {
         </section>
 
         {valves.length > 0 && (
-          <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <section aria-label={t('dashboard.zones')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '0 2px' }}>
-              <span className="n-eyebrow">{t('dashboard.valves')}</span>
-              {valves.some((v) => v.state === 'on') && (
-                <span className="n-label" style={{ fontSize: 11, color: 'var(--n-teal-200)' }}>
-                  {valves.filter((v) => v.state === 'on').length} {t('dashboard.live')}
-                </span>
-              )}
+              <span className="n-eyebrow">{t('dashboard.zones')}</span>
+              <span className="n-label" style={{ fontSize: 11 }}>
+                {zonesRunning > 0 && <span style={{ color: 'var(--n-teal-200)' }}>{zonesRunning} {t('dashboard.running')} · </span>}
+                {zonesIdle} {t('dashboard.ready')}
+              </span>
             </div>
             <ValveGrid valves={orderedValves} cols={2} onReorder={(ids) => reorderMut.mutate({ zone_order: ids })} onStartZone={(id) => setConfirmZone(valves.find((v) => v.zone_id === id) ?? null)} onStopZone={handleStopZone} />
           </section>
@@ -385,7 +401,7 @@ export default function Dashboard() {
               <div className="n-label" style={{ fontSize: 11 }}>{t('dashboard.today')}</div>
             </div>
           </div>
-          <WeekChart data={weekData} height={100} />
+          <WeekChart data={weekData} height={100} label={t('a11y.weeklyUsageChart')} />
         </div>
       </main>
 
@@ -398,10 +414,28 @@ export default function Dashboard() {
           zones={confirmSeq.zones.length}
           defaultDuration={confirmSeq.basis_min_per_zone}
           onConfirm={(dur) => {
-            handleStart(confirmSeq, dur)
+            const seq = confirmSeq
             setConfirmSeq(null)
+            // If another run is already active, warn about shared flow before starting.
+            if (running > 0 || zonesRunning > 0) setConfirmParallel({ seq, dur })
+            else handleStart(seq, dur)
           }}
           onCancel={() => setConfirmSeq(null)}
+        />
+      )}
+
+      {/* Parallel-start flow warning */}
+      {confirmParallel && (
+        <ConfirmActionDialog
+          open={!!confirmParallel}
+          title={t('confirmParallel.title')}
+          message={t('confirmParallel.message', { name: confirmParallel.seq.label })}
+          confirmLabel={t('confirmParallel.confirm')}
+          onConfirm={() => {
+            handleStart(confirmParallel.seq, confirmParallel.dur)
+            setConfirmParallel(null)
+          }}
+          onCancel={() => setConfirmParallel(null)}
         />
       )}
 
@@ -410,7 +444,7 @@ export default function Dashboard() {
         <ConfirmDialog
           open={!!confirmZone}
           title={confirmZone.label}
-          subtitle={t('confirmZone.subtitle', { defaultValue: 'Einzelne Zone — Sofortstart' })}
+          subtitle={t('confirmZone.subtitle')}
           zones={1}
           defaultDuration={10}
           onConfirm={(dur) => {
@@ -426,12 +460,9 @@ export default function Dashboard() {
         <ConfirmActionDialog
           open={!!confirmStop}
           tone="danger"
-          title={t('confirmStop.title', { defaultValue: 'Lauf stoppen?' })}
-          message={t('confirmStop.message', {
-            name: confirmStop.label,
-            defaultValue: `${confirmStop.label} wird sofort gestoppt.`,
-          })}
-          confirmLabel={t('sequence.stop', { defaultValue: 'Stoppen' })}
+          title={t('confirmStop.title')}
+          message={t('confirmStop.message', { name: confirmStop.label })}
+          confirmLabel={t('sequence.stop')}
           onConfirm={() => {
             handleStop(confirmStop.id)
             setConfirmStop(null)

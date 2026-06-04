@@ -83,12 +83,23 @@ sensors:
   precipitation_prob_tomorrow: sensor.precipitation_probability_tomorrow
   precipitation_today: sensor.precipitation_today
   precipitation_tomorrow: sensor.precipitation_tomorrow
+  # Optional actual precipitation amount in mm. Used by rain.mode=water_balance
+  # to keep recent real rain as a decaying credit across scheduled runs. If this
+  # comes from a forecast/weather integration rather than a physical rain gauge,
+  # enable rain.confirm_with_rain_sensor so only rain confirmed by sensors.rain counts.
+  # precipitation_actual: sensor.precipitation_actual
 
 zones:
   example_zone:
     label: "Example Zone"
     switch: switch.bewaesserung_example
     flow_lph: 500
+    # Optional: if the actuator has a hardware staircase-light timer that closes
+    # the valve on its own, enable it and set the actuator's configured on-time.
+    # Naiad re-sends "on" before it expires to keep the valve open, while the
+    # timer remains a hardware safety net against a stuck-open valve.
+    # staircase_enabled: true
+    # staircase_min: 20
 
 sequences:
   example:
@@ -119,13 +130,27 @@ factors:
     min_pct: 80
     max_pct: 150
   rain:
+    mode: forecast            # forecast | water_balance
     forecast_days: 2
     threshold_prob: 70        # % — below this, rain factor = 1.0
     reduce_above_mm: 5.0      # mm — linear reduction starts here
     zero_above_mm: 20.0       # mm — factor = 0.0 at or above this
     forecast_decay: 0.5       # tomorrow's values multiplied by this
+    water_balance_days: 4     # water_balance: recent actual-rain window
+    water_balance_decay: 0.65 # water_balance: daily carryover of actual rain
+    peak_tomorrow: false      # true = also use tomorrow's daily peak forecast,
+                              # not just the latest reading (today always uses the peak)
+    confirm_with_rain_sensor: false  # true = today's peak only counts up to the level
+                              # that coincided with the binary rain sensor (sensors.rain)
+                              # actually detecting rain; otherwise today uses the latest
+                              # reading, so a forecast spike that never produced real rain
+                              # does not suppress watering. Opt-in; affects today only.
 
 notifications:
   # When the nightly reminder fires (who receives it is per-target, via the
   # "reminder" category on each notify target above).
   evening_reminder_cron: "0 21 * * *"
+  # If Home Assistant is briefly unreachable when a notification is sent, it is
+  # queued and re-delivered on reconnect. Entries older than this many hours are
+  # dropped instead of arriving late. Set to 0 to disable queuing.
+  queue_max_hours: 6

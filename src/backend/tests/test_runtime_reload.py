@@ -102,6 +102,7 @@ def test_reschedule_adds_removes_and_keeps_plan_tick(
         "cron-seq_wind#0",
         "plan-tick",
         "fallback-temp-max",
+        "rain-forecast-max",
     }
 
     fresh = _add_zone_and_sequence(minimal_config)

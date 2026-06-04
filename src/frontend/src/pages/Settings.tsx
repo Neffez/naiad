@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '../api/queryKeys'
 import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -16,9 +17,9 @@ export default function Settings() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: getSettings })
-  const { data: status } = useQuery({ queryKey: ['status'], queryFn: getStatus })
-  const { data: health } = useQuery({ queryKey: ['health'], queryFn: getHealth })
+  const { data: settings } = useQuery({ queryKey: queryKeys.settings, queryFn: getSettings })
+  const { data: status } = useQuery({ queryKey: queryKeys.status, queryFn: getStatus })
+  const { data: health } = useQuery({ queryKey: queryKeys.health, queryFn: getHealth })
   const [saved, setSaved] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>(
     () => (localStorage.getItem('naiad_theme') === 'light' ? 'light' : 'dark'),
@@ -33,8 +34,8 @@ export default function Settings() {
   const mut = useMutation({
     mutationFn: updateSettings,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings'] })
-      qc.invalidateQueries({ queryKey: ['sequences'] })
+      qc.invalidateQueries({ queryKey: queryKeys.settings })
+      qc.invalidateQueries({ queryKey: queryKeys.sequences })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     },
@@ -42,7 +43,7 @@ export default function Settings() {
 
   if (!settings) return (
     <div style={{ padding: 20, color: 'var(--n-fg-muted)' }}>
-      {t('settings.loading', { defaultValue: 'Laden…' })}
+      {t('settings.loading')}
     </div>
   )
 
@@ -54,66 +55,118 @@ export default function Settings() {
           alignItems: 'center', gap: 8,
           padding: '8px 16px', borderRadius: 999,
           background: 'var(--n-teal-glow)',
-          border: '1px solid rgba(94,200,216,0.25)',
+          border: '1px solid var(--n-glow-border)',
           color: 'var(--n-teal-200)', fontSize: 13, fontWeight: 500,
         }}>
-          ✓ {t('settings.saved', { defaultValue: 'Gespeichert' })}
+          ✓ {t('settings.saved')}
         </div>
       )}
 
       {/* Temperatur-Faktor */}
       <SettingsSection title={t('settings.factorTemp')}>
         <SettingsRow label={t('settings.basisC')} info={t('settings.help.basisC')}>
-          <NumInput value={settings.factors.temp.basis_c} unit="°C" onBlur={(v) => mut.mutate({ factors: { temp: { basis_c: v } } })} />
+          <NumInput label={t('settings.basisC')} value={settings.factors.temp.basis_c} unit="°C" onBlur={(v) => mut.mutate({ factors: { temp: { basis_c: v } } })} />
         </SettingsRow>
         <SettingsRow label={t('settings.pctPerC')} info={t('settings.help.pctPerC')}>
-          <NumInput value={settings.factors.temp.pct_per_c} unit="%" onBlur={(v) => mut.mutate({ factors: { temp: { pct_per_c: v } } })} />
+          <NumInput label={t('settings.pctPerC')} value={settings.factors.temp.pct_per_c} unit="%" onBlur={(v) => mut.mutate({ factors: { temp: { pct_per_c: v } } })} />
         </SettingsRow>
         <SettingsRow label={t('settings.minPct')} info={t('settings.help.minPct')}>
-          <NumInput value={settings.factors.temp.min_pct} unit="%" onBlur={(v) => mut.mutate({ factors: { temp: { min_pct: v } } })} />
+          <NumInput label={t('settings.minPct')} value={settings.factors.temp.min_pct} unit="%" onBlur={(v) => mut.mutate({ factors: { temp: { min_pct: v } } })} />
         </SettingsRow>
         <SettingsRow label={t('settings.maxPct')} info={t('settings.help.maxPct')} last>
-          <NumInput value={settings.factors.temp.max_pct} unit="%" onBlur={(v) => mut.mutate({ factors: { temp: { max_pct: v } } })} />
+          <NumInput label={t('settings.maxPct')} value={settings.factors.temp.max_pct} unit="%" onBlur={(v) => mut.mutate({ factors: { temp: { max_pct: v } } })} />
         </SettingsRow>
       </SettingsSection>
 
       {/* Regen-Faktor */}
       <SettingsSection title={t('settings.factorRain')}>
+        <SettingsRow label={t('settings.rainMode')} info={t('settings.help.rainMode')}>
+          <div role="group" aria-label={t('settings.rainMode')} style={{ display: 'flex', gap: 6 }}>
+            {(['forecast', 'water_balance'] as const).map((val) => (
+              <button
+                key={val}
+                className={`n-btn${settings.factors.rain.mode === val ? ' primary' : ''}`}
+                aria-pressed={settings.factors.rain.mode === val}
+                style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
+                onClick={() => mut.mutate({ factors: { rain: { mode: val } } })}
+              >
+                {t(`settings.rainMode_${val}`)}
+              </button>
+            ))}
+          </div>
+        </SettingsRow>
         <SettingsRow label={t('settings.thresholdProb')} info={t('settings.help.thresholdProb')}>
-          <NumInput value={settings.factors.rain.threshold_prob} unit="%" onBlur={(v) => mut.mutate({ factors: { rain: { threshold_prob: v } } })} />
+          <NumInput label={t('settings.thresholdProb')} value={settings.factors.rain.threshold_prob} unit="%" onBlur={(v) => mut.mutate({ factors: { rain: { threshold_prob: v } } })} />
         </SettingsRow>
         <SettingsRow label={t('settings.reduceAbove')} info={t('settings.help.reduceAbove')}>
-          <NumInput value={settings.factors.rain.reduce_above_mm} unit="mm" onBlur={(v) => mut.mutate({ factors: { rain: { reduce_above_mm: v } } })} />
+          <NumInput label={t('settings.reduceAbove')} value={settings.factors.rain.reduce_above_mm} unit="mm" onBlur={(v) => mut.mutate({ factors: { rain: { reduce_above_mm: v } } })} />
         </SettingsRow>
         <SettingsRow label={t('settings.zeroAbove')} info={t('settings.help.zeroAbove')}>
-          <NumInput value={settings.factors.rain.zero_above_mm} unit="mm" onBlur={(v) => mut.mutate({ factors: { rain: { zero_above_mm: v } } })} />
+          <NumInput label={t('settings.zeroAbove')} value={settings.factors.rain.zero_above_mm} unit="mm" onBlur={(v) => mut.mutate({ factors: { rain: { zero_above_mm: v } } })} />
         </SettingsRow>
-        <SettingsRow label={t('settings.forecastDecay')} info={t('settings.help.forecastDecay')} last>
-          <NumInput value={settings.factors.rain.forecast_decay} unit="" width={60} step={0.1} onBlur={(v) => mut.mutate({ factors: { rain: { forecast_decay: v } } })} />
+        <SettingsRow label={t('settings.forecastDecay')} info={t('settings.help.forecastDecay')}>
+          <NumInput label={t('settings.forecastDecay')} value={settings.factors.rain.forecast_decay} unit="" width={60} step={0.1} onBlur={(v) => mut.mutate({ factors: { rain: { forecast_decay: v } } })} />
+        </SettingsRow>
+        <SettingsRow label={t('settings.waterBalanceDays')} info={t('settings.help.waterBalanceDays')}>
+          <NumInput label={t('settings.waterBalanceDays')} value={settings.factors.rain.water_balance_days} unit="d" width={60} onBlur={(v) => mut.mutate({ factors: { rain: { water_balance_days: v } } })} />
+        </SettingsRow>
+        <SettingsRow label={t('settings.waterBalanceDecay')} info={t('settings.help.waterBalanceDecay')}>
+          <NumInput label={t('settings.waterBalanceDecay')} value={settings.factors.rain.water_balance_decay} unit="" width={60} step={0.05} onBlur={(v) => mut.mutate({ factors: { rain: { water_balance_decay: v } } })} />
+        </SettingsRow>
+        <SettingsRow label={t('settings.peakTomorrow')} info={t('settings.help.peakTomorrow')}>
+          <div role="group" aria-label={t('settings.peakTomorrow')} style={{ display: 'flex', gap: 6 }}>
+            {([false, true] as const).map((val) => (
+              <button
+                key={String(val)}
+                className={`n-btn${settings.factors.rain.peak_tomorrow === val ? ' primary' : ''}`}
+                aria-pressed={settings.factors.rain.peak_tomorrow === val}
+                style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
+                onClick={() => mut.mutate({ factors: { rain: { peak_tomorrow: val } } })}
+              >
+                {val ? t('settings.peakTomorrow_both') : t('settings.peakTomorrow_today')}
+              </button>
+            ))}
+          </div>
+        </SettingsRow>
+        <SettingsRow label={t('settings.confirmRainSensor')} info={t('settings.help.confirmRainSensor')} last>
+          <div role="group" aria-label={t('settings.confirmRainSensor')} style={{ display: 'flex', gap: 6 }}>
+            {([false, true] as const).map((val) => (
+              <button
+                key={String(val)}
+                className={`n-btn${settings.factors.rain.confirm_with_rain_sensor === val ? ' primary' : ''}`}
+                aria-pressed={settings.factors.rain.confirm_with_rain_sensor === val}
+                style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
+                onClick={() => mut.mutate({ factors: { rain: { confirm_with_rain_sensor: val } } })}
+              >
+                {val ? t('settings.confirmRainSensor_on') : t('settings.confirmRainSensor_off')}
+              </button>
+            ))}
+          </div>
         </SettingsRow>
       </SettingsSection>
 
       {/* System */}
-      <SettingsSection title={t('settings.system', { defaultValue: 'System' })}>
-        <SettingsRow label={t('settings.configuration', { defaultValue: 'Anlagen-Konfiguration' })}>
+      <SettingsSection title={t('settings.system')}>
+        <SettingsRow label={t('settings.configuration')}>
           <button
             className="n-btn"
             style={{ height: 32, padding: '0 14px', fontSize: 12.5 }}
             onClick={() => navigate('/config')}
           >
-            {t('settings.editConfig', { defaultValue: 'Bearbeiten →' })}
+            {t('settings.editConfig')}
           </button>
         </SettingsRow>
-        <SettingsRow label={t('settings.theme', { defaultValue: 'Darstellung' })}>
-          <div style={{ display: 'flex', gap: 6 }}>
+        <SettingsRow label={t('settings.theme')}>
+          <div role="group" aria-label={t('settings.theme')} style={{ display: 'flex', gap: 6 }}>
             {(['dark', 'light'] as const).map((mode) => (
               <button
                 key={mode}
                 className={`n-btn${theme === mode ? ' primary' : ''}`}
+                aria-pressed={theme === mode}
                 style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
                 onClick={() => applyTheme(mode)}
               >
-                {t(`settings.theme_${mode}`, { defaultValue: mode === 'dark' ? 'Dunkel' : 'Hell' })}
+                {t(`settings.theme_${mode}`, { defaultValue: mode === 'dark' ? 'Dark' : 'Light' })}
               </button>
             ))}
           </div>
@@ -133,8 +186,8 @@ export default function Settings() {
               color: 'var(--n-teal-200)',
               fontSize: 12, fontWeight: 500,
             }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
-              {t('settings.connected', { defaultValue: 'Verbunden' })}
+              <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-teal-300)' }} />
+              {t('settings.connected')}
             </span>
           ) : (
             <span style={{
@@ -144,17 +197,18 @@ export default function Settings() {
               color: 'var(--n-fg-muted)',
               fontSize: 12, fontWeight: 500,
             }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-fg-dim)' }} />
-              {t('settings.disconnected', { defaultValue: 'Getrennt' })}
+              <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--n-fg-dim)' }} />
+              {t('settings.disconnected')}
             </span>
           )}
         </SettingsRow>
         <SettingsRow label={t('settings.language')} last>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div role="group" aria-label={t('settings.language')} style={{ display: 'flex', gap: 6 }}>
             {(['de', 'en'] as const).map((lng) => (
               <button
                 key={lng}
                 className={`n-btn${i18n.language?.startsWith(lng) ? ' primary' : ''}`}
+                aria-pressed={i18n.language?.startsWith(lng)}
                 style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
                 onClick={() => {
                   i18n.changeLanguage(lng)
@@ -189,7 +243,7 @@ function SettingsSection({ title, children }: { title: string; children: ReactNo
     }}>
       <div style={{
         padding: '14px 20px',
-        background: 'rgba(255,255,255,0.015)',
+        background: 'var(--n-surface-overlay)',
         borderBottom: '1px solid var(--n-line)',
       }}>
         <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.01em' }}>{title}</span>
@@ -220,11 +274,11 @@ function SettingsRow({ label, children, last = false, info, align = 'center' }: 
   )
 }
 
-function NumInput({ value, unit, width = 72, step = 1, onBlur }: {
-  value: number; unit: string; width?: number; step?: number
+function NumInput({ value, unit, width = 72, step = 1, label, onBlur }: {
+  value: number; unit: string; width?: number; step?: number; label: string
   onBlur: (v: number) => void
 }) {
   return (
-    <NumberField value={value} unit={unit} width={width} step={step} onChange={onBlur} />
+    <NumberField value={value} unit={unit} width={width} step={step} aria-label={label} onChange={onBlur} />
   )
 }

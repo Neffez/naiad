@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '../api/queryKeys'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { deleteHistory, getHistory, type HistoryEntry } from '../api/client'
+import { type ConfigDoc, deleteHistory, getConfig, getHistory, type HistoryEntry } from '../api/client'
 import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
+import { LoadError } from '../components/LoadError'
 import { IClock, IPlay } from '../components/icons'
-import { seqColor } from '../theme/sequenceColors'
+import { resolveSeqColor } from '../theme/sequenceColors'
 
 const OLDER_THAN_DAYS = 30
 
@@ -36,15 +38,18 @@ export default function History() {
   const [confirm, setConfirm] = useState<null | 'all' | 'old'>(null)
   const qc = useQueryClient()
 
-  const { data } = useQuery({
-    queryKey: ['history', page],
+  const { data, isError } = useQuery({
+    queryKey: queryKeys.historyPage(page),
     queryFn: () => getHistory({ page, per_page: 50 }),
   })
+  // Fetched once for the whole table (sequence accent colors); passed down so each
+  // row doesn't open its own ['config'] query subscription.
+  const { data: config } = useQuery({ queryKey: queryKeys.config, queryFn: getConfig })
 
   const deleteMut = useMutation({
     mutationFn: (olderThanDays?: number) => deleteHistory(olderThanDays),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['history'] })
+      qc.invalidateQueries({ queryKey: queryKeys.history })
       setPage(1)
       setConfirm(null)
     },
@@ -65,17 +70,17 @@ export default function History() {
       }}>
         <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', flex: 1 }}>
           <SummaryBlock
-            label={t('history.last7days', { defaultValue: 'Letzte 7 Tage' })}
+            label={t('history.last7days')}
             value={`${Math.round(totalLiters).toLocaleString(i18n.language)} L`}
           />
           <div className="n-vdivider" style={{ height: 44 }} />
           <SummaryBlock
-            label={t('history.totalRuns', { defaultValue: 'Läufe gesamt' })}
+            label={t('history.totalRuns')}
             value={String(data?.total ?? 0)}
           />
           <div className="n-vdivider" style={{ height: 44 }} />
           <SummaryBlock
-            label={t('history.avgDuration', { defaultValue: 'Ø Dauer / Lauf' })}
+            label={t('history.avgDuration')}
             value={`${avgDur} min`}
           />
         </div>
@@ -89,7 +94,7 @@ export default function History() {
             disabled={deleteMut.isPending}
             style={{ height: 36, padding: '0 14px', fontSize: 13 }}
           >
-            {t('history.deleteOld', { defaultValue: 'Älter als 30 Tage' })}
+            {t('history.deleteOld')}
           </button>
           <button
             className="n-btn danger"
@@ -97,7 +102,7 @@ export default function History() {
             disabled={deleteMut.isPending}
             style={{ height: 36, padding: '0 14px', fontSize: 13 }}
           >
-            {t('history.deleteAll', { defaultValue: 'Verlauf löschen' })}
+            {t('history.deleteAll')}
           </button>
         </div>
       </div>
@@ -119,17 +124,21 @@ export default function History() {
 
       {/* Table rows */}
       {items.map((row) => (
-        <HistoryRow key={row.id} row={row} />
+        <HistoryRow key={row.id} row={row} config={config} />
       ))}
 
-      {/* Empty state */}
+      {/* Empty / error state */}
       {items.length === 0 && (
-        <div style={{
-          padding: '32px 0', textAlign: 'center',
-          color: 'var(--n-fg-muted)', fontSize: 14,
-        }}>
-          {t('history.empty', { defaultValue: 'Noch keine Läufe aufgezeichnet' })}
-        </div>
+        isError ? (
+          <div style={{ padding: '24px 0' }}><LoadError /></div>
+        ) : (
+          <div style={{
+            padding: '32px 0', textAlign: 'center',
+            color: 'var(--n-fg-muted)', fontSize: 14,
+          }}>
+            {t('history.empty')}
+          </div>
+        )
       )}
 
       {/* Pagination */}
@@ -144,7 +153,7 @@ export default function History() {
             disabled={page === 1}
             style={{ height: 36, padding: '0 14px', fontSize: 13 }}
           >
-            ← {t('history.prev', { defaultValue: 'Zurück' })}
+            ← {t('history.prev')}
           </button>
           <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>
             {page} / {Math.ceil(data.total / data.per_page)}
@@ -155,31 +164,25 @@ export default function History() {
             disabled={page >= Math.ceil(data.total / data.per_page)}
             style={{ height: 36, padding: '0 14px', fontSize: 13 }}
           >
-            {t('history.next', { defaultValue: 'Weiter' })} →
+            {t('history.next')} →
           </button>
         </div>
       )}
 
       <ConfirmActionDialog
         open={confirm === 'old'}
-        title={t('history.deleteOldTitle', { defaultValue: 'Verlauf älter als 30 Tage löschen?' })}
-        message={t('history.deleteOldMessage', {
-          defaultValue:
-            'Alle Verlaufseinträge, die älter als 30 Tage sind, werden unwiderruflich gelöscht. Einstellungen und Pläne bleiben erhalten.',
-        })}
-        confirmLabel={t('history.deleteConfirm', { defaultValue: 'Löschen' })}
+        title={t('history.deleteOldTitle')}
+        message={t('history.deleteOldMessage')}
+        confirmLabel={t('history.deleteConfirm')}
         tone="danger"
         onConfirm={() => deleteMut.mutate(OLDER_THAN_DAYS)}
         onCancel={() => setConfirm(null)}
       />
       <ConfirmActionDialog
         open={confirm === 'all'}
-        title={t('history.deleteAllTitle', { defaultValue: 'Gesamten Verlauf löschen?' })}
-        message={t('history.deleteAllMessage', {
-          defaultValue:
-            'Der gesamte Bewässerungsverlauf wird unwiderruflich gelöscht. Einstellungen und Pläne bleiben erhalten.',
-        })}
-        confirmLabel={t('history.deleteConfirm', { defaultValue: 'Löschen' })}
+        title={t('history.deleteAllTitle')}
+        message={t('history.deleteAllMessage')}
+        confirmLabel={t('history.deleteConfirm')}
         tone="danger"
         onConfirm={() => deleteMut.mutate(undefined)}
         onCancel={() => setConfirm(null)}
@@ -199,10 +202,11 @@ function SummaryBlock({ label, value }: { label: string; value: string }) {
   )
 }
 
-function HistoryRow({ row }: { row: HistoryEntry }) {
+function HistoryRow({ row, config }: { row: HistoryEntry; config: ConfigDoc | undefined }) {
   const { t, i18n } = useTranslation()
   const isManual = row.triggered_by === 'manual'
   const triggerLabel = isManual ? t('history.manual') : t('history.scheduled')
+  const barColor = resolveSeqColor(config, row.sequence_id) ?? 'var(--n-fg-dim)'
 
   return (
     <div
@@ -217,9 +221,9 @@ function HistoryRow({ row }: { row: HistoryEntry }) {
         flex: COLS[0].flex, fontSize: 13.5, fontWeight: 500,
         display: 'flex', alignItems: 'center', gap: 10,
       }}>
-        <span style={{
+        <span aria-hidden="true" style={{
           width: 4, height: 22, borderRadius: 2,
-          background: seqColor(row.sequence_id, 'var(--n-fg-dim)'),
+          background: barColor,
         }} />
         {row.zone_label}
       </span>
@@ -242,7 +246,7 @@ function HistoryRow({ row }: { row: HistoryEntry }) {
             padding: '4px 10px', borderRadius: 999,
             border: '1px solid rgba(255,100,100,0.30)',
             background: 'rgba(255,100,100,0.08)',
-            color: 'var(--n-danger, #ff6464)',
+            color: 'var(--n-danger)',
             fontSize: 11.5, fontWeight: 500,
           }}>
             ⚠ {row.abort_reason ? t(`abortReason.${row.abort_reason}`, { defaultValue: row.abort_reason }) : t('history.aborted')}
