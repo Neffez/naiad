@@ -1,5 +1,6 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useId, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useDialog } from '../hooks/useDialog'
 import { IAlert, IX } from './icons'
 
 interface ConfirmActionDialogProps {
@@ -27,6 +28,9 @@ export function ConfirmActionDialog({
 }: ConfirmActionDialogProps) {
   const { t } = useTranslation()
   const backdropRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useDialog<HTMLDivElement>(open, onCancel)
+  const titleId = useId()
+  const messageId = useId()
 
   const handleBackdropClick = useCallback(
     (e: React.MouseEvent) => {
@@ -42,6 +46,12 @@ export function ConfirmActionDialog({
   return (
     <div className="n-backdrop" ref={backdropRef} onClick={handleBackdropClick}>
       <div
+        ref={dialogRef}
+        role={tone === 'danger' ? 'alertdialog' : 'dialog'}
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={message ? messageId : undefined}
+        tabIndex={-1}
         className="n-dialog"
         style={{
           position: 'absolute',
@@ -72,20 +82,20 @@ export function ConfirmActionDialog({
             >
               <IAlert size={18} />
             </span>
-            <span style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.015em' }}>{title}</span>
+            <span id={titleId} style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.015em' }}>{title}</span>
           </div>
-          <button className="n-iconbtn" style={{ width: 36, height: 36, flex: '0 0 36px' }} onClick={onCancel}>
+          <button className="n-iconbtn" style={{ width: 36, height: 36, flex: '0 0 36px' }} onClick={onCancel} aria-label={t('a11y.close')}>
             <IX size={15} />
           </button>
         </div>
 
         {message && (
-          <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: 'var(--n-fg-soft)' }}>{message}</p>
+          <p id={messageId} style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: 'var(--n-fg-soft)' }}>{message}</p>
         )}
 
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
           <button className="n-btn ghost lg" style={{ flex: 1 }} onClick={onCancel}>
-            {cancelLabel ?? t('confirm.cancel', { defaultValue: 'Abbrechen' })}
+            {cancelLabel ?? t('confirm.cancel')}
           </button>
           <button
             className={`n-btn lg${tone === 'danger' ? ' danger' : ' primary'}`}

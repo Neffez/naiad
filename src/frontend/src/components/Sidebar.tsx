@@ -20,8 +20,9 @@ export function Sidebar() {
   }
 
   return (
-    <div
+    <nav
       className="n-side"
+      aria-label={t('a11y.primaryNav')}
       style={{
         width: 80,
         display: 'flex',
@@ -41,6 +42,7 @@ export function Sidebar() {
               className={`n-iconbtn${isActive ? ' accent' : ''}`}
               style={{ width: 56, height: 56 }}
               title={label}
+              aria-label={label}
             >
               {icon}
             </button>
@@ -48,9 +50,9 @@ export function Sidebar() {
         </NavLink>
       ))}
       <div style={{ flex: 1 }} />
-      <button className="n-iconbtn" style={{ width: 56, height: 56 }} title={t('nav.theme')} onClick={toggleTheme}>
+      <button className="n-iconbtn" style={{ width: 56, height: 56 }} title={t('nav.theme')} aria-label={t('nav.theme')} onClick={toggleTheme}>
         <IMoon size={20} />
       </button>
-    </div>
+    </nav>
   )
 }

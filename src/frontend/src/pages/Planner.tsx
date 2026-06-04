@@ -1,20 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '../api/queryKeys'
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
-import { createPlan, deletePlan, getPlans, getSequences, getValves, type CreatePlanRequest } from '../api/client'
+import { createPlan, deletePlan, getConfig, getPlans, getSequences, getValves, type CreatePlanRequest } from '../api/client'
 import { IChevDown, IX } from '../components/icons'
+import { LoadError } from '../components/LoadError'
 import { NumberField } from '../components/NumberField'
-import { seqColor } from '../theme/sequenceColors'
+import { resolveSeqColor } from '../theme/sequenceColors'
 
 type Target = 'sequence' | 'zone'
 
 export default function Planner() {
   const { t, i18n } = useTranslation()
   const qc = useQueryClient()
-  const { data: plans = [] } = useQuery({ queryKey: ['plans'], queryFn: getPlans })
-  const { data: sequences = [] } = useQuery({ queryKey: ['sequences'], queryFn: getSequences })
-  const { data: valves = [] } = useQuery({ queryKey: ['valves'], queryFn: getValves })
+  const { data: plans = [], isError: plansError } = useQuery({ queryKey: queryKeys.plans, queryFn: getPlans })
+  const { data: sequences = [] } = useQuery({ queryKey: queryKeys.sequences, queryFn: getSequences })
+  const { data: valves = [] } = useQuery({ queryKey: queryKeys.valves, queryFn: getValves })
+  const { data: config } = useQuery({ queryKey: queryKeys.config, queryFn: getConfig })
 
   // Preselect the target when arriving from a card's "schedule" button (?seq=… / ?zone=…).
   const [searchParams] = useSearchParams()
@@ -30,13 +33,13 @@ export default function Planner() {
 
   const createMut = useMutation({
     mutationFn: (body: CreatePlanRequest) => createPlan(body),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['plans'] }); setError('') },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.plans }); setError('') },
     onError: (e: Error) => setError(e.message),
   })
 
   const deleteMut = useMutation({
     mutationFn: deletePlan,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['plans'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plans }),
   })
 
   function submit(e: FormEvent) {
@@ -46,7 +49,7 @@ export default function Planner() {
       if (!zoneId) return
       // A single-zone plan needs an explicit duration — there is no per-zone default.
       if (!durMin) {
-        setError(t('planner.zoneDurationRequired', { defaultValue: 'Dauer (min) ist für eine Zone erforderlich' }))
+        setError(t('planner.zoneDurationRequired'))
         return
       }
       createMut.mutate({ zone_id: zoneId, mode, value, duration_min: parseInt(durMin) })
@@ -60,9 +63,10 @@ export default function Planner() {
 
   return (
     <div style={{ maxWidth: 900, display: 'flex', flexDirection: 'column', gap: 22 }}>
+      {plansError && <LoadError />}
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Target toggle: a whole sequence or a single zone */}
-        <div style={{
+        <div role="group" aria-label={t('a11y.targetSelect')} style={{
           display: 'grid', gridTemplateColumns: '1fr 1fr',
           background: 'var(--n-card)',
           border: '1px solid var(--n-line-strong)',
@@ -70,12 +74,13 @@ export default function Planner() {
           overflow: 'hidden', height: 48,
         }}>
           {([
-            { id: 'sequence' as const, label: t('planner.targetSequence', { defaultValue: 'Sequenz' }) },
-            { id: 'zone' as const, label: t('planner.targetZone', { defaultValue: 'Einzelne Zone' }) },
+            { id: 'sequence' as const, label: t('planner.targetSequence') },
+            { id: 'zone' as const, label: t('planner.targetZone') },
           ]).map((opt) => (
             <button
               key={opt.id}
               type="button"
+              aria-pressed={target === opt.id}
               onClick={() => { setTarget(opt.id); setError('') }}
               style={{
                 background: target === opt.id
@@ -103,6 +108,7 @@ export default function Planner() {
             <select
               value={seqId}
               onChange={(e) => setSeqId(e.target.value)}
+              aria-label={t('planner.targetSequence')}
               style={{
                 width: '100%', height: 52, padding: '0 18px',
                 background: 'var(--n-card)',
@@ -113,7 +119,7 @@ export default function Planner() {
                 appearance: 'none', cursor: 'pointer', outline: 'none',
               }}
             >
-              <option value="">{t('planner.selectSequence', { defaultValue: '— Sequenz wählen —' })}</option>
+              <option value="">{t('planner.selectSequence')}</option>
               {sequences.filter((s) => s.enabled).map((s) => (
                 <option key={s.id} value={s.id}>{s.label}</option>
               ))}
@@ -122,6 +128,7 @@ export default function Planner() {
             <select
               value={zoneId}
               onChange={(e) => setZoneId(e.target.value)}
+              aria-label={t('planner.targetZone')}
               style={{
                 width: '100%', height: 52, padding: '0 18px',
                 background: 'var(--n-card)',
@@ -132,7 +139,7 @@ export default function Planner() {
                 appearance: 'none', cursor: 'pointer', outline: 'none',
               }}
             >
-              <option value="">{t('planner.selectZone', { defaultValue: '— Zone wählen —' })}</option>
+              <option value="">{t('planner.selectZone')}</option>
               {valves.map((v) => (
                 <option key={v.zone_id} value={v.zone_id}>{v.label}</option>
               ))}
@@ -147,7 +154,7 @@ export default function Planner() {
         </div>
 
         {/* Mode toggle */}
-        <div style={{
+        <div role="group" aria-label={t('a11y.modeSelect')} style={{
           display: 'grid', gridTemplateColumns: '1fr 1fr',
           background: 'var(--n-card)',
           border: '1px solid var(--n-line-strong)',
@@ -161,6 +168,7 @@ export default function Planner() {
             <button
               key={opt.id}
               type="button"
+              aria-pressed={mode === opt.id}
               onClick={() => setMode(opt.id)}
               style={{
                 background: mode === opt.id
@@ -192,7 +200,8 @@ export default function Planner() {
             unit="h"
             size="lg"
             fullWidth
-            placeholder={t('planner.hoursPlaceholder', { defaultValue: 'Stunden' })}
+            placeholder={t('planner.hoursPlaceholder')}
+            aria-label={t('planner.hoursPlaceholder')}
           />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -200,6 +209,7 @@ export default function Planner() {
               type="date"
               value={dateValue}
               onChange={(e) => setDateValue(e.target.value)}
+              aria-label={t('a11y.date')}
               style={{
                 height: 52, padding: '0 18px',
                 background: 'var(--n-card)',
@@ -214,6 +224,7 @@ export default function Planner() {
               type="time"
               value={timeValue}
               onChange={(e) => setTimeValue(e.target.value)}
+              aria-label={t('a11y.time')}
               style={{
                 height: 52, padding: '0 18px',
                 background: 'var(--n-card)',
@@ -237,11 +248,14 @@ export default function Planner() {
           size="lg"
           fullWidth
           placeholder={target === 'zone'
-            ? t('planner.durationPlaceholderZone', { defaultValue: 'Dauer (min) — erforderlich' })
-            : t('planner.durationPlaceholder', { defaultValue: 'Dauer (min) — leer = Konfig-Standard' })}
+            ? t('planner.durationPlaceholderZone')
+            : t('planner.durationPlaceholder')}
+          aria-label={target === 'zone'
+            ? t('planner.durationPlaceholderZone')
+            : t('planner.durationPlaceholder')}
         />
 
-        {error && <p style={{ color: 'var(--n-danger)', fontSize: 13 }}>{error}</p>}
+        {error && <p role="alert" style={{ color: 'var(--n-danger)', fontSize: 13 }}>{error}</p>}
 
         {/* Submit */}
         <button
@@ -270,16 +284,16 @@ export default function Planner() {
               gap: 14,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{
+                <span aria-hidden="true" style={{
                   width: 4, height: 28, borderRadius: 2,
-                  background: seqColor(p.zone_id ?? p.sequence_id ?? ''),
+                  background: resolveSeqColor(config, p.sequence_id ?? '') ?? 'var(--n-fg-dim)',
                 }} />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span style={{ fontSize: 15, fontWeight: 600 }}>
                     {p.label}
                     {p.target_type === 'zone' && (
                       <span className="n-chip" style={{ marginLeft: 8, fontSize: 10 }}>
-                        {t('planner.zoneTag', { defaultValue: 'Zone' })}
+                        {t('planner.zoneTag')}
                       </span>
                     )}
                   </span>
@@ -296,7 +310,8 @@ export default function Planner() {
                 className="n-iconbtn"
                 onClick={() => deleteMut.mutate(p.id)}
                 style={{ width: 36, height: 36 }}
-                title={t('planner.remove', { defaultValue: 'Entfernen' })}
+                title={t('planner.remove')}
+                aria-label={t('planner.remove')}
               >
                 <IX size={15} />
               </button>

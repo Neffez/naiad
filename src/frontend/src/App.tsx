@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from './api/queryKeys'
 import { type ReactNode, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom'
@@ -31,6 +32,7 @@ function BottomNav() {
   ]
   return (
     <nav
+      aria-label={t('a11y.primaryNav')}
       style={{
         display: 'flex',
         justifyContent: 'space-around',
@@ -74,6 +76,7 @@ function BottomNav() {
 
 function AppShell() {
   const { authed, login } = useAuth()
+  const { t } = useTranslation()
 
   useEffect(() => {
     const theme = localStorage.getItem('naiad_theme') ?? 'dark'
@@ -104,19 +107,22 @@ function AppShell() {
       {/* Bounded to the viewport so the content area scrolls internally and the
           mobile bottom nav stays pinned (sticky) instead of scrolling off. */}
       <div style={{ height: '100dvh', display: 'flex', overflow: 'hidden' }}>
+        {/* Skip link — first focusable element, lets keyboard users jump past the nav. */}
+        <a href="#main-content" className="n-skip-link">{t('a11y.skipToContent')}</a>
+
         {/* Sidebar — visible on desktop (≥1024px), hidden on mobile */}
         <div className="desktop-only">
           <Sidebar />
         </div>
 
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          <div id="main-content" tabIndex={-1} style={{ flex: 1, overflowY: 'auto', outline: 'none' }}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
-              <Route path="/planner" element={<PageShell title="Planen"><Planner /></PageShell>} />
-              <Route path="/history" element={<PageShell title="Verlauf"><History /></PageShell>} />
-              <Route path="/settings" element={<PageShell title="Einstellungen"><Settings /></PageShell>} />
-              <Route path="/config" element={<PageShell title="Konfiguration"><Config /></PageShell>} />
+              <Route path="/planner" element={<PageShell title={t('nav.planner')}><Planner /></PageShell>} />
+              <Route path="/history" element={<PageShell title={t('nav.history')}><History /></PageShell>} />
+              <Route path="/settings" element={<PageShell title={t('nav.settings')}><Settings /></PageShell>} />
+              <Route path="/config" element={<PageShell title={t('nav.config')}><Config /></PageShell>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
@@ -133,8 +139,8 @@ function AppShell() {
 
 function PageShell({ title, children }: { title: string; children: React.ReactNode }) {
   const queryClient = useQueryClient()
-  const { data: status } = useQuery<SystemStatus>({ queryKey: ['status'], queryFn: getStatus, refetchInterval: 30_000 })
-  const masterMut = useMutation({ mutationFn: (on: boolean) => setMaster(on), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['status'] }) })
+  const { data: status } = useQuery<SystemStatus>({ queryKey: queryKeys.status, queryFn: getStatus, refetchInterval: 30_000 })
+  const masterMut = useMutation({ mutationFn: (on: boolean) => setMaster(on), onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.status }) })
   const masterOn = status?.master_on ?? true
 
   return (

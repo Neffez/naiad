@@ -82,3 +82,134 @@ async def test_clear_single_no_override_is_noop(minimal_config: AppConfig) -> No
     # No row existed; call still succeeds and reports defaults.
     assert result.sequences["seq_1"].basis_min_per_zone is None
     assert result.sequences["seq_1"].paused is False
+
+
+# ── Manual adjustment override ────────────────────────────────────────────────
+
+
+async def test_manual_pct_clamped_to_temp_bounds(minimal_config: AppConfig) -> None:
+    """Setting a manual percentage above max_pct pins it to the limit."""
+    from naiad.api.schemas import FactorSettingsInput, UpdateSettingsRequest
+    from naiad.api.settings import update_settings
+    from naiad.domain.models import FactorOverride
+
+    eng = _engine()
+    with Session(eng) as s:
+        body = UpdateSettingsRequest(factors=FactorSettingsInput(manual_mode=True, manual_pct=999))
+        result = await update_settings(body=body, _=None, config=minimal_config, session=s)
+
+    # minimal_config temp max_pct = 150
+    assert result.factors.manual_mode is True
+    assert result.factors.manual_pct == 150
+
+    with Session(eng) as s:
+        fo = s.get(FactorOverride, 1)
+        assert fo is not None
+        assert fo.manual_pct == 150
+
+
+async def test_manual_mode_toggle_off_persists(minimal_config: AppConfig) -> None:
+    """Toggling manual_mode off keeps the stored manual_pct but disables it."""
+    from naiad.api.schemas import FactorSettingsInput, UpdateSettingsRequest
+    from naiad.api.settings import update_settings
+
+    eng = _engine()
+    with Session(eng) as s:
+        await update_settings(
+            body=UpdateSettingsRequest(
+                factors=FactorSettingsInput(manual_mode=True, manual_pct=110)
+            ),
+            _=None,
+            config=minimal_config,
+            session=s,
+        )
+    with Session(eng) as s:
+        result = await update_settings(
+            body=UpdateSettingsRequest(factors=FactorSettingsInput(manual_mode=False)),
+            _=None,
+            config=minimal_config,
+            session=s,
+        )
+
+    assert result.factors.manual_mode is False
+    assert result.factors.manual_pct == 110
+
+
+# ── Auto-login reporting ──────────────────────────────────────────────────────
+
+
+async def test_auto_login_response_falls_back_to_yaml(minimal_config: AppConfig) -> None:
+    """With no DB preference, the settings response mirrors the YAML default
+    rather than always reporting False (which misled the UI)."""
+    from naiad.api.settings import get_settings
+
+    minimal_config.auth.auto_login.enabled = True
+    eng = _engine()
+    with Session(eng) as s:
+        result = await get_settings(_=None, config=minimal_config, session=s)
+    assert result.auto_login_enabled is True
+
+
+async def test_auto_login_db_pref_overrides_yaml(minimal_config: AppConfig) -> None:
+    from naiad.api.settings import get_settings
+    from naiad.domain.models import UserPreference
+
+    minimal_config.auth.auto_login.enabled = True
+    eng = _engine()
+    with Session(eng) as s:
+        s.add(UserPreference(key="auto_login_enabled", value="0"))
+        s.commit()
+    with Session(eng) as s:
+        result = await get_settings(_=None, config=minimal_config, session=s)
+    assert result.auto_login_enabled is False
+
+
+# ── Rain peak_tomorrow override ───────────────────────────────────────────────
+
+
+async def test_rain_peak_tomorrow_defaults_to_yaml(minimal_config: AppConfig) -> None:
+    """With no override stored, the response reflects the YAML default (False)."""
+    from naiad.api.settings import get_settings
+
+    eng = _engine()
+    with Session(eng) as s:
+        result = await get_settings(_=None, config=minimal_config, session=s)
+    assert result.factors.rain.peak_tomorrow is False
+
+
+async def test_rain_peak_tomorrow_round_trips(minimal_config: AppConfig) -> None:
+    """PATCHing peak_tomorrow persists it and is reflected on read-back."""
+    from naiad.api.schemas import (
+        FactorSettingsInput,
+        RainFactorSettingsInput,
+        UpdateSettingsRequest,
+    )
+    from naiad.api.settings import update_settings
+    from naiad.domain.models import FactorOverride
+
+    eng = _engine()
+    with Session(eng) as s:
+        body = UpdateSettingsRequest(
+            factors=FactorSettingsInput(rain=RainFactorSettingsInput(peak_tomorrow=True))
+        )
+        result = await update_settings(body=body, _=None, config=minimal_config, session=s)
+    assert result.factors.rain.peak_tomorrow is True
+
+    with Session(eng) as s:
+        fo = s.get(FactorOverride, 1)
+        assert fo is not None
+        assert fo.rain_peak_tomorrow is True
+
+
+# ── Token lifetime validation ─────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("bad", [0, -1, 366])
+def test_token_lifetime_out_of_range_rejected(bad: int) -> None:
+    """A login must never mint an already-expired or effectively-permanent token."""
+    from pydantic import ValidationError
+
+    from naiad.api.schemas import UpdateSettingsRequest
+
+    with pytest.raises(ValidationError):
+        UpdateSettingsRequest(token_lifetime_days=bad)

@@ -10,23 +10,50 @@ from apscheduler.triggers.interval import IntervalTrigger
 from sqlmodel import Session, col, select
 
 from naiad.api.ws import broadcast_notification, broadcast_sequence_changed
-from naiad.config import NOTIFICATION_CATEGORIES, AppConfig, target_service_data
-from naiad.domain.factors import compute_factors
-from naiad.domain.models import Plan, SequenceOverride, SkippedRun, UserPreference
+from naiad.config import (
+    NOTIFICATION_CATEGORIES,
+    AppConfig,
+    NotifyTarget,
+    target_service_data,
+)
+from naiad.domain.factors import compute_factors, merge_factor_config
+from naiad.domain.models import (
+    DeferredCronRun,
+    FactorOverride,
+    Plan,
+    QueuedNotification,
+    SequenceOverride,
+    SkippedRun,
+)
+from naiad.domain.preferences import read_master_on
 from naiad.domain.sensors import read_sensor_snapshot
-from naiad.domain.sequences import MutexConflict, SequenceRunner, zone_id_of_run
+from naiad.domain.sequences import (
+    MutexConflict,
+    RunnerBusy,
+    SequenceRunner,
+    zone_id_of_run,
+)
 from naiad.ha_client import HAClient
 from naiad.i18n import t
 
 logger = logging.getLogger(__name__)
 
 SessionFactory = Callable[[], Session]
+_DEFERRED_CRON_TTL = timedelta(minutes=15)
 
 
 def _master_on(session_factory: SessionFactory) -> bool:
     with session_factory() as session:
-        pref = session.get(UserPreference, "master_on")
-        return pref is None or pref.value == "1"
+        return read_master_on(session)
+
+
+def _run_label(config: AppConfig, run_id: str | None) -> str:
+    """Human label for a run id (real sequence or synthetic single-zone run)."""
+    if run_id is None:
+        return "?"
+    zid = zone_id_of_run(run_id)
+    cfg = config.zones.get(zid) if zid else config.sequences.get(run_id)
+    return cfg.label if cfg else (zid or run_id)
 
 
 # Tolerance for matching a one-off skip to the fire time of a cron run. A cron job
@@ -60,29 +87,186 @@ def _consume_skip(session_factory: SessionFactory, sequence_id: str, now: dateti
     return hit
 
 
+# Hard cap so a long HA outage cannot grow the queue without bound (oldest first).
+_QUEUE_MAX_ITEMS = 500
+
+
+def _utcnow_naive() -> datetime:
+    """Current UTC time without tzinfo — matches how datetimes round-trip through
+    SQLite (the driver returns naive values), so stored and computed times compare."""
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+class NotificationQueue:
+    """Persists notifications that fail to send while HA is offline and re-delivers
+    them on the next (re)connect — including after a restart, since the rows live in
+    the database. Entries older than ``notifications.queue_max_hours`` are dropped
+    rather than arriving late.
+
+    Bound to a session factory at startup (see ``setup_scheduler``); until then it
+    silently drops, so a misconfiguration never crashes a notification path.
+    """
+
+    def __init__(self) -> None:
+        self._session_factory: SessionFactory | None = None
+
+    def bind(self, session_factory: SessionFactory | None) -> None:
+        self._session_factory = session_factory
+
+    def pending_count(self) -> int:
+        if self._session_factory is None:
+            return 0
+        with self._session_factory() as session:
+            return len(session.exec(select(QueuedNotification)).all())
+
+    def enqueue(self, target: NotifyTarget, message: str, category: str, config: AppConfig) -> None:
+        if config.notifications.queue_max_hours <= 0:
+            return  # queuing disabled — drop, preserving the previous behaviour
+        if self._session_factory is None:
+            logger.warning("Notification queue not bound to a database — dropping (%s)", category)
+            return
+        with self._session_factory() as session:
+            self._prune_stale(session, config)
+            session.add(
+                QueuedNotification(
+                    service=target.service,
+                    message=message,
+                    category=category,
+                    quiet=target.quiet,
+                    platform=target.platform,
+                    enqueued_at=_utcnow_naive(),
+                )
+            )
+            session.commit()
+            self._enforce_cap(session)
+            pending = len(session.exec(select(QueuedNotification)).all())
+        logger.info(
+            "Notification queued for '%s' (%s) — HA unreachable; %d pending",
+            target.service,
+            category,
+            pending,
+        )
+
+    def _prune_stale(self, session: Session, config: AppConfig) -> None:
+        cutoff = _utcnow_naive() - timedelta(hours=config.notifications.queue_max_hours)
+        stale = list(
+            session.exec(
+                select(QueuedNotification).where(col(QueuedNotification.enqueued_at) < cutoff)
+            ).all()
+        )
+        for row in stale:
+            session.delete(row)
+        if stale:
+            session.commit()
+            logger.warning(
+                "Dropped %d queued notification(s) older than %sh",
+                len(stale),
+                config.notifications.queue_max_hours,
+            )
+
+    def _enforce_cap(self, session: Session) -> None:
+        rows = list(
+            session.exec(
+                select(QueuedNotification).order_by(col(QueuedNotification.enqueued_at))
+            ).all()
+        )
+        overflow = len(rows) - _QUEUE_MAX_ITEMS
+        if overflow > 0:
+            for row in rows[:overflow]:
+                session.delete(row)
+            session.commit()
+            logger.warning("Notification queue full — dropped %d oldest item(s)", overflow)
+
+    async def flush(self, ha: HAClient, config: AppConfig) -> None:
+        """Re-deliver every queued notification, oldest first: drop the stale ones,
+        send the rest, and stop early if HA drops again mid-flush (the remaining rows
+        stay in the database for the next reconnect)."""
+        if self._session_factory is None:
+            return
+        with self._session_factory() as session:
+            self._prune_stale(session, config)
+            rows = list(
+                session.exec(
+                    select(QueuedNotification).order_by(col(QueuedNotification.enqueued_at))
+                ).all()
+            )
+        delivered = 0
+        for row in rows:
+            target = NotifyTarget.model_validate(
+                {"service": row.service, "quiet": row.quiet, "platform": row.platform}
+            )
+            if await _deliver(ha, target, row.message):
+                self._delete(row.id)
+                delivered += 1
+                logger.info("Delivered queued notification to '%s' (%s)", row.service, row.category)
+            elif not ha.is_connected:
+                break  # still offline — keep this and the rest for the next reconnect
+            else:
+                self._delete(row.id)  # permanent service error (already warned) — drop it
+        if delivered:
+            logger.info("Flushed %d queued notification(s)", delivered)
+
+    def _delete(self, row_id: int | None) -> None:
+        if self._session_factory is None or row_id is None:
+            return
+        with self._session_factory() as session:
+            row = session.get(QueuedNotification, row_id)
+            if row is not None:
+                session.delete(row)
+                session.commit()
+
+
+_notification_queue = NotificationQueue()
+
+
+async def _deliver(ha: HAClient, target: NotifyTarget, message: str) -> bool:
+    """Attempt one notify call. Returns True on success. On failure while connected
+    it logs a warning (a real service error, not retried); while disconnected it
+    stays silent so the caller can decide to queue it."""
+    try:
+        await ha.call_service(
+            "notify",
+            target.service.removeprefix("notify."),
+            **target_service_data(target, message),
+        )
+        return True
+    except Exception:
+        if ha.is_connected:
+            logger.warning("Notify failed for '%s'", target.service, exc_info=True)
+        return False
+
+
+async def flush_notification_queue(ha: HAClient, config: AppConfig) -> None:
+    """Re-deliver notifications buffered during an HA outage. Call on reconnect."""
+    await _notification_queue.flush(ha, config)
+
+
 async def push_notification(
     ha: HAClient, config: AppConfig, message: str, *, category: str = "info"
 ) -> None:
     """Push to every notify target subscribed to ``category`` (``info`` → all).
 
-    Each target chooses its own categories and silent/platform settings.
+    Each target chooses its own categories and silent/platform settings. Sends that
+    fail because HA is unreachable are queued and re-delivered on reconnect (see
+    NotificationQueue); real service errors are logged and dropped.
     """
     targets = config.ha.notify_targets
     if not targets:
         logger.debug("Notify skipped — no notify_targets configured (%s)", message)
         return
     sent = 0
+    queued = 0
     for target in targets:
         if category in NOTIFICATION_CATEGORIES and category not in target.categories:
             continue
-        service = target.service.removeprefix("notify.")
-        try:
-            await ha.call_service("notify", service, **target_service_data(target, message))
+        if await _deliver(ha, target, message):
             sent += 1
             logger.info("Notified %s (%s)", target.service, category)
-        except Exception:
-            logger.warning("Notify failed for '%s'", target.service, exc_info=True)
-    if sent == 0:
+        elif not ha.is_connected:
+            _notification_queue.enqueue(target, message, category, config)
+            queued += 1
+        # else: real service error while connected — already warned in _deliver
+    if sent == 0 and queued == 0:
         logger.debug("No target subscribed to category '%s'", category)
 
 
@@ -104,6 +288,84 @@ async def refresh_fallback_temp_max(config: AppConfig, ha: HAClient) -> None:
     )
 
 
+async def refresh_rain_forecast_max(
+    config: AppConfig, ha: HAClient, session_factory: SessionFactory | None = None
+) -> None:
+    """Refresh the cached daily-max for the precipitation forecast sensors.
+
+    The forecast for the day changes as it progresses (e.g. 5mm in the morning,
+    35mm at noon, 10mm in the evening). Reading only the current value means an
+    evening drop would restart irrigation that the noon peak had correctly stopped.
+    Caching the maximum the forecast reached since local midnight lets the rain
+    factor scale to the worst forecast seen today (see ``read_sensor_snapshot``).
+
+    Also refreshes the rain-confirmed peak for the opt-in ``confirm_with_rain_sensor``
+    gate (see ``refresh_rain_confirmed_peak``).
+    """
+    tz = ZoneInfo(config.timezone)
+    now = datetime.now(tz)
+    start = datetime.combine(now.date(), time.min, tzinfo=tz)
+    start_utc, now_utc = start.astimezone(UTC), now.astimezone(UTC)
+    for entity_id in (
+        config.sensors.precipitation_today,
+        config.sensors.precipitation_tomorrow,
+        config.sensors.precipitation_prob_today,
+        config.sensors.precipitation_prob_tomorrow,
+    ):
+        if entity_id:
+            await ha.refresh_daily_max(entity_id, start_utc, now_utc)
+    await refresh_rain_confirmed_peak(config, ha)
+    await refresh_recent_rain_credit(config, ha, session_factory)
+
+
+async def refresh_recent_rain_credit(
+    config: AppConfig, ha: HAClient, session_factory: SessionFactory | None = None
+) -> None:
+    """Refresh the multi-day actual-rain credit used by water-balance mode."""
+    entity_id = config.sensors.precipitation_actual
+    if not entity_id:
+        return
+    rain_cfg = config.factors.rain
+    if session_factory is not None:
+        with session_factory() as session:
+            _temp_cfg, rain_cfg = merge_factor_config(config, session.get(FactorOverride, 1))
+    tz = ZoneInfo(config.timezone)
+    now = datetime.now(tz)
+    start = datetime.combine(
+        now.date() - timedelta(days=max(0, rain_cfg.water_balance_days - 1)),
+        time.min,
+        tzinfo=tz,
+    )
+    await ha.refresh_recent_rain_credit(
+        entity_id,
+        start.astimezone(UTC),
+        now.astimezone(UTC),
+        rain_cfg.water_balance_decay,
+        config.sensors.rain if rain_cfg.confirm_with_rain_sensor else None,
+    )
+
+
+async def refresh_rain_confirmed_peak(config: AppConfig, ha: HAClient) -> None:
+    """Recompute today's rain-confirmed peak for the *today* forecast sensors.
+
+    For the ``confirm_with_rain_sensor`` gate: caches the highest forecast value that
+    coincided with the binary rain sensor actually being on today, so a forecast spike
+    that never produced real rain does not keep suppressing irrigation. Run on the
+    hourly/reconnect cadence and on rain transitions; only today's sensors are
+    meaningful (tomorrow has not happened yet)."""
+    if not config.sensors.rain:
+        return
+    tz = ZoneInfo(config.timezone)
+    now = datetime.now(tz)
+    start = datetime.combine(now.date(), time.min, tzinfo=tz)
+    await ha.refresh_rain_confirmed_peak(
+        [config.sensors.precipitation_today, config.sensors.precipitation_prob_today],
+        config.sensors.rain,
+        start.astimezone(UTC),
+        now.astimezone(UTC),
+    )
+
+
 async def _run_sequence_job(
     sequence_id: str,
     runner: SequenceRunner,
@@ -112,11 +374,12 @@ async def _run_sequence_job(
     session_factory: SessionFactory,
     triggered_by: str = "cron",
     override_min: float | None = None,
+    consume_skip: bool = True,
 ) -> str:
-    """Attempt to start a sequence. Returns "started", "skipped" or "conflict".
+    """Attempt to start a sequence. Returns "started", "skipped", "busy" or "conflict".
 
-    A "conflict" is transient (another sequence is running) and the caller may
-    retry; "skipped" is a deterministic refusal (disabled/paused/master/wind/season).
+    "busy" means valve safety work is active; "conflict" means another sequence
+    reserves a valve. Both are transient. "skipped" is a deterministic refusal.
     """
     seq_cfg = config.sequences.get(sequence_id)
     if seq_cfg is None or not seq_cfg.enabled:
@@ -124,7 +387,11 @@ async def _run_sequence_job(
 
     # A user may skip a single scheduled occurrence; only the matching cron fire
     # consumes it (manual starts and plans don't go through this skip gate).
-    if triggered_by == "cron" and _consume_skip(session_factory, sequence_id, datetime.now(UTC)):
+    if (
+        triggered_by == "cron"
+        and consume_skip
+        and _consume_skip(session_factory, sequence_id, datetime.now(UTC))
+    ):
         logger.info("Skipped (%s): user skipped this scheduled run", sequence_id)
         return "skipped"
 
@@ -172,27 +439,6 @@ async def _run_sequence_job(
             factors.sensors_unavailable,
         )
 
-    try:
-        await runner.start(
-            sequence_id,
-            factor_pct=factors.factor_pct,
-            override_min=override_min,
-            triggered_by=triggered_by,
-        )
-    except MutexConflict as e:
-        logger.warning("Conflict for '%s': %s", sequence_id, e)
-        # Name the sequence that is actually blocking (the running one), not the
-        # one we just tried to start.
-        running_id = runner.status().sequence_id
-        running_cfg = config.sequences.get(running_id) if running_id else None
-        running_label = running_cfg.label if running_cfg else (running_id or "?")
-        conflict_note = t(
-            "skip.conflict_sequence", config.language, label=seq_cfg.label, running=running_label
-        )
-        await push_notification(ha, config, conflict_note, category="skip")
-        await broadcast_notification(conflict_note, level="warning")
-        return "conflict"
-
     label_pct = int(round(factors.factor_pct))
     note = t(
         "start.sequence",
@@ -201,11 +447,31 @@ async def _run_sequence_job(
         trigger=t(f"trigger.{triggered_by}", config.language),
         pct=label_pct,
     )
-    await push_notification(ha, config, note, category="start")
-    # The "running" status is broadcast by the runner's on_started callback once a
-    # valve actually opens, so clients never see a run that failed to start.
-    await broadcast_notification(note)
-    logger.info("Started '%s' via %s (factor=%d%%)", sequence_id, triggered_by, label_pct)
+    try:
+        await runner.start(
+            sequence_id,
+            factor_pct=factors.factor_pct,
+            override_min=override_min,
+            triggered_by=triggered_by,
+            started_notification=note,
+        )
+    except RunnerBusy as e:
+        logger.info("Deferred '%s': %s", sequence_id, e)
+        return "busy"
+    except MutexConflict as e:
+        logger.warning("Conflict for '%s': %s", sequence_id, e)
+        # Name the run that is actually blocking (the one reserving a shared zone),
+        # not the one we just tried to start.
+        running_id = runner.conflicting_run(seq_cfg.zones)
+        running_label = _run_label(config, running_id)
+        conflict_note = t(
+            "skip.conflict_sequence", config.language, label=seq_cfg.label, running=running_label
+        )
+        await push_notification(ha, config, conflict_note, category="skip")
+        await broadcast_notification(conflict_note, level="warning")
+        return "conflict"
+
+    logger.info("Accepted '%s' via %s (factor=%d%%)", sequence_id, triggered_by, label_pct)
     return "started"
 
 
@@ -219,7 +485,7 @@ async def _run_zone_job(
     triggered_by: str = "plan",
 ) -> str:
     """Attempt to start a standalone single-zone run. Returns "started",
-    "skipped" or "conflict" (same contract as ``_run_sequence_job``).
+    "skipped", "busy" or "conflict" (same contract as ``_run_sequence_job``).
 
     A planned zone run waters exactly the requested duration: the weather factor
     is intentionally not applied (it targets one bed for a fixed time). Rain is
@@ -234,21 +500,6 @@ async def _run_zone_job(
         logger.info("Skipped zone '%s': master off", zone_id)
         return "skipped"
 
-    try:
-        await runner.start_zone(zone_id, duration_min, triggered_by=triggered_by)
-    except MutexConflict as e:
-        logger.warning("Conflict for zone '%s': %s", zone_id, e)
-        running_id = runner.status().sequence_id
-        zid = zone_id_of_run(running_id) if running_id else None
-        running_cfg = config.zones.get(zid) if zid else config.sequences.get(running_id or "")
-        running_label = running_cfg.label if running_cfg else (running_id or "?")
-        conflict_note = t(
-            "skip.conflict_zone", config.language, label=zone_cfg.label, running=running_label
-        )
-        await push_notification(ha, config, conflict_note, category="skip")
-        await broadcast_notification(conflict_note, level="warning")
-        return "conflict"
-
     note = t(
         "start.zone",
         config.language,
@@ -256,10 +507,108 @@ async def _run_zone_job(
         trigger=t(f"trigger.{triggered_by}", config.language),
         minutes=int(round(duration_min)),
     )
-    await push_notification(ha, config, note, category="start")
-    await broadcast_notification(note)
-    logger.info("Started zone '%s' via %s (%.0f min)", zone_id, triggered_by, duration_min)
+    try:
+        await runner.start_zone(
+            zone_id,
+            duration_min,
+            triggered_by=triggered_by,
+            started_notification=note,
+        )
+    except RunnerBusy as e:
+        logger.info("Deferred zone '%s': %s", zone_id, e)
+        return "busy"
+    except MutexConflict as e:
+        logger.warning("Conflict for zone '%s': %s", zone_id, e)
+        running_id = runner.conflicting_run([zone_id])
+        running_label = _run_label(config, running_id)
+        conflict_note = t(
+            "skip.conflict_zone", config.language, label=zone_cfg.label, running=running_label
+        )
+        await push_notification(ha, config, conflict_note, category="skip")
+        await broadcast_notification(conflict_note, level="warning")
+        return "conflict"
+
+    logger.info("Accepted zone '%s' via %s (%.0f min)", zone_id, triggered_by, duration_min)
     return "started"
+
+
+async def _run_cron_sequence_job(
+    sequence_id: str,
+    runner: SequenceRunner,
+    ha: HAClient,
+    config: AppConfig,
+    session_factory: SessionFactory,
+) -> str:
+    """Run a cron occurrence, durably deferring it while safety work is active."""
+    result = await _run_sequence_job(
+        sequence_id,
+        runner,
+        ha,
+        config,
+        session_factory,
+        triggered_by="cron",
+    )
+    if result == "busy":
+        now = datetime.now(UTC).replace(tzinfo=None)
+        with session_factory() as session:
+            deferred = session.get(DeferredCronRun, sequence_id)
+            if deferred is None:
+                session.add(
+                    DeferredCronRun(
+                        sequence_id=sequence_id,
+                        created_at=now,
+                        expires_at=now + _DEFERRED_CRON_TTL,
+                    )
+                )
+                session.commit()
+            elif deferred.expires_at <= now:
+                deferred.created_at = now
+                deferred.expires_at = now + _DEFERRED_CRON_TTL
+                session.add(deferred)
+                session.commit()
+        logger.info("Deferred cron occurrence for '%s'", sequence_id)
+    return result
+
+
+async def _retry_deferred_cron_runs(
+    runner: SequenceRunner,
+    ha: HAClient,
+    config: AppConfig,
+    session_factory: SessionFactory,
+) -> None:
+    """Retry short-lived cron occurrences once valve safety work has finished."""
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with session_factory() as session:
+        deferred = list(session.exec(select(DeferredCronRun)).all())
+
+    for row in deferred:
+        if row.expires_at <= now:
+            logger.warning("Dropping expired deferred cron occurrence for '%s'", row.sequence_id)
+            result = "expired"
+            # A scheduled run is being silently lost — tell the user, since safety
+            # work (HA outage / valve cleanup at boot) blocked it past its TTL.
+            seq_cfg = config.sequences.get(row.sequence_id)
+            if seq_cfg is not None:
+                note = t("skip.expired", config.language, label=seq_cfg.label)
+                await push_notification(ha, config, note, category="skip")
+                await broadcast_notification(note, level="warning")
+        else:
+            result = await _run_sequence_job(
+                row.sequence_id,
+                runner,
+                ha,
+                config,
+                session_factory,
+                triggered_by="cron",
+                consume_skip=False,
+            )
+        if result in {"busy", "conflict"}:
+            continue
+        with session_factory() as session:
+            current = session.get(DeferredCronRun, row.sequence_id)
+            if current is not None:
+                session.delete(current)
+                session.commit()
 
 
 async def _plan_tick(
@@ -269,6 +618,15 @@ async def _plan_tick(
     session_factory: SessionFactory,
 ) -> None:
     now = datetime.now(UTC)
+
+    # Safety net: retry closing any valve whose turn_off was never confirmed (so a
+    # failed close is durably retried rather than relying on a future HA reconnect).
+    try:
+        await runner.retry_pending_closes()
+    except Exception:
+        logger.exception("retry_pending_closes failed")
+
+    await _retry_deferred_cron_runs(runner, ha, config, session_factory)
 
     with session_factory() as session:
         due: list[Plan] = list(
@@ -305,9 +663,9 @@ async def _plan_tick(
                 override_min=override_min,
             )
 
-        # Keep the plan on a transient conflict so the next tick retries it;
+        # Keep the plan on a transient busy/conflict so the next tick retries it;
         # drop it once it has started or was deterministically skipped.
-        if result == "conflict":
+        if result in {"busy", "conflict"}:
             continue
         with session_factory() as session:
             db_plan = session.get(Plan, plan.id)
@@ -328,40 +686,30 @@ async def _on_rain(
     if new_state.get("state") != "on":
         return
 
-    status = runner.status()
-    if status.sequence_id is None:
-        # No live run — but a *paused* run (resume snapshot) would otherwise
-        # survive the rain and could be resumed later. Discard it so rain during
-        # a pause is honored too.
-        cleared = runner.clear_paused_snapshot()
-        if cleared is not None:
-            seq_cfg = config.sequences.get(cleared)
-            label = seq_cfg.label if seq_cfg else cleared
-            logger.info("Rain detected — discarding paused run '%s'", cleared)
-            rain_note = t("abort.paused_rain", config.language, label=label)
+    # Abort every live run. Each run is independent, so a failure on one must not
+    # prevent aborting the others.
+    for run_id in runner.running_run_ids():
+        label = _run_label(config, run_id)
+        logger.info("Rain detected — aborting '%s'", run_id)
+        try:
+            await runner.stop(run_id, reason="rain")
+            rain_note = t("abort.rain", config.language, label=label)
             await push_notification(ha, config, rain_note, category="abort")
-            await broadcast_sequence_changed(cleared, "idle", "rain")
+            await broadcast_sequence_changed(run_id, "idle", "rain")
             await broadcast_notification(rain_note, level="warning")
-        return
+        except Exception:
+            logger.exception("Error aborting run '%s' on rain", run_id)
 
-    zid = zone_id_of_run(status.sequence_id)
-    if zid is not None:
-        zone_cfg = config.zones.get(zid)
-        label = zone_cfg.label if zone_cfg else zid
-    else:
-        seq_cfg = config.sequences.get(status.sequence_id)
-        label = seq_cfg.label if seq_cfg else status.sequence_id
-    logger.info("Rain detected — aborting '%s'", status.sequence_id)
-
-    try:
-        seq_id = status.sequence_id
-        await runner.stop(reason="rain")
-        rain_note = t("abort.rain", config.language, label=label)
+    # Paused runs (resume snapshots) would otherwise survive the rain and could be
+    # resumed later. Discard them all so rain during a pause is honored too.
+    for cleared in runner.clear_paused_snapshots():
+        seq_cfg = config.sequences.get(cleared)
+        label = seq_cfg.label if seq_cfg else cleared
+        logger.info("Rain detected — discarding paused run '%s'", cleared)
+        rain_note = t("abort.paused_rain", config.language, label=label)
         await push_notification(ha, config, rain_note, category="abort")
-        await broadcast_sequence_changed(seq_id, "idle", "rain")
+        await broadcast_sequence_changed(cleared, "idle", "rain")
         await broadcast_notification(rain_note, level="warning")
-    except Exception:
-        logger.exception("Error aborting sequence on rain")
 
 
 async def _evening_reminder(
@@ -507,10 +855,9 @@ def _register_sequence_jobs(
                 logger.warning("Sequence '%s': invalid cron '%s' — skipped", seq_id, cron)
                 continue
             scheduler.add_job(
-                _run_sequence_job,
+                _run_cron_sequence_job,
                 trigger=trigger,
                 args=[seq_id, runner, ha, config, session_factory],
-                kwargs={"triggered_by": "cron"},
                 id=f"cron-{seq_id}#{idx}",
                 name=f"Cron: {seq_cfg.label}",
                 misfire_grace_time=300,
@@ -544,8 +891,13 @@ def setup_scheduler(
     runner: SequenceRunner,
     ha: HAClient,
     session_factory: SessionFactory,
+    on_weather_metrics_refreshed: Callable[[], Any] | None = None,
 ) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=config.timezone)
+
+    # Back the offline notification queue with the app database so buffered
+    # notifications survive a restart and flush on the next HA (re)connect.
+    _notification_queue.bind(session_factory)
 
     _register_sequence_jobs(scheduler, config, runner, ha, session_factory)
 
@@ -561,6 +913,14 @@ def setup_scheduler(
 
     _register_reminder_job(scheduler, config, ha, session_factory)
 
+    async def _refresh_rain_forecast_and_publish() -> None:
+        await refresh_rain_forecast_max(config, ha, session_factory)
+        if on_weather_metrics_refreshed is None:
+            return
+        result = on_weather_metrics_refreshed()
+        if result is not None:
+            await result
+
     # Keep the fallback max temperature (yesterday's recorded max) fresh so it
     # rolls over shortly after local midnight. The initial fetch is triggered from
     # the HA-connected callback once the socket is up (see main).
@@ -574,8 +934,31 @@ def setup_scheduler(
         misfire_grace_time=600,
     )
 
+    # Track the day's peak precipitation forecast so a late downward revision can't
+    # restart irrigation that an earlier, higher forecast had stopped. The recorder
+    # retains the full day's history, so an hourly poll still captures any peak; the
+    # initial fetch is triggered from the HA-connected callback (see main).
+    scheduler.add_job(
+        _refresh_rain_forecast_and_publish,
+        trigger=IntervalTrigger(hours=1),
+        id="rain-forecast-max",
+        name="Rain forecast max refresh",
+        max_instances=1,
+        misfire_grace_time=600,
+    )
+
     async def _rain_cb(entity_id: str, new_state: dict[str, Any]) -> None:
         await _on_rain(entity_id, new_state, runner, config, ha)
+        # On any rain-sensor transition (on or off), recompute the rain-confirmed peak
+        # promptly so suppression reflects a just-started/-ended rain before the next
+        # hourly refresh (best-effort; the recompute swallows fetch errors).
+        if entity_id == config.sensors.rain:
+            await refresh_rain_confirmed_peak(config, ha)
+            await refresh_recent_rain_credit(config, ha, session_factory)
+            if on_weather_metrics_refreshed is not None:
+                result = on_weather_metrics_refreshed()
+                if result is not None:
+                    await result
 
     ha.subscribe_state_changes(_rain_cb)
     logger.info("Rain listener registered: '%s'", config.sensors.rain)

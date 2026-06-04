@@ -30,7 +30,7 @@ components:
 
     AbortReason:
       type: string
-      enum: [rain, watchdog, manual_stop, ha_disconnect]
+      enum: [rain, watchdog, manual_stop, ha_disconnect, staircase_retrigger_failed, close_failed, start_failed]
 
     ValveStateEnum:
       type: string
@@ -40,7 +40,7 @@ components:
 
     ValveState:
       type: object
-      required: [id, zone_id, label, state]
+      required: [id, zone_id, label, state, on_since, runtime_min, single_run]
       properties:
         id:          { type: string }
         zone_id:     { type: string }
@@ -48,6 +48,10 @@ components:
         state:       { $ref: '#/components/schemas/ValveStateEnum' }
         on_since:    { type: string, format: date-time, nullable: true }
         runtime_min: { type: number, nullable: true }
+        total_min:
+          type: number
+          nullable: true
+          description: "Planned total duration of a single-zone run, for remaining-time display. Null unless single_run is true."
         single_run:
           type: boolean
           description: "True when this zone is running as a standalone single-zone run (stoppable directly)."
@@ -76,7 +80,7 @@ components:
 
     ScheduleSummary:
       type: object
-      required: [days, times]
+      required: [days, times, cron]
       properties:
         days:   { type: array, items: { type: integer }, description: "ISO weekdays 1=Mon..7=Sun; empty = every day" }
         times:  { type: array, items: { type: string }, description: "Clock times HH:MM" }
@@ -84,7 +88,7 @@ components:
 
     SequenceState:
       type: object
-      required: [id, label, status, enabled, paused, factor_pct, factor_notes, schedule, zones, basis_min_per_zone]
+      required: [id, label, status, enabled, paused, factor_pct, factor_notes, schedule, next_run_at, zones, basis_min_per_zone, current_run]
       properties:
         id:                 { type: string }
         label:              { type: string }
@@ -136,7 +140,7 @@ components:
     FactorNotes:
       type: object
       description: Structured (machine-readable) reasons behind a sequence's factor; the frontend localizes them.
-      required: [season_off, wind_blocked]
+      required: [season_off, wind_blocked, rain_factor_pct, temp_delta_pct]
       properties:
         season_off:      { type: boolean }
         wind_blocked:    { type: boolean }
@@ -145,18 +149,22 @@ components:
 
     FactorBreakdown:
       type: object
-      required: [temp_pct, rain_pct, combined_pct, wind_blocking_sequences]
+      required: [temp_pct, rain_pct, combined_pct, manual, wind_blocking_sequences, temp_input_c, rain_prob_pct, rain_mm]
       properties:
         temp_pct:                 { type: integer, description: "Signed temperature delta in % (0 = neutral)." }
         rain_pct:                 { type: integer, description: "Signed rain delta in % (0 = neutral)." }
         combined_pct:             { type: integer, description: "Overall factor in % (100 = neutral)." }
+        manual:                   { type: boolean, description: "True when combined_pct is a manual override (temp/rain deltas are neutral)." }
         wind_blocking_sequences:
           type: array
           items: { type: string }
+        temp_input_c:              { type: number, nullable: true }
+        rain_prob_pct:             { type: number, nullable: true }
+        rain_mm:                   { type: number, nullable: true }
 
     NextRunSummary:
       type: object
-      required: [sequence_id, sequence_label, scheduled_at, duration_min]
+      required: [sequence_id, sequence_label, scheduled_at, duration_min, plan_id, in_progress]
       properties:
         sequence_id:    { type: string }
         sequence_label: { type: string }
@@ -166,10 +174,13 @@ components:
           type: string
           nullable: true
           description: Set for one-off planned runs; null for recurring cron runs.
+        in_progress:
+          type: boolean
+          description: "True when this is the run currently executing (live, not skippable)."
 
     SystemStatus:
       type: object
-      required: [master_on, ha_connected, weather, today_factor, upcoming_runs, liters_today, liters_week, week_series]
+      required: [master_on, ha_connected, weather, today_factor, next_run, after_next, upcoming_runs, liters_today, liters_week, week_series]
       properties:
         master_on:    { type: boolean }
         ha_connected: { type: boolean }
@@ -202,7 +213,7 @@ components:
 
     Plan:
       type: object
-      required: [id, target_type, label, scheduled_at, created_at]
+      required: [id, target_type, sequence_id, sequence_label, zone_id, zone_label, label, scheduled_at, duration_min, estimated_liters, created_at]
       properties:
         id:               { type: string, format: uuid }
         target_type:
@@ -244,7 +255,7 @@ components:
 
     HistoryEntry:
       type: object
-      required: [id, zone_id, zone_label, sequence_id, sequence_label, started_at, triggered_by, aborted]
+      required: [id, zone_id, zone_label, sequence_id, sequence_label, started_at, ended_at, duration_min, liters, triggered_by, aborted, abort_reason]
       properties:
         id:             { type: integer }
         zone_id:        { type: string }
@@ -284,6 +295,7 @@ components:
 
     TempFactorSettings:
       type: object
+      required: [basis_c, pct_per_c, min_pct, max_pct]
       properties:
         basis_c:    { type: number }
         pct_per_c:  { type: number }
@@ -292,36 +304,99 @@ components:
 
     RainFactorSettings:
       type: object
+      required: [mode, forecast_days, threshold_prob, reduce_above_mm, zero_above_mm, forecast_decay, water_balance_days, water_balance_decay, peak_tomorrow, confirm_with_rain_sensor]
       properties:
+        mode:
+          type: string
+          enum: [forecast, water_balance]
         forecast_days:     { type: integer }
         threshold_prob:    { type: integer }
         reduce_above_mm:   { type: number }
         zero_above_mm:     { type: number }
         forecast_decay:    { type: number }
+        water_balance_days: { type: integer, description: "Recent actual-rain history window for water_balance mode." }
+        water_balance_decay: { type: number, description: "Daily carryover for actual rain in water_balance mode." }
+        peak_tomorrow:     { type: boolean, description: "When true the rain factor also uses tomorrow's daily peak forecast, not just the latest reading. Today always uses the peak." }
+        confirm_with_rain_sensor: { type: boolean, description: "When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain. In water_balance mode, actual-rain deltas also only count while the rain sensor was on." }
 
     SequenceOverride:
+      type: object
+      required: [basis_min_per_zone, watchdog_min, paused]
+      properties:
+        basis_min_per_zone: { type: integer, nullable: true }
+        watchdog_min:       { type: integer, nullable: true }
+        paused:             { type: boolean }
+
+    TempFactorSettingsUpdate:
+      type: object
+      properties:
+        basis_c:    { type: number }
+        pct_per_c:  { type: number }
+        min_pct:    { type: integer }
+        max_pct:    { type: integer }
+
+    RainFactorSettingsUpdate:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [forecast, water_balance]
+        forecast_days:     { type: integer }
+        threshold_prob:    { type: integer }
+        reduce_above_mm:   { type: number }
+        zero_above_mm:     { type: number }
+        forecast_decay:    { type: number }
+        water_balance_days: { type: integer, description: "Recent actual-rain history window for water_balance mode." }
+        water_balance_decay: { type: number, description: "Daily carryover for actual rain in water_balance mode." }
+        peak_tomorrow:     { type: boolean, description: "When true the rain factor also uses tomorrow's daily peak forecast, not just the latest reading. Today always uses the peak." }
+        confirm_with_rain_sensor: { type: boolean, description: "When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain. In water_balance mode, actual-rain deltas also only count while the rain sensor was on." }
+
+    SequenceOverrideUpdate:
       type: object
       properties:
         basis_min_per_zone: { type: integer, nullable: true }
         watchdog_min:       { type: integer, nullable: true }
         paused:             { type: boolean }
 
+    FactorSettingsUpdate:
+      type: object
+      properties:
+        temp: { $ref: '#/components/schemas/TempFactorSettingsUpdate' }
+        rain: { $ref: '#/components/schemas/RainFactorSettingsUpdate' }
+        manual_mode: { type: boolean, description: "When true, the manual adjustment overrides the automatic factor." }
+        manual_pct:  { type: integer, nullable: true, description: "Manual adjustment percentage (clamped to the temperature factor's min/max)." }
+
+    UpdateSettingsRequest:
+      type: object
+      properties:
+        sequences:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/SequenceOverrideUpdate' }
+        factors: { $ref: '#/components/schemas/FactorSettingsUpdate' }
+        token_lifetime_days:  { type: integer, minimum: 1, maximum: 365 }
+        auto_login_enabled:   { type: boolean }
+
     AppSettings:
       type: object
+      required: [sequences, factors, token_lifetime_days, auto_login_enabled]
       properties:
         sequences:
           type: object
           additionalProperties: { $ref: '#/components/schemas/SequenceOverride' }
         factors:
           type: object
+          required: [temp, rain, manual_mode, manual_pct]
           properties:
             temp: { $ref: '#/components/schemas/TempFactorSettings' }
             rain: { $ref: '#/components/schemas/RainFactorSettings' }
+            manual_mode: { type: boolean, description: "When true, the manual adjustment overrides the automatic factor." }
+            manual_pct:  { type: integer, nullable: true, description: "Manual adjustment percentage (clamped to the temperature factor's min/max)." }
         token_lifetime_days:  { type: integer }
         auto_login_enabled:   { type: boolean }
 
     UserPreferences:
       type: object
+      required: [theme, language, sequence_order, zone_order]
       properties:
         theme:
           type: string
@@ -336,6 +411,314 @@ components:
         zone_order:
           type: array
           description: Zone (valve) IDs in the user's preferred dashboard order. IDs not present are appended in their natural order.
+          items: { type: string }
+
+    UpdatePreferencesRequest:
+      type: object
+      properties:
+        theme:
+          type: string
+          enum: [dark, light]
+        language:
+          type: string
+          enum: [de, en]
+        sequence_order:
+          type: array
+          items: { type: string }
+        zone_order:
+          type: array
+          items: { type: string }
+
+    # ── Configuration ────────────────────────────────────────────────────────
+
+    NotificationCategory:
+      type: string
+      enum: [start, skip, abort, reminder]
+
+    NotifyTarget:
+      type: object
+      required: [service, categories, quiet, platform]
+      properties:
+        service: { type: string }
+        categories:
+          type: array
+          items: { $ref: '#/components/schemas/NotificationCategory' }
+        quiet: { type: boolean }
+        platform:
+          type: string
+          enum: [auto, ios, android]
+
+    HAConfigPublic:
+      type: object
+      required: [url, notify_targets]
+      properties:
+        url: { type: string }
+        notify_targets:
+          type: array
+          items: { $ref: '#/components/schemas/NotifyTarget' }
+
+    MQTTConfig:
+      type: object
+      required: [enabled, host, port, username, client_id, discovery_prefix, base_topic, password_set]
+      properties:
+        enabled: { type: boolean }
+        host: { type: string }
+        port: { type: integer }
+        username: { type: string }
+        client_id: { type: string }
+        discovery_prefix: { type: string }
+        base_topic: { type: string }
+        password_set:
+          type: boolean
+          description: Whether an environment-managed MQTT password is configured. The password value is never exposed.
+
+    MQTTConfigInput:
+      type: object
+      required: [enabled, host, port, username, client_id, discovery_prefix, base_topic]
+      properties:
+        enabled: { type: boolean }
+        host: { type: string }
+        port: { type: integer }
+        username: { type: string }
+        client_id: { type: string }
+        discovery_prefix: { type: string }
+        base_topic: { type: string }
+        password_set:
+          type: boolean
+          description: Accepted for GET→edit→PUT round-trips and ignored by the backend.
+
+    AutoLoginTrigger:
+      type: object
+      required: [url_param, trusted_referers, trusted_ips]
+      properties:
+        url_param: { type: string }
+        trusted_referers:
+          type: array
+          items: { type: string }
+        trusted_ips:
+          type: array
+          items: { type: string }
+
+    AutoLoginConfig:
+      type: object
+      required: [enabled, trigger]
+      properties:
+        enabled: { type: boolean }
+        trigger: { $ref: '#/components/schemas/AutoLoginTrigger' }
+
+    ForwardHeaderConfig:
+      type: object
+      required: [header, trusted_proxies]
+      properties:
+        header: { type: string }
+        trusted_proxies:
+          type: array
+          items: { type: string }
+
+    AuthConfig:
+      type: object
+      required: [mode, forward_header, auto_login, frame_ancestors, password_set]
+      properties:
+        mode:
+          type: string
+          enum: [password, forward_header, none]
+        forward_header: { $ref: '#/components/schemas/ForwardHeaderConfig' }
+        auto_login: { $ref: '#/components/schemas/AutoLoginConfig' }
+        frame_ancestors:
+          type: array
+          items: { type: string }
+        password_set:
+          type: boolean
+          description: Whether an environment-managed password is configured. The password value is never exposed.
+
+    AuthConfigInput:
+      type: object
+      required: [mode, forward_header, auto_login, frame_ancestors]
+      properties:
+        mode:
+          type: string
+          enum: [password, forward_header, none]
+        forward_header: { $ref: '#/components/schemas/ForwardHeaderConfig' }
+        auto_login: { $ref: '#/components/schemas/AutoLoginConfig' }
+        frame_ancestors:
+          type: array
+          items: { type: string }
+        password_set:
+          type: boolean
+          description: Accepted for GET→edit→PUT round-trips and ignored by the backend.
+
+    SensorsConfig:
+      type: object
+      required: [rain, wind, season, temperature, temperature_max, precipitation_prob_today, precipitation_prob_tomorrow, precipitation_today, precipitation_tomorrow, precipitation_actual]
+      properties:
+        rain: { type: string }
+        wind: { type: string }
+        season: { type: string }
+        temperature: { type: string }
+        temperature_max: { type: string }
+        precipitation_prob_today: { type: string }
+        precipitation_prob_tomorrow: { type: string }
+        precipitation_today: { type: string }
+        precipitation_tomorrow: { type: string }
+        precipitation_actual: { type: string }
+
+    ZoneConfig:
+      type: object
+      required: [label, switch, flow_lph, staircase_enabled, staircase_min]
+      properties:
+        label: { type: string }
+        switch: { type: string }
+        flow_lph: { type: number, exclusiveMinimum: 0 }
+        staircase_enabled: { type: boolean }
+        staircase_min: { type: number }
+
+    SequenceColorKey:
+      type: string
+      enum: [green, sand, purple, slate, blue, rose]
+
+    SequenceConfig:
+      type: object
+      required: [label, zones, basis_min_per_zone, range, watchdog_min, schedule, enabled, wind_blocks, color]
+      properties:
+        label: { type: string }
+        zones:
+          type: array
+          items: { type: string }
+        basis_min_per_zone: { type: number, exclusiveMinimum: 0 }
+        range:
+          type: array
+          minItems: 2
+          maxItems: 2
+          prefixItems:
+            - { type: number }
+            - { type: number }
+        watchdog_min: { type: integer, exclusiveMinimum: 0 }
+        schedule: { $ref: '#/components/schemas/ScheduleSummary' }
+        enabled: { type: boolean }
+        wind_blocks: { type: boolean }
+        color:
+          nullable: true
+          oneOf:
+            - { $ref: '#/components/schemas/SequenceColorKey' }
+            - { type: 'null' }
+
+    TempFactorConfig:
+      type: object
+      required: [formula, basis_c, pct_per_c, min_pct, max_pct]
+      properties:
+        formula:
+          type: string
+          enum: [linear]
+        basis_c: { type: number }
+        pct_per_c: { type: number }
+        min_pct: { type: integer, minimum: 0 }
+        max_pct: { type: integer, minimum: 0 }
+
+    RainFactorConfig:
+      type: object
+      required: [mode, forecast_days, threshold_prob, reduce_above_mm, zero_above_mm, forecast_decay, water_balance_days, water_balance_decay, peak_tomorrow, confirm_with_rain_sensor]
+      properties:
+        mode:
+          type: string
+          enum: [forecast, water_balance]
+        forecast_days: { type: integer, minimum: 1 }
+        threshold_prob: { type: integer, minimum: 0, maximum: 100 }
+        reduce_above_mm: { type: number }
+        zero_above_mm: { type: number }
+        forecast_decay: { type: number, minimum: 0, maximum: 1 }
+        water_balance_days: { type: integer, minimum: 1, maximum: 14 }
+        water_balance_decay: { type: number, minimum: 0, maximum: 1 }
+        peak_tomorrow: { type: boolean }
+        confirm_with_rain_sensor: { type: boolean }
+
+    FactorsConfig:
+      type: object
+      required: [temp, rain]
+      properties:
+        temp: { $ref: '#/components/schemas/TempFactorConfig' }
+        rain: { $ref: '#/components/schemas/RainFactorConfig' }
+
+    NotificationsConfig:
+      type: object
+      required: [evening_reminder_cron, queue_max_hours]
+      properties:
+        evening_reminder_cron: { type: string }
+        queue_max_hours: { type: number, minimum: 0 }
+
+    ConfigDoc:
+      type: object
+      required: [ha, mqtt, auth, sensors, zones, sequences, factors, notifications, timezone, sequence_colors_enabled, restart_required]
+      properties:
+        ha: { $ref: '#/components/schemas/HAConfigPublic' }
+        mqtt: { $ref: '#/components/schemas/MQTTConfig' }
+        auth: { $ref: '#/components/schemas/AuthConfig' }
+        sensors: { $ref: '#/components/schemas/SensorsConfig' }
+        zones:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/ZoneConfig' }
+        sequences:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/SequenceConfig' }
+        factors: { $ref: '#/components/schemas/FactorsConfig' }
+        notifications: { $ref: '#/components/schemas/NotificationsConfig' }
+        timezone: { type: string }
+        sequence_colors_enabled: { type: boolean }
+        restart_required: { type: boolean }
+
+    ConfigUpdateRequest:
+      type: object
+      required: [ha, mqtt, auth, sensors, zones, sequences, factors, notifications, timezone, sequence_colors_enabled]
+      properties:
+        ha: { $ref: '#/components/schemas/HAConfigPublic' }
+        mqtt: { $ref: '#/components/schemas/MQTTConfigInput' }
+        auth: { $ref: '#/components/schemas/AuthConfigInput' }
+        sensors: { $ref: '#/components/schemas/SensorsConfig' }
+        zones:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/ZoneConfig' }
+        sequences:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/SequenceConfig' }
+        factors: { $ref: '#/components/schemas/FactorsConfig' }
+        notifications: { $ref: '#/components/schemas/NotificationsConfig' }
+        timezone: { type: string }
+        sequence_colors_enabled: { type: boolean }
+        restart_required:
+          type: boolean
+          description: Accepted for GET→edit→PUT round-trips and ignored by the backend.
+
+    EntityInfo:
+      type: object
+      required: [entity_id, friendly_name, state, domain]
+      properties:
+        entity_id: { type: string }
+        friendly_name: { type: string, nullable: true }
+        state: { type: string }
+        domain: { type: string }
+
+    EntitiesResponse:
+      type: object
+      required: [entities]
+      properties:
+        entities:
+          type: array
+          items: { $ref: '#/components/schemas/EntityInfo' }
+
+    ServicesResponse:
+      type: object
+      required: [services]
+      properties:
+        services:
+          type: array
+          items: { type: string }
+
+    TestNotifyResponse:
+      type: object
+      required: [sent, targets]
+      properties:
+        sent: { type: integer }
+        targets:
+          type: array
           items: { type: string }
 
     # ── Auth ──────────────────────────────────────────────────────────────────
@@ -451,6 +834,13 @@ paths:
       responses:
         '200':
           description: Token is valid
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean }
         '401':
           description: Token invalid or expired
 
@@ -815,7 +1205,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/AppSettings' }
+            schema: { $ref: '#/components/schemas/UpdateSettingsRequest' }
       responses:
         '200':
           content:
@@ -867,9 +1257,119 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/UserPreferences' }
+            schema: { $ref: '#/components/schemas/UpdatePreferencesRequest' }
       responses:
         '200':
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UserPreferences' }
+
+  # ── Configuration ──────────────────────────────────────────────────────────
+
+  /config:
+    get:
+      operationId: getConfiguration
+      summary: Public configuration document with secrets redacted
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigDoc' }
+    put:
+      operationId: replaceConfiguration
+      summary: Replace the configuration document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfigUpdateRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigDoc' }
+        '409':
+          description: Cannot change configuration while valve operations are active
+        '422':
+          description: Invalid configuration
+
+  /config/export:
+    get:
+      operationId: exportConfiguration
+      summary: Export the effective configuration as YAML
+      responses:
+        '200':
+          content:
+            application/x-yaml:
+              schema: { type: string }
+
+  /config/import:
+    post:
+      operationId: importConfiguration
+      summary: Import a YAML or JSON configuration document
+      requestBody:
+        required: true
+        content:
+          application/x-yaml:
+            schema: { type: string }
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigDoc' }
+        '400':
+          description: Uploaded config could not be parsed
+        '409':
+          description: Cannot change configuration while valve operations are active
+        '422':
+          description: Invalid configuration
+
+  /config/entities:
+    get:
+      operationId: listEntities
+      summary: List cached Home Assistant entities for UI pickers
+      parameters:
+        - name: domain
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EntitiesResponse' }
+
+  /config/services:
+    get:
+      operationId: listServices
+      summary: List Home Assistant services for UI pickers
+      parameters:
+        - name: domain
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServicesResponse' }
+
+  /config/test-notify:
+    post:
+      operationId: testNotify
+      summary: Send a test notification to configured notify targets
+      parameters:
+        - name: service
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TestNotifyResponse' }
+        '400':
+          description: No notify targets configured
+        '404':
+          description: Notify target not found
+        '502':
+          description: Notification delivery failed

@@ -145,6 +145,26 @@ export interface paths {
         patch: operations["setMaster"];
         trace?: never;
     };
+    "/status/skip-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Skip a single upcoming run
+         * @description Suppresses one scheduled occurrence. A one-off plan is deleted; a recurring cron occurrence is recorded as skipped so only that fire is suppressed and the next scheduled run happens as usual.
+         */
+        post: operations["skipRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sequences": {
         parameters: {
             query?: never;
@@ -230,6 +250,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/zones/{zone_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a single zone immediately (in isolation, factor not applied) */
+        post: operations["startZone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/zones/{zone_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop a standalone single-zone run */
+        post: operations["stopZone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/valves": {
         parameters: {
             query?: never;
@@ -293,7 +347,8 @@ export interface paths {
         get: operations["getHistory"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete run history (settings and plans are never affected) */
+        delete: operations["deleteHistory"];
         options?: never;
         head?: never;
         patch?: never;
@@ -317,6 +372,40 @@ export interface paths {
         patch: operations["updateSettings"];
         trace?: never;
     };
+    "/settings/sequences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove all sequence overrides (restore YAML defaults for every sequence) */
+        delete: operations["clearAllSequenceOverrides"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/settings/sequences/{sequence_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove the override for a single sequence (restore its YAML defaults) */
+        delete: operations["clearSequenceOverride"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/preferences": {
         parameters: {
             query?: never;
@@ -335,6 +424,109 @@ export interface paths {
         patch: operations["updatePreferences"];
         trace?: never;
     };
+    "/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public configuration document with secrets redacted */
+        get: operations["getConfiguration"];
+        /** Replace the configuration document */
+        put: operations["replaceConfiguration"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export the effective configuration as YAML */
+        get: operations["exportConfiguration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import a YAML or JSON configuration document */
+        post: operations["importConfiguration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/entities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List cached Home Assistant entities for UI pickers */
+        get: operations["listEntities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Home Assistant services for UI pickers */
+        get: operations["listServices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/test-notify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a test notification to configured notify targets */
+        post: operations["testNotify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -344,7 +536,7 @@ export interface components {
         /** @enum {string} */
         TriggerSource: "cron" | "manual" | "plan" | "resume";
         /** @enum {string} */
-        AbortReason: "rain" | "watchdog" | "manual_stop" | "ha_disconnect";
+        AbortReason: "rain" | "watchdog" | "manual_stop" | "ha_disconnect" | "staircase_retrigger_failed" | "close_failed" | "start_failed";
         /** @enum {string} */
         ValveStateEnum: "on" | "off" | "unknown";
         ValveState: {
@@ -353,8 +545,12 @@ export interface components {
             label: string;
             state: components["schemas"]["ValveStateEnum"];
             /** Format: date-time */
-            on_since?: string | null;
-            runtime_min?: number | null;
+            on_since: string | null;
+            runtime_min: number | null;
+            /** @description Planned total duration of a single-zone run, for remaining-time display. Null unless single_run is true. */
+            total_min?: number | null;
+            /** @description True when this zone is running as a standalone single-zone run (stoppable directly). */
+            single_run: boolean;
         };
         ZoneSummary: {
             id: string;
@@ -377,7 +573,7 @@ export interface components {
             /** @description Clock times HH:MM */
             times: string[];
             /** @description Advanced cron override; set only when active */
-            cron?: string | null;
+            cron: string | null;
         };
         SequenceState: {
             id: string;
@@ -389,32 +585,47 @@ export interface components {
             factor_notes: components["schemas"]["FactorNotes"];
             schedule: components["schemas"]["ScheduleSummary"];
             /** Format: date-time */
-            next_run_at?: string | null;
+            next_run_at: string | null;
             zones: components["schemas"]["ZoneSummary"][];
             basis_min_per_zone: number;
-            current_run?: (components["schemas"]["CurrentRun"] | null) | null;
+            current_run: (components["schemas"]["CurrentRun"] | null) | null;
         };
         StartSequenceRequest: {
             /** @description Override in minutes. null = use config default with factor applied. */
             duration_min?: number | null;
         };
+        StartZoneRequest: {
+            /** @description Run duration in minutes for this single zone (factor not applied). */
+            duration_min: number;
+        };
         WeatherSummary: {
-            temp_c: number;
+            temp_c: number | null;
             rain_24h_mm: number;
             wind_label: string;
             season_active: boolean;
         };
+        /** @description Structured (machine-readable) reasons behind a sequence's factor; the frontend localizes them. */
         FactorNotes: {
             season_off: boolean;
             wind_blocked: boolean;
-            rain_factor_pct?: number | null;
-            temp_delta_pct?: number | null;
+            /** @description Rain multiplier in % (100 = neutral); set only when rain reduces watering. */
+            rain_factor_pct: number | null;
+            /** @description Signed temperature delta in %; set only when |delta| >= 5. */
+            temp_delta_pct: number | null;
         };
         FactorBreakdown: {
+            /** @description Signed temperature delta in % (0 = neutral). */
             temp_pct: number;
+            /** @description Signed rain delta in % (0 = neutral). */
             rain_pct: number;
+            /** @description Overall factor in % (100 = neutral). */
             combined_pct: number;
+            /** @description True when combined_pct is a manual override (temp/rain deltas are neutral). */
+            manual: boolean;
             wind_blocking_sequences: string[];
+            temp_input_c: number | null;
+            rain_prob_pct: number | null;
+            rain_mm: number | null;
         };
         NextRunSummary: {
             sequence_id: string;
@@ -422,36 +633,52 @@ export interface components {
             /** Format: date-time */
             scheduled_at: string;
             duration_min: number;
+            /** @description Set for one-off planned runs; null for recurring cron runs. */
+            plan_id: string | null;
+            /** @description True when this is the run currently executing (live, not skippable). */
+            in_progress: boolean;
         };
         SystemStatus: {
             master_on: boolean;
             ha_connected: boolean;
             weather: components["schemas"]["WeatherSummary"];
             today_factor: components["schemas"]["FactorBreakdown"];
-            next_run?: (components["schemas"]["NextRunSummary"] | null) | null;
-            after_next?: (components["schemas"]["NextRunSummary"] | null) | null;
+            next_run: (components["schemas"]["NextRunSummary"] | null) | null;
+            after_next: (components["schemas"]["NextRunSummary"] | null) | null;
+            /** @description All upcoming runs of the next day that has any — today if runs remain today, otherwise the next day with scheduled runs. */
+            upcoming_runs: components["schemas"]["NextRunSummary"][];
             liters_today: number;
             liters_week: number;
+            /** @description Liters per local weekday Mon..Sun of the current week */
+            week_series: number[];
         };
         Plan: {
             /** Format: uuid */
             id: string;
-            sequence_id: string;
-            sequence_label: string;
+            /** @enum {string} */
+            target_type: "sequence" | "zone";
+            sequence_id: string | null;
+            sequence_label: string | null;
+            zone_id: string | null;
+            zone_label: string | null;
+            /** @description Unified display label (sequence or zone). */
+            label: string;
             /** Format: date-time */
             scheduled_at: string;
-            duration_min?: number | null;
-            estimated_liters?: number | null;
+            duration_min: number | null;
+            estimated_liters: number | null;
             /** Format: date-time */
             created_at: string;
         };
+        /** @description Provide exactly one of sequence_id or zone_id. A zone plan additionally requires duration_min (there is no per-zone default). */
         CreatePlanRequest: {
-            sequence_id: string;
+            sequence_id?: string | null;
+            zone_id?: string | null;
             /** @enum {string} */
             mode: "in_hours" | "at_datetime";
             /** @description Hours from now (in_hours) or ISO 8601 datetime string (at_datetime) */
             value: number | string;
-            /** @description null = use config default */
+            /** @description Sequence plan: null = use config default. Zone plan: required. */
             duration_min?: number | null;
         };
         HistoryEntry: {
@@ -463,12 +690,12 @@ export interface components {
             /** Format: date-time */
             started_at: string;
             /** Format: date-time */
-            ended_at?: string | null;
-            duration_min?: number | null;
-            liters?: number | null;
+            ended_at: string | null;
+            duration_min: number | null;
+            liters: number | null;
             triggered_by: components["schemas"]["TriggerSource"];
             aborted: boolean;
-            abort_reason?: (components["schemas"]["AbortReason"] | null) | null;
+            abort_reason: (components["schemas"]["AbortReason"] | null) | null;
         };
         PaginatedHistory: {
             items: components["schemas"]["HistoryEntry"][];
@@ -476,41 +703,294 @@ export interface components {
             page: number;
             per_page: number;
         };
+        DeleteHistoryResult: {
+            deleted: number;
+        };
         TempFactorSettings: {
+            basis_c: number;
+            pct_per_c: number;
+            min_pct: number;
+            max_pct: number;
+        };
+        RainFactorSettings: {
+            /** @enum {string} */
+            mode: "forecast" | "water_balance";
+            forecast_days: number;
+            threshold_prob: number;
+            reduce_above_mm: number;
+            zero_above_mm: number;
+            forecast_decay: number;
+            /** @description Recent actual-rain history window for water_balance mode. */
+            water_balance_days: number;
+            /** @description Daily carryover for actual rain in water_balance mode. */
+            water_balance_decay: number;
+            /** @description When true the rain factor also uses tomorrow's daily peak forecast, not just the latest reading. Today always uses the peak. */
+            peak_tomorrow: boolean;
+            /** @description When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain. In water_balance mode, actual-rain deltas also only count while the rain sensor was on. */
+            confirm_with_rain_sensor: boolean;
+        };
+        SequenceOverride: {
+            basis_min_per_zone: number | null;
+            watchdog_min: number | null;
+            paused: boolean;
+        };
+        TempFactorSettingsUpdate: {
             basis_c?: number;
             pct_per_c?: number;
             min_pct?: number;
             max_pct?: number;
         };
-        RainFactorSettings: {
+        RainFactorSettingsUpdate: {
+            /** @enum {string} */
+            mode?: "forecast" | "water_balance";
             forecast_days?: number;
             threshold_prob?: number;
             reduce_above_mm?: number;
             zero_above_mm?: number;
             forecast_decay?: number;
+            /** @description Recent actual-rain history window for water_balance mode. */
+            water_balance_days?: number;
+            /** @description Daily carryover for actual rain in water_balance mode. */
+            water_balance_decay?: number;
+            /** @description When true the rain factor also uses tomorrow's daily peak forecast, not just the latest reading. Today always uses the peak. */
+            peak_tomorrow?: boolean;
+            /** @description When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain. In water_balance mode, actual-rain deltas also only count while the rain sensor was on. */
+            confirm_with_rain_sensor?: boolean;
         };
-        SequenceOverride: {
+        SequenceOverrideUpdate: {
             basis_min_per_zone?: number | null;
             watchdog_min?: number | null;
             paused?: boolean;
         };
-        AppSettings: {
+        FactorSettingsUpdate: {
+            temp?: components["schemas"]["TempFactorSettingsUpdate"];
+            rain?: components["schemas"]["RainFactorSettingsUpdate"];
+            /** @description When true, the manual adjustment overrides the automatic factor. */
+            manual_mode?: boolean;
+            /** @description Manual adjustment percentage (clamped to the temperature factor's min/max). */
+            manual_pct?: number | null;
+        };
+        UpdateSettingsRequest: {
             sequences?: {
-                [key: string]: components["schemas"]["SequenceOverride"];
+                [key: string]: components["schemas"]["SequenceOverrideUpdate"];
             };
-            factors?: {
-                temp?: components["schemas"]["TempFactorSettings"];
-                rain?: components["schemas"]["RainFactorSettings"];
-            };
-            notify_targets?: string[];
+            factors?: components["schemas"]["FactorSettingsUpdate"];
             token_lifetime_days?: number;
             auto_login_enabled?: boolean;
         };
+        AppSettings: {
+            sequences: {
+                [key: string]: components["schemas"]["SequenceOverride"];
+            };
+            factors: {
+                temp: components["schemas"]["TempFactorSettings"];
+                rain: components["schemas"]["RainFactorSettings"];
+                /** @description When true, the manual adjustment overrides the automatic factor. */
+                manual_mode: boolean;
+                /** @description Manual adjustment percentage (clamped to the temperature factor's min/max). */
+                manual_pct: number | null;
+            };
+            token_lifetime_days: number;
+            auto_login_enabled: boolean;
+        };
         UserPreferences: {
+            /** @enum {string} */
+            theme: "dark" | "light";
+            /** @enum {string} */
+            language: "de" | "en";
+            /** @description Sequence IDs in the user's preferred dashboard order. IDs not present are appended in their natural order. */
+            sequence_order: string[];
+            /** @description Zone (valve) IDs in the user's preferred dashboard order. IDs not present are appended in their natural order. */
+            zone_order: string[];
+        };
+        UpdatePreferencesRequest: {
             /** @enum {string} */
             theme?: "dark" | "light";
             /** @enum {string} */
             language?: "de" | "en";
+            sequence_order?: string[];
+            zone_order?: string[];
+        };
+        /** @enum {string} */
+        NotificationCategory: "start" | "skip" | "abort" | "reminder";
+        NotifyTarget: {
+            service: string;
+            categories: components["schemas"]["NotificationCategory"][];
+            quiet: boolean;
+            /** @enum {string} */
+            platform: "auto" | "ios" | "android";
+        };
+        HAConfigPublic: {
+            url: string;
+            notify_targets: components["schemas"]["NotifyTarget"][];
+        };
+        MQTTConfig: {
+            enabled: boolean;
+            host: string;
+            port: number;
+            username: string;
+            client_id: string;
+            discovery_prefix: string;
+            base_topic: string;
+            /** @description Whether an environment-managed MQTT password is configured. The password value is never exposed. */
+            password_set: boolean;
+        };
+        MQTTConfigInput: {
+            enabled: boolean;
+            host: string;
+            port: number;
+            username: string;
+            client_id: string;
+            discovery_prefix: string;
+            base_topic: string;
+            /** @description Accepted for GET→edit→PUT round-trips and ignored by the backend. */
+            password_set?: boolean;
+        };
+        AutoLoginTrigger: {
+            url_param: string;
+            trusted_referers: string[];
+            trusted_ips: string[];
+        };
+        AutoLoginConfig: {
+            enabled: boolean;
+            trigger: components["schemas"]["AutoLoginTrigger"];
+        };
+        ForwardHeaderConfig: {
+            header: string;
+            trusted_proxies: string[];
+        };
+        AuthConfig: {
+            /** @enum {string} */
+            mode: "password" | "forward_header" | "none";
+            forward_header: components["schemas"]["ForwardHeaderConfig"];
+            auto_login: components["schemas"]["AutoLoginConfig"];
+            frame_ancestors: string[];
+            /** @description Whether an environment-managed password is configured. The password value is never exposed. */
+            password_set: boolean;
+        };
+        AuthConfigInput: {
+            /** @enum {string} */
+            mode: "password" | "forward_header" | "none";
+            forward_header: components["schemas"]["ForwardHeaderConfig"];
+            auto_login: components["schemas"]["AutoLoginConfig"];
+            frame_ancestors: string[];
+            /** @description Accepted for GET→edit→PUT round-trips and ignored by the backend. */
+            password_set?: boolean;
+        };
+        SensorsConfig: {
+            rain: string;
+            wind: string;
+            season: string;
+            temperature: string;
+            temperature_max: string;
+            precipitation_prob_today: string;
+            precipitation_prob_tomorrow: string;
+            precipitation_today: string;
+            precipitation_tomorrow: string;
+            precipitation_actual: string;
+        };
+        ZoneConfig: {
+            label: string;
+            switch: string;
+            flow_lph: number;
+            staircase_enabled: boolean;
+            staircase_min: number;
+        };
+        /** @enum {string} */
+        SequenceColorKey: "green" | "sand" | "purple" | "slate" | "blue" | "rose";
+        SequenceConfig: {
+            label: string;
+            zones: string[];
+            basis_min_per_zone: number;
+            range: [
+                number,
+                number
+            ];
+            watchdog_min: number;
+            schedule: components["schemas"]["ScheduleSummary"];
+            enabled: boolean;
+            wind_blocks: boolean;
+            color: (components["schemas"]["SequenceColorKey"] | null) | null;
+        };
+        TempFactorConfig: {
+            /** @enum {string} */
+            formula: "linear";
+            basis_c: number;
+            pct_per_c: number;
+            min_pct: number;
+            max_pct: number;
+        };
+        RainFactorConfig: {
+            /** @enum {string} */
+            mode: "forecast" | "water_balance";
+            forecast_days: number;
+            threshold_prob: number;
+            reduce_above_mm: number;
+            zero_above_mm: number;
+            forecast_decay: number;
+            water_balance_days: number;
+            water_balance_decay: number;
+            peak_tomorrow: boolean;
+            confirm_with_rain_sensor: boolean;
+        };
+        FactorsConfig: {
+            temp: components["schemas"]["TempFactorConfig"];
+            rain: components["schemas"]["RainFactorConfig"];
+        };
+        NotificationsConfig: {
+            evening_reminder_cron: string;
+            queue_max_hours: number;
+        };
+        ConfigDoc: {
+            ha: components["schemas"]["HAConfigPublic"];
+            mqtt: components["schemas"]["MQTTConfig"];
+            auth: components["schemas"]["AuthConfig"];
+            sensors: components["schemas"]["SensorsConfig"];
+            zones: {
+                [key: string]: components["schemas"]["ZoneConfig"];
+            };
+            sequences: {
+                [key: string]: components["schemas"]["SequenceConfig"];
+            };
+            factors: components["schemas"]["FactorsConfig"];
+            notifications: components["schemas"]["NotificationsConfig"];
+            timezone: string;
+            sequence_colors_enabled: boolean;
+            restart_required: boolean;
+        };
+        ConfigUpdateRequest: {
+            ha: components["schemas"]["HAConfigPublic"];
+            mqtt: components["schemas"]["MQTTConfigInput"];
+            auth: components["schemas"]["AuthConfigInput"];
+            sensors: components["schemas"]["SensorsConfig"];
+            zones: {
+                [key: string]: components["schemas"]["ZoneConfig"];
+            };
+            sequences: {
+                [key: string]: components["schemas"]["SequenceConfig"];
+            };
+            factors: components["schemas"]["FactorsConfig"];
+            notifications: components["schemas"]["NotificationsConfig"];
+            timezone: string;
+            sequence_colors_enabled: boolean;
+            /** @description Accepted for GET→edit→PUT round-trips and ignored by the backend. */
+            restart_required?: boolean;
+        };
+        EntityInfo: {
+            entity_id: string;
+            friendly_name: string | null;
+            state: string;
+            domain: string;
+        };
+        EntitiesResponse: {
+            entities: components["schemas"]["EntityInfo"][];
+        };
+        ServicesResponse: {
+            services: string[];
+        };
+        TestNotifyResponse: {
+            sent: number;
+            targets: string[];
         };
         LoginRequest: {
             password: string;
@@ -649,7 +1129,11 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                    };
+                };
             };
             /** @description Token invalid or expired */
             401: {
@@ -749,6 +1233,44 @@ export interface operations {
                     "application/json": {
                         master_on?: boolean;
                     };
+                };
+            };
+        };
+    };
+    skipRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    sequence_id: string;
+                    /** Format: date-time */
+                    scheduled_at: string;
+                    plan_id?: string | null;
+                };
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        skipped?: string;
+                    };
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -901,6 +1423,86 @@ export interface operations {
             };
         };
     };
+    startZone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zone_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartZoneRequest"];
+            };
+        };
+        responses: {
+            /** @description Start accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Zone not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Mutex conflict — a sequence or zone is already running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Zone has no switch entity or master switch is off */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    stopZone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                zone_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stop accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Zone is not running as a standalone run */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listValves: {
         parameters: {
             query?: never;
@@ -1024,6 +1626,28 @@ export interface operations {
             };
         };
     };
+    deleteHistory: {
+        parameters: {
+            query?: {
+                /** @description When set, only entries older than this many days are deleted; otherwise all history is cleared. */
+                older_than_days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteHistoryResult"];
+                };
+            };
+        };
+    };
     getSettings: {
         parameters: {
             query?: never;
@@ -1052,7 +1676,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AppSettings"];
+                "application/json": components["schemas"]["UpdateSettingsRequest"];
             };
         };
         responses: {
@@ -1063,6 +1687,53 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AppSettings"];
                 };
+            };
+        };
+    };
+    clearAllSequenceOverrides: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppSettings"];
+                };
+            };
+        };
+    };
+    clearSequenceOverride: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sequence_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppSettings"];
+                };
+            };
+            /** @description Unknown sequence */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -1094,7 +1765,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UserPreferences"];
+                "application/json": components["schemas"]["UpdatePreferencesRequest"];
             };
         };
         responses: {
@@ -1105,6 +1776,210 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UserPreferences"];
                 };
+            };
+        };
+    };
+    getConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigDoc"];
+                };
+            };
+        };
+    };
+    replaceConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigUpdateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigDoc"];
+                };
+            };
+            /** @description Cannot change configuration while valve operations are active */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid configuration */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    exportConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-yaml": string;
+                };
+            };
+        };
+    };
+    importConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-yaml": string;
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigDoc"];
+                };
+            };
+            /** @description Uploaded config could not be parsed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Cannot change configuration while valve operations are active */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid configuration */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listEntities: {
+        parameters: {
+            query?: {
+                domain?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntitiesResponse"];
+                };
+            };
+        };
+    };
+    listServices: {
+        parameters: {
+            query?: {
+                domain?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServicesResponse"];
+                };
+            };
+        };
+    };
+    testNotify: {
+        parameters: {
+            query?: {
+                service?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestNotifyResponse"];
+                };
+            };
+            /** @description No notify targets configured */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Notify target not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Notification delivery failed */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
