@@ -26,8 +26,8 @@ export function WeatherStrip({ sys, compact = false }: WeatherStripProps) {
       flexWrap: 'wrap',
     }}>
       {items.map((it, i) => (
-        <div key={i} title={it.title} style={{ display: 'flex', alignItems: 'center', gap: 7, color: 'var(--n-fg-soft)' }}>
-          <span style={{ color: 'var(--n-fg-muted)' }}>{it.icon}</span>
+        <div key={i} title={it.title} aria-label={`${it.title}: ${it.value}`} style={{ display: 'flex', alignItems: 'center', gap: 7, color: 'var(--n-fg-soft)' }}>
+          <span aria-hidden="true" style={{ color: 'var(--n-fg-muted)' }}>{it.icon}</span>
           <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg)' }}>{it.value}</span>
         </div>
       ))}

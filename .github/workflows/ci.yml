@@ -58,8 +58,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check generated API types match the OpenAPI spec
+        run: |
+          npm run typegen
+          git diff --exit-code src/api/schema.d.ts
+
       - name: Type check (tsc)
         run: npx tsc -b --noEmit
 
+      - name: Build frontend
+        run: npm run build
+
       - name: Lint (eslint)
         run: npx eslint .
+
+      - name: Test (vitest)
+        run: npm test

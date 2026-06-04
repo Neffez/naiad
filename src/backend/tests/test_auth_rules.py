@@ -3,8 +3,19 @@ from naiad.config import ForwardHeaderConfig, IngressConfig
 
 
 def test_forward_header_requires_header() -> None:
+    # No header → reject. A present header without a trusted-proxy allowlist also
+    # fails closed (the header is client-supplied and spoofable from the direct port).
     assert forward_header_ok("", "1.2.3.4", ForwardHeaderConfig()) is False
-    assert forward_header_ok("alice", "1.2.3.4", ForwardHeaderConfig()) is True
+    assert forward_header_ok("alice", "1.2.3.4", ForwardHeaderConfig()) is False
+
+
+def test_forward_header_fails_closed_without_trusted_proxies() -> None:
+    # Default trusted_proxies is empty → no proxy can vouch for the header → reject,
+    # regardless of source IP. Prevents an X-Forwarded-User spoof on the direct port.
+    cfg = ForwardHeaderConfig()
+    assert cfg.trusted_proxies == []
+    assert forward_header_ok("alice", "10.0.0.1", cfg) is False
+    assert forward_header_ok("alice", "172.30.32.2", cfg) is False
 
 
 def test_forward_header_trusted_proxy() -> None:

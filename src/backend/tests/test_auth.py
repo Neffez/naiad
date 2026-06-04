@@ -11,7 +11,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from naiad.api.auth import LoginThrottle, _auto_login_enabled, _check_password, _match_by_prefix
 from naiad.api.schemas import LoginRequest
 from naiad.config import AppConfig
-from naiad.dependencies import require_auth
+from naiad.dependencies import _LAST_USED_THROTTLE, require_auth, touch_token_last_used
 from naiad.domain.models import AuthToken, UserPreference
 from tests.conftest import MINIMAL_CONFIG_DATA
 
@@ -21,6 +21,31 @@ def _token(value: str) -> AuthToken:
         token=value,
         expires_at=datetime.now(UTC) + timedelta(days=1),
     )
+
+
+def test_touch_token_last_used_throttles_writes() -> None:
+    """last_used_at is recorded on first use, left alone within the throttle
+    window, and refreshed once the window has elapsed (avoids a write per request)."""
+    with _mem_session() as session:
+        tok = _token("tttttttt0000")
+        session.add(tok)
+        session.commit()
+
+        t0 = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
+        touch_token_last_used(session, tok, t0)  # was None → records
+        first = session.get(AuthToken, "tttttttt0000").last_used_at
+        assert first is not None and first.replace(tzinfo=UTC) == t0
+
+        # Within the window → unchanged.
+        touch_token_last_used(session, tok, t0 + timedelta(seconds=5))
+        again = session.get(AuthToken, "tttttttt0000").last_used_at
+        assert again is not None and again.replace(tzinfo=UTC) == t0
+
+        # Past the window → refreshed.
+        later = t0 + _LAST_USED_THROTTLE + timedelta(seconds=1)
+        touch_token_last_used(session, tok, later)
+        updated = session.get(AuthToken, "tttttttt0000").last_used_at
+        assert updated is not None and updated.replace(tzinfo=UTC) == later
 
 
 def test_match_by_prefix_unique() -> None:

@@ -14,6 +14,8 @@ interface BaseProps {
   size?: 'sm' | 'lg'
   placeholder?: string
   disabled?: boolean
+  /** Focus (and select) the input on mount — used for inline click-to-edit. */
+  autoFocus?: boolean
   /** Extra styles merged onto the outer wrapper. */
   style?: CSSProperties
   'aria-label'?: string
@@ -59,11 +61,18 @@ export function NumberField(props: NumberFieldProps) {
   const {
     step = 1, min, max, unit, width = 72, fullWidth = false,
     size = 'sm', placeholder, disabled = false, style,
+    autoFocus = false,
     'aria-label': ariaLabel,
   } = props
 
   const [local, setLocal] = useState(String(props.value))
   const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (autoFocus) { inputRef.current?.focus(); inputRef.current?.select() }
+    // Focus only on mount — autoFocus is a one-shot intent, not a reactive value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Keep the field in sync when the value changes from outside (e.g. reset).
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -144,7 +153,7 @@ export function NumberField(props: NumberFieldProps) {
         }}
         onBlur={(e) => commit(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') { commit((e.target as HTMLInputElement).value) }
+          if (e.key === 'Enter') { commit((e.target as HTMLInputElement).value); (e.target as HTMLInputElement).blur() }
           else if (e.key === 'ArrowUp') { e.preventDefault(); bump(1) }
           else if (e.key === 'ArrowDown') { e.preventDefault(); bump(-1) }
         }}
@@ -166,7 +175,7 @@ export function NumberField(props: NumberFieldProps) {
           color: 'var(--n-fg-muted)', fontSize: lg ? 13 : 12,
           borderLeft: '1px solid var(--n-line)',
           display: 'flex', alignItems: 'center',
-          background: 'rgba(255,255,255,0.015)',
+          background: 'var(--n-surface-overlay)',
           whiteSpace: 'nowrap',
         }}>
           {unit}

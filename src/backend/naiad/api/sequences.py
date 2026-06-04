@@ -20,6 +20,7 @@ from naiad.database import get_session
 from naiad.dependencies import get_config, get_ha_client, get_runner, get_scheduler, require_auth
 from naiad.domain.factors import FactorResult, compute_factors
 from naiad.domain.models import ResumeSnapshot, SequenceOverride
+from naiad.domain.preferences import read_master_on
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.domain.sequences import MutexConflict, NotRunning, SequenceRunner, SequenceState
 from naiad.ha_client import HAClient
@@ -27,13 +28,6 @@ from naiad.scheduler import next_run_for_sequence
 
 router = APIRouter(prefix="/sequences", tags=["sequences"])
 logger = logging.getLogger(__name__)
-
-
-def _master_on(session: Session) -> bool:
-    from naiad.domain.models import UserPreference
-
-    pref = session.get(UserPreference, "master_on")
-    return pref is None or pref.value == "1"
 
 
 def _sequence_status(
@@ -45,10 +39,10 @@ def _sequence_status(
     seq_cfg = config.sequences[seq_id]
     if not seq_cfg.enabled:
         return "disabled"
-    if runner.status().sequence_id == seq_id:
+    if runner.status_of(seq_id).state == SequenceState.RUNNING:
         return SequenceState.RUNNING
-    snap = session.get(ResumeSnapshot, 1)
-    if snap and snap.sequence_id == seq_id:
+    snap = session.get(ResumeSnapshot, seq_id)
+    if snap is not None:
         return SequenceState.PAUSED
     override = session.get(SequenceOverride, seq_id)
     if override and override.paused:
@@ -65,8 +59,8 @@ def _build_current_run(
     seq_id: str,
     config: AppConfig,
 ) -> CurrentRunResponse | None:
-    run_status = runner.status()
-    if run_status.sequence_id != seq_id or run_status.current_zone is None:
+    run_status = runner.status_of(seq_id)
+    if run_status.current_zone is None:
         return None
 
     zone = run_status.current_zone
@@ -219,7 +213,7 @@ async def start_sequence(
     if seq_override and seq_override.paused:
         raise _reject(422, "Sequence is paused (skipped)")
 
-    if not _master_on(session):
+    if not read_master_on(session):
         raise _reject(422, "Master switch is off")
 
     snapshot = read_sensor_snapshot(ha, config)
@@ -253,11 +247,10 @@ async def pause_sequence(
     _: None = Depends(require_auth),
     runner: SequenceRunner = Depends(get_runner),
 ) -> dict[str, str]:
-    status = runner.status()
-    if status.sequence_id != sequence_id:
+    if runner.status_of(sequence_id).state != SequenceState.RUNNING:
         raise HTTPException(409, f"Sequence '{sequence_id}' is not currently running")
     try:
-        await runner.pause()
+        await runner.pause(sequence_id)
     except NotRunning as e:
         raise HTTPException(409, str(e)) from e
     await broadcast_sequence_changed(sequence_id, "paused", "manual")
@@ -273,9 +266,9 @@ async def stop_sequence(
     # Idempotent cancel: stop the live run if this sequence is running, otherwise
     # just drop any pause snapshot. The end state is always "idle", so a double-click
     # or a stop that races with the run ending doesn't error.
-    if runner.status().sequence_id == sequence_id:
+    if runner.status_of(sequence_id).state == SequenceState.RUNNING:
         with contextlib.suppress(NotRunning):
-            await runner.stop()
+            await runner.stop(sequence_id)
     else:
         runner.discard_snapshot(sequence_id)
     await broadcast_sequence_changed(sequence_id, "idle", "manual")

@@ -9,7 +9,7 @@ export function StatusChip({ status }: StatusChipProps) {
   const label = t(`status.${status}`, { defaultValue: status })
   return (
     <span className={`n-chip ${status}`}>
-      <span className="n-chip-dot" />
+      <span className="n-chip-dot" aria-hidden="true" />
       {label}
     </span>
   )

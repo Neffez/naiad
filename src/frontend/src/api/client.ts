@@ -1,4 +1,5 @@
 import { API_BASE } from './base'
+import type { components, operations } from './schema'
 
 function getToken(): string | null {
   return localStorage.getItem('naiad_token')
@@ -57,6 +58,8 @@ export const api = {
   delete: <T>(path: string) => request<T>('DELETE', path),
 }
 
+type ApiSchemas = components['schemas']
+
 async function authedFetch(path: string, init: RequestInit): Promise<Response> {
   const token = getToken()
   const headers = new Headers(init.headers)
@@ -71,10 +74,10 @@ async function authedFetch(path: string, init: RequestInit): Promise<Response> {
 
 // Auth
 export const login = (password: string) =>
-  api.post<{ token: string; expires_at: string }>('/auth/login', { password })
+  api.post<LoginResponse>('/auth/login', { password })
 
 export const verify = () =>
-  request<{ valid: boolean }>('GET', '/auth/verify', undefined, { skipReloadOn401: true })
+  request<VerifyTokenResponse>('GET', '/auth/verify', undefined, { skipReloadOn401: true })
 
 // Sequences
 export const getSequences = () => api.get<SequenceState[]>('/sequences')
@@ -89,17 +92,12 @@ export const startZone = (id: string, duration_min: number) =>
 export const stopZone = (id: string) => api.post(`/zones/${id}/stop`)
 
 // System
-export interface HealthInfo {
-  status: string
-  version: string
-  ha_connected: boolean
-}
 export const getHealth = () => api.get<HealthInfo>('/health')
 
 export const getStatus = () => api.get<SystemStatus>('/status')
 export const setMaster = (on: boolean) => api.patch('/status/master', { on })
 export const getValves = () => api.get<ValveState[]>('/valves')
-export const skipRun = (body: { sequence_id: string; scheduled_at: string; plan_id?: string | null }) =>
+export const skipRun = (body: SkipRunRequest) =>
   api.post('/status/skip-run', body)
 
 // History
@@ -134,13 +132,13 @@ export const updateSettings = (body: Partial<UpdateSettingsRequest>) =>
 
 // Configuration
 export const getConfig = () => api.get<ConfigDoc>('/config')
-export const putConfig = (body: ConfigDoc) => api.put<ConfigDoc>('/config', body)
+export const putConfig = (body: ConfigUpdateRequest) => api.put<ConfigDoc>('/config', body)
 export const getEntities = (domain?: string) =>
-  api.get<{ entities: EntityInfo[] }>(`/config/entities${domain ? `?domain=${domain}` : ''}`)
+  api.get<EntitiesResponse>(`/config/entities${domain ? `?domain=${domain}` : ''}`)
 export const getServices = (domain?: string) =>
-  api.get<{ services: string[] }>(`/config/services${domain ? `?domain=${domain}` : ''}`)
+  api.get<ServicesResponse>(`/config/services${domain ? `?domain=${domain}` : ''}`)
 export const testNotify = (service?: string) =>
-  api.post<{ sent: number; targets: string[] }>(
+  api.post<TestNotifyResponse>(
     `/config/test-notify${service ? `?service=${encodeURIComponent(service)}` : ''}`,
   )
 
@@ -165,99 +163,28 @@ export async function importConfig(text: string): Promise<ConfigDoc> {
 
 // Preferences
 export const getPreferences = () => api.get<UserPreferences>('/preferences')
-export const updatePreferences = (body: Partial<UserPreferences>) =>
+export const updatePreferences = (body: UpdatePreferencesRequest) =>
   api.patch<UserPreferences>('/preferences', body)
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface ZoneSummary {
-  id: string
-  label: string
-  valve_state: 'on' | 'off' | 'unknown'
-}
+export type LoginResponse = ApiSchemas['LoginResponse']
+export type VerifyTokenResponse =
+  operations['verifyToken']['responses'][200]['content']['application/json']
+export type HealthInfo =
+  operations['getHealth']['responses'][200]['content']['application/json']
+export type SkipRunRequest =
+  operations['skipRun']['requestBody']['content']['application/json']
 
-export interface FactorNotes {
-  season_off: boolean
-  wind_blocked: boolean
-  rain_factor_pct: number | null
-  temp_delta_pct: number | null
-}
-
-export interface ScheduleSummary {
-  days: number[] // ISO weekdays 1=Mon … 7=Sun; empty = every day
-  times: string[] // "HH:MM"
-  cron: string | null // advanced override; set only when active
-}
-
-export interface SequenceState {
-  id: string
-  label: string
-  status: 'running' | 'idle' | 'paused' | 'disabled'
-  enabled: boolean
-  paused: boolean
-  factor_pct: number
-  factor_notes: FactorNotes
-  schedule: ScheduleSummary
-  next_run_at: string | null
-  zones: ZoneSummary[]
-  basis_min_per_zone: number
-  current_run: null | { zone_id: string; elapsed_min: number; remaining_min: number }
-}
-
-export interface SystemStatus {
-  master_on: boolean
-  ha_connected: boolean
-  weather: { temp_c: number | null; rain_24h_mm: number; wind_label: string; season_active: boolean }
-  // temp_pct and rain_pct are signed deltas from neutral (0 = no adjustment); combined_pct is the overall factor (100 = neutral).
-  today_factor: { temp_pct: number; rain_pct: number; combined_pct: number; wind_blocking_sequences: string[] }
-  next_run: NextRun | null
-  after_next: NextRun | null
-  upcoming_runs: NextRun[]
-  liters_today: number
-  liters_week: number
-  week_series: number[]
-}
-
-export interface NextRun {
-  sequence_id: string
-  sequence_label: string
-  scheduled_at: string
-  duration_min: number
-  plan_id?: string | null
-}
-
-export interface ValveState {
-  id: string
-  zone_id: string
-  label: string
-  state: 'on' | 'off' | 'unknown'
-  on_since: string | null
-  runtime_min: number | null
-  /** True when this zone is running as a standalone single-zone run (stoppable directly). */
-  single_run: boolean
-}
-
-export interface HistoryEntry {
-  id: number
-  zone_id: string
-  zone_label: string
-  sequence_id: string
-  sequence_label: string
-  started_at: string
-  ended_at: string | null
-  duration_min: number | null
-  liters: number | null
-  triggered_by: string
-  aborted: boolean
-  abort_reason: string | null
-}
-
-export interface PaginatedHistory {
-  items: HistoryEntry[]
-  total: number
-  page: number
-  per_page: number
-}
+export type ZoneSummary = ApiSchemas['ZoneSummary']
+export type FactorNotes = ApiSchemas['FactorNotes']
+export type ScheduleSummary = ApiSchemas['ScheduleSummary']
+export type SequenceState = ApiSchemas['SequenceState']
+export type SystemStatus = ApiSchemas['SystemStatus']
+export type NextRun = ApiSchemas['NextRunSummary']
+export type ValveState = ApiSchemas['ValveState']
+export type HistoryEntry = ApiSchemas['HistoryEntry']
+export type PaginatedHistory = ApiSchemas['PaginatedHistory']
 
 export interface HistoryParams {
   page?: number
@@ -267,161 +194,31 @@ export interface HistoryParams {
   to?: string
 }
 
-export interface DeleteHistoryResult {
-  deleted: number
-}
-
-export interface Plan {
-  id: string
-  target_type: 'sequence' | 'zone'
-  sequence_id: string | null
-  sequence_label: string | null
-  zone_id: string | null
-  zone_label: string | null
-  /** Unified display label (sequence or zone). */
-  label: string
-  scheduled_at: string
-  duration_min: number | null
-  estimated_liters: number | null
-  created_at: string
-}
-
-export interface CreatePlanRequest {
-  // Exactly one of sequence_id / zone_id. A zone plan requires duration_min.
-  sequence_id?: string
-  zone_id?: string
-  mode: 'in_hours' | 'at_datetime'
-  value: number | string
-  duration_min?: number
-}
-
-export interface AppSettings {
-  sequences: Record<string, { basis_min_per_zone: number | null; watchdog_min: number | null; paused: boolean }>
-  factors: {
-    temp: { basis_c: number; pct_per_c: number; min_pct: number; max_pct: number }
-    rain: { forecast_days: number; threshold_prob: number; reduce_above_mm: number; zero_above_mm: number; forecast_decay: number }
-  }
-  token_lifetime_days: number
-  auto_login_enabled: boolean
-}
-
-export interface UpdateSettingsRequest {
-  sequences?: Record<string, { basis_min_per_zone?: number; watchdog_min?: number; paused?: boolean }>
-  factors?: {
-    temp?: Partial<AppSettings['factors']['temp']>
-    rain?: Partial<AppSettings['factors']['rain']>
-  }
-  token_lifetime_days?: number
-  auto_login_enabled?: boolean
-}
-
-export interface UserPreferences {
-  theme: 'dark' | 'light'
-  language: 'de' | 'en'
-  /** Sequence IDs in the user's preferred dashboard order. IDs not listed are appended. */
-  sequence_order: string[]
-  /** Zone (valve) IDs in the user's preferred dashboard order. IDs not listed are appended. */
-  zone_order: string[]
-}
+export type DeleteHistoryResult = ApiSchemas['DeleteHistoryResult']
+export type Plan = ApiSchemas['Plan']
+export type CreatePlanRequest = ApiSchemas['CreatePlanRequest']
+export type AppSettings = ApiSchemas['AppSettings']
+export type UpdateSettingsRequest = ApiSchemas['UpdateSettingsRequest']
+export type UserPreferences = ApiSchemas['UserPreferences']
+export type UpdatePreferencesRequest = ApiSchemas['UpdatePreferencesRequest']
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
-export interface ZoneConfig {
-  label: string
-  switch: string
-  flow_lph: number
-}
-
-export interface SequenceConfig {
-  label: string
-  zones: string[]
-  basis_min_per_zone: number
-  range: [number, number]
-  watchdog_min: number
-  schedule: ScheduleSummary
-  enabled: boolean
-  wind_blocks: boolean
-}
-
-export interface SensorsConfig {
-  rain: string
-  wind: string
-  season: string
-  temperature: string
-  temperature_max: string
-  precipitation_prob_today: string
-  precipitation_prob_tomorrow: string
-  precipitation_today: string
-  precipitation_tomorrow: string
-}
-
-export interface FactorsConfig {
-  temp: { formula: 'linear'; basis_c: number; pct_per_c: number; min_pct: number; max_pct: number }
-  rain: {
-    forecast_days: number
-    threshold_prob: number
-    reduce_above_mm: number
-    zero_above_mm: number
-    forecast_decay: number
-  }
-}
-
 export const NOTIFICATION_CATEGORIES = ['start', 'skip', 'abort', 'reminder'] as const
-export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number]
-
-export interface NotifyTarget {
-  service: string
-  categories: NotificationCategory[]
-  quiet: boolean
-  platform: 'auto' | 'ios' | 'android'
-}
-
-export interface HAConfigPublic {
-  url: string
-  notify_targets: NotifyTarget[]
-}
-
-export interface MQTTConfig {
-  enabled: boolean
-  host: string
-  port: number
-  username: string
-  client_id: string
-  discovery_prefix: string
-  base_topic: string
-  // Present in the GET response only — the password itself is never exposed and
-  // is environment-managed (MQTT_PASSWORD). Echoed back on save; the server drops it.
-  password_set?: boolean
-}
-
-export interface AuthConfigResponse {
-  mode: 'password' | 'forward_header' | 'none'
-  forward_header: { header: string; trusted_proxies: string[] }
-  auto_login: { enabled: boolean; trigger: { url_param: string; trusted_referers: string[]; trusted_ips: string[] } }
-  frame_ancestors: string[]
-  password_set: boolean
-}
-
-export interface NotificationsConfig {
-  evening_reminder_cron: string
-}
-
-export interface ConfigDoc {
-  ha: HAConfigPublic
-  mqtt: MQTTConfig
-  auth: AuthConfigResponse
-  sensors: SensorsConfig
-  zones: Record<string, ZoneConfig>
-  sequences: Record<string, SequenceConfig>
-  factors: FactorsConfig
-  notifications: NotificationsConfig
-  timezone: string
-  restart_required: boolean
-}
-
-export interface EntityInfo {
-  entity_id: string
-  friendly_name: string | null
-  state: string
-  domain: string
-}
+export type NotificationCategory = ApiSchemas['NotificationCategory']
+export type NotifyTarget = ApiSchemas['NotifyTarget']
+export type HAConfigPublic = ApiSchemas['HAConfigPublic']
+export type MQTTConfig = ApiSchemas['MQTTConfig']
+export type AuthConfigResponse = ApiSchemas['AuthConfig']
+export type SensorsConfig = ApiSchemas['SensorsConfig']
+export type ZoneConfig = ApiSchemas['ZoneConfig']
+export type SequenceColorKey = ApiSchemas['SequenceColorKey']
+export type SequenceConfig = ApiSchemas['SequenceConfig']
+export type FactorsConfig = ApiSchemas['FactorsConfig']
+export type NotificationsConfig = ApiSchemas['NotificationsConfig']
+export type ConfigDoc = ApiSchemas['ConfigDoc']
+export type ConfigUpdateRequest = ApiSchemas['ConfigUpdateRequest']
+export type EntityInfo = ApiSchemas['EntityInfo']
+export type EntitiesResponse = ApiSchemas['EntitiesResponse']
+export type ServicesResponse = ApiSchemas['ServicesResponse']
+export type TestNotifyResponse = ApiSchemas['TestNotifyResponse']

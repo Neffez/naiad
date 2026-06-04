@@ -46,14 +46,47 @@ def read_sensor_snapshot(ha: HAClient, config: AppConfig) -> SensorSnapshot:
     if max_temperature_c is None:
         max_temperature_c = ha.get_cached_daily_max(sensors.temperature)
 
+    def _peak(entity_id: str, current: float) -> float:
+        # The precipitation forecast for the day changes as the day progresses
+        # (e.g. 5mm in the morning, 35mm at noon, 10mm in the evening). Using the
+        # current reading alone lets an evening drop restart irrigation that the
+        # noon peak had correctly stopped. Combine the live value with the day's
+        # recorded maximum (kept fresh by the scheduler) so the rain factor can
+        # scale to the worst forecast seen today, not just the latest reading.
+        cached = ha.get_cached_daily_max(entity_id)
+        return current if cached is None else max(current, cached)
+
+    # Today always uses the day's peak. Tomorrow keeps the latest reading plus a
+    # separate peak field; compute_factors chooses between them per peak_tomorrow.
+    prob_today = _float(sensors.precipitation_prob_today)
+    prob_tomorrow = _float(sensors.precipitation_prob_tomorrow)
+    mm_today = _float(sensors.precipitation_today)
+    mm_tomorrow = _float(sensors.precipitation_tomorrow)
+
     return SensorSnapshot(
         temperature_c=_float_or_none(sensors.temperature),
         max_temperature_c=max_temperature_c,
         season_on=_bool(sensors.season, safe_default=False),
         wind_on=_bool(sensors.wind, safe_default=False),
-        precipitation_prob_today=_float(sensors.precipitation_prob_today),
-        precipitation_prob_tomorrow=_float(sensors.precipitation_prob_tomorrow),
-        precipitation_today_mm=_float(sensors.precipitation_today),
-        precipitation_tomorrow_mm=_float(sensors.precipitation_tomorrow),
+        precipitation_prob_today=_peak(sensors.precipitation_prob_today, prob_today),
+        precipitation_prob_tomorrow=prob_tomorrow,
+        precipitation_today_mm=_peak(sensors.precipitation_today, mm_today),
+        precipitation_tomorrow_mm=mm_tomorrow,
+        precipitation_prob_tomorrow_peak=_peak(sensors.precipitation_prob_tomorrow, prob_tomorrow),
+        precipitation_tomorrow_mm_peak=_peak(sensors.precipitation_tomorrow, mm_tomorrow),
+        # Latest (non-peak) today readings plus the peak confirmed by actual rain, so
+        # the rain factor can confirm today's peak against the rain sensor when
+        # confirm_with_rain_sensor is enabled (see rain_factor_inputs).
+        precipitation_prob_today_current=prob_today,
+        precipitation_today_mm_current=mm_today,
+        precipitation_prob_today_confirmed=ha.get_rain_confirmed_peak(
+            sensors.precipitation_prob_today
+        ),
+        precipitation_today_mm_confirmed=ha.get_rain_confirmed_peak(sensors.precipitation_today),
+        actual_rain_credit_mm=(
+            ha.get_recent_rain_credit(sensors.precipitation_actual)
+            if sensors.precipitation_actual
+            else None
+        ),
         unavailable=unavailable,
     )

@@ -7,14 +7,26 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from naiad.config import AppConfig
-from naiad.domain.models import Plan, SkippedRun, UserPreference
-from naiad.domain.sequences import SequenceRunner
+from naiad.domain.models import (
+    DeferredCronRun,
+    Plan,
+    QueuedNotification,
+    SkippedRun,
+    UserPreference,
+)
+from naiad.domain.sequences import SequenceRunner, zone_run_id
 from naiad.scheduler import (
     _consume_skip,
+    _notification_queue,
     _on_rain,
     _plan_tick,
+    _retry_deferred_cron_runs,
+    _run_cron_sequence_job,
     _run_sequence_job,
+    flush_notification_queue,
     push_notification,
+    refresh_rain_confirmed_peak,
+    refresh_rain_forecast_max,
 )
 from tests.conftest import MINIMAL_CONFIG_DATA
 
@@ -57,6 +69,9 @@ class FakeHA:
     def get_cached_daily_max(self, entity_id: str) -> float | None:
         return None
 
+    def get_rain_confirmed_peak(self, entity_id: str) -> float | None:
+        return None
+
     @property
     def is_connected(self) -> bool:
         return True
@@ -86,7 +101,43 @@ async def test_run_sequence_job_status_transitions(fast_config: AppConfig, engin
     assert await _run_sequence_job("seq_1", runner, ha, fast_config, sf) == "started"
     # Second start while running → transient conflict.
     assert await _run_sequence_job("seq_1", runner, ha, fast_config, sf) == "conflict"
-    await runner.stop()
+    await runner.stop("seq_1")
+
+
+async def test_cron_busy_is_deduplicated_as_short_lived_retry(
+    fast_config: AppConfig, engine
+) -> None:
+    """Safety cleanup retains at most one short-lived retry per sequence."""
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(fast_config, FakeDriver(), sf)
+    runner.require_initial_recovery()
+
+    assert await _run_cron_sequence_job("seq_1", runner, FakeHA(), fast_config, sf) == "busy"
+    assert await _run_cron_sequence_job("seq_1", runner, FakeHA(), fast_config, sf) == "busy"
+    with Session(engine) as session:
+        deferred = list(session.exec(select(DeferredCronRun)).all())
+        plans = list(session.exec(select(Plan)).all())
+    assert len(deferred) == 1
+    assert deferred[0].sequence_id == "seq_1"
+    assert plans == []  # internal retries never leak into user-visible plans
+
+
+async def test_expired_deferred_cron_retry_is_dropped(fast_config: AppConfig, engine) -> None:
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(fast_config, FakeDriver(), sf)
+    with Session(engine) as session:
+        session.add(
+            DeferredCronRun(
+                sequence_id="seq_1",
+                expires_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1),
+            )
+        )
+        session.commit()
+
+    await _retry_deferred_cron_runs(runner, FakeHA(), fast_config, sf)
+
+    with Session(engine) as session:
+        assert list(session.exec(select(DeferredCronRun)).all()) == []
 
 
 async def test_run_sequence_job_skips_when_master_off(fast_config: AppConfig, engine) -> None:
@@ -109,7 +160,7 @@ async def test_run_sequence_job_skips_when_factor_zero(fast_config: AppConfig, e
     result = await _run_sequence_job("seq_1", runner, ha, fast_config, sf, triggered_by="cron")
     assert result == "skipped"
     assert driver.on_calls == []  # no valve was opened
-    assert runner.status().sequence_id is None
+    assert not runner.any_running()
 
 
 async def test_run_sequence_job_skips_when_season_off(fast_config: AppConfig, engine) -> None:
@@ -142,11 +193,11 @@ async def test_plan_kept_on_conflict_then_consumed(fast_config: AppConfig, engin
         assert len(list(s.exec(select(Plan)).all())) == 1  # plan retained on conflict
 
     # Free the runner; the next tick consumes the plan.
-    await runner.stop()
+    await runner.stop("seq_1")
     await _plan_tick(runner, ha, fast_config, sf)
     with Session(engine) as s:
         assert list(s.exec(select(Plan)).all()) == []  # plan consumed
-    await runner.stop()
+    await runner.stop("seq_1")
 
 
 async def test_zone_plan_runs_only_that_zone(fast_config: AppConfig, engine) -> None:
@@ -172,7 +223,7 @@ async def test_zone_plan_runs_only_that_zone(fast_config: AppConfig, engine) -> 
     assert "switch.zone_a" not in driver.on_calls
     with Session(engine) as s:
         assert list(s.exec(select(Plan)).all()) == []  # plan consumed
-    await runner.stop()
+    await runner.stop(zone_run_id("zone_b"))
 
 
 async def test_zone_plan_skipped_when_master_off(fast_config: AppConfig, engine) -> None:
@@ -228,7 +279,7 @@ async def test_manual_trigger_ignores_skip(fast_config: AppConfig, engine) -> No
 
     result = await _run_sequence_job("seq_1", runner, ha, fast_config, sf, triggered_by="plan")
     assert result == "started"
-    await runner.stop()
+    await runner.stop("seq_1")
 
 
 async def test_rain_discards_paused_run(fast_config: AppConfig, engine) -> None:
@@ -246,12 +297,64 @@ async def test_rain_discards_paused_run(fast_config: AppConfig, engine) -> None:
         assert load_snapshot(s, "seq_1") is None
 
 
+async def test_rain_aborts_all_live_runs(minimal_config: AppConfig, engine) -> None:
+    """Rain aborts every live run, not just one."""
+    data = minimal_config.model_dump()
+    for seq in data["sequences"].values():
+        seq["basis_min_per_zone"] = 5.0
+        seq["range"] = [0.0, 10.0]
+        seq["watchdog_min"] = 60
+    config = AppConfig.model_validate(data)
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(config, FakeDriver(), sf)
+
+    await runner.start("seq_1")
+    await runner.start("seq_wind")
+    await asyncio.sleep(0)
+    assert len(runner.running_run_ids()) == 2
+
+    await _on_rain("binary_sensor.regen", {"state": "on"}, runner, config, FakeHA())
+    assert not runner.any_running()
+
+
 async def test_rain_noop_when_nothing_running_or_paused(fast_config: AppConfig, engine) -> None:
     """Rain with no live or paused run is a harmless no-op."""
     sf = lambda: Session(engine)  # noqa: E731
     runner = SequenceRunner(fast_config, FakeDriver(), sf)
     # Must not raise even though there is no run and no snapshot.
     await _on_rain("binary_sensor.regen", {"state": "on"}, runner, fast_config, FakeHA())
+
+
+class _ConfirmRecordingHA:
+    """Records the entities passed to refresh_rain_confirmed_peak."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[str], str]] = []
+
+    async def refresh_rain_confirmed_peak(
+        self, forecast_entities: list[str], rain_entity: str, start: datetime, end: datetime
+    ) -> None:
+        assert start <= end
+        self.calls.append((forecast_entities, rain_entity))
+
+
+async def test_refresh_rain_confirmed_peak_passes_today_sensors(minimal_config: AppConfig) -> None:
+    """The confirmed-peak refresh correlates only today's forecast sensors with the
+    rain sensor (tomorrow has not happened yet)."""
+    ha = _ConfirmRecordingHA()
+    await refresh_rain_confirmed_peak(minimal_config, ha)  # type: ignore[arg-type]
+    assert ha.calls == [(["sensor.prec_today", "sensor.prec_prob_today"], "binary_sensor.regen")]
+
+
+async def test_refresh_rain_confirmed_peak_skips_without_rain_sensor(
+    minimal_config: AppConfig,
+) -> None:
+    data = minimal_config.model_dump()
+    data["sensors"]["rain"] = ""
+    cfg = AppConfig.model_validate(data)
+    ha = _ConfirmRecordingHA()
+    await refresh_rain_confirmed_peak(cfg, ha)  # type: ignore[arg-type]
+    assert ha.calls == []
 
 
 def test_consume_skip_prunes_stale(engine) -> None:
@@ -337,3 +440,169 @@ async def test_push_no_targets_is_noop() -> None:
     ha = _RecordingHA()
     await push_notification(ha, _cfg_targets([]), "hi", category="start")
     assert ha.calls == []
+
+
+# ── Notifications: offline queue + reconnect flush ─────────────────────────────
+
+
+class _ToggleHA:
+    """Mock HA whose connection can be flipped; call_service fails while offline."""
+
+    def __init__(self, connected: bool = True) -> None:
+        self.is_connected = connected
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    async def call_service(self, domain: str, service: str, **data: Any) -> None:
+        if not self.is_connected:
+            raise RuntimeError("Not connected to Home Assistant")
+        self.calls.append((domain, service, data))
+
+
+@pytest.fixture(autouse=True)
+def _queue_db() -> Any:
+    """Back the module-level notification queue with a throwaway in-memory DB so the
+    persistent queue can be exercised without touching the real database."""
+    eng = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(eng)
+    _notification_queue.bind(lambda: Session(eng))
+    yield
+    _notification_queue.bind(None)
+
+
+async def test_push_queues_when_disconnected() -> None:
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(ha, cfg, "hi", category="start")
+    assert ha.calls == []  # nothing delivered while offline
+    assert _notification_queue.pending_count() == 1
+
+
+async def test_flush_delivers_queued_on_reconnect() -> None:
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(ha, cfg, "hi", category="start")
+    assert _notification_queue.pending_count() == 1
+
+    ha.is_connected = True
+    await flush_notification_queue(ha, cfg)
+    assert ha.calls == [("notify", "a", {"message": "hi"})]
+    assert _notification_queue.pending_count() == 0
+
+
+async def test_flush_keeps_items_when_still_offline() -> None:
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(ha, cfg, "hi", category="start")
+    # Reconnect callback fired but HA dropped again before the flush completed.
+    await flush_notification_queue(ha, cfg)
+    assert ha.calls == []
+    assert _notification_queue.pending_count() == 1  # retained for the next reconnect
+
+
+async def test_queue_survives_rebind_simulating_restart() -> None:
+    """A row written before a 'restart' is still delivered after rebinding the queue
+    to the same database — this is the whole point of persistence."""
+    eng = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(eng)
+    sf = lambda: Session(eng)  # noqa: E731
+    _notification_queue.bind(sf)
+
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(ha, cfg, "hi", category="start")
+    assert _notification_queue.pending_count() == 1
+
+    # Simulate a process restart: a fresh queue object bound to the same DB file.
+    _notification_queue.bind(None)
+    _notification_queue.bind(sf)
+    ha.is_connected = True
+    await flush_notification_queue(ha, cfg)
+    assert ha.calls == [("notify", "a", {"message": "hi"})]
+    assert _notification_queue.pending_count() == 0
+
+
+async def test_flush_drops_stale_items() -> None:
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    old = datetime.now(UTC).replace(tzinfo=None) - timedelta(
+        hours=cfg.notifications.queue_max_hours + 1
+    )
+    # Insert a stale row directly through the bound session factory.
+    sf = _notification_queue._session_factory
+    assert sf is not None
+    with sf() as session:
+        session.add(
+            QueuedNotification(service="notify.a", message="old", category="start", enqueued_at=old)
+        )
+        session.commit()
+
+    ha = _ToggleHA(connected=True)
+    await flush_notification_queue(ha, cfg)
+    assert ha.calls == []  # too old → dropped, not delivered late
+    assert _notification_queue.pending_count() == 0
+
+
+async def test_queue_disabled_when_max_hours_zero() -> None:
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    cfg.notifications.queue_max_hours = 0
+    await push_notification(ha, cfg, "hi", category="start")
+    assert _notification_queue.pending_count() == 0  # queuing off → dropped immediately
+
+
+async def test_real_service_error_is_not_queued() -> None:
+    # Connected, but the notify service itself raises → permanent error, not queued.
+    class _FailingHA:
+        is_connected = True
+
+        async def call_service(self, domain: str, service: str, **data: Any) -> None:
+            raise RuntimeError("Unknown service notify.a")
+
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    await push_notification(_FailingHA(), cfg, "hi", category="start")
+    assert _notification_queue.pending_count() == 0
+
+
+async def test_queue_caps_total_items() -> None:
+    from naiad.scheduler import _QUEUE_MAX_ITEMS
+
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["start"]}])
+    target = cfg.ha.notify_targets[0]
+    for i in range(_QUEUE_MAX_ITEMS + 10):
+        _notification_queue.enqueue(target, f"m{i}", "start", cfg)
+    assert _notification_queue.pending_count() == _QUEUE_MAX_ITEMS
+
+
+class _RefreshRecordingHA:
+    """Records the entity ids passed to refresh_daily_max / refresh_rain_confirmed_peak."""
+
+    def __init__(self) -> None:
+        self.refreshed: list[str] = []
+        self.confirmed_peak_calls: list[tuple[list[str], str]] = []
+
+    async def refresh_daily_max(self, entity_id: str, start: datetime, end: datetime) -> None:
+        # The window must cover today (local midnight up to now), not yesterday.
+        assert start <= end
+        self.refreshed.append(entity_id)
+
+    async def refresh_rain_confirmed_peak(
+        self, forecast_entities: list[str], rain_entity: str, start: datetime, end: datetime
+    ) -> None:
+        assert start <= end
+        self.confirmed_peak_calls.append((forecast_entities, rain_entity))
+
+
+async def test_refresh_rain_forecast_max_covers_all_precipitation_sensors(
+    minimal_config: AppConfig,
+) -> None:
+    ha = _RefreshRecordingHA()
+    await refresh_rain_forecast_max(minimal_config, ha)  # type: ignore[arg-type]
+    assert set(ha.refreshed) == {
+        "sensor.prec_today",
+        "sensor.prec_tomorrow",
+        "sensor.prec_prob_today",
+        "sensor.prec_prob_tomorrow",
+    }
+    # The rain forecast refresh also recomputes the rain-confirmed peak for today.
+    assert ha.confirmed_peak_calls == [
+        (["sensor.prec_today", "sensor.prec_prob_today"], "binary_sensor.regen")
+    ]

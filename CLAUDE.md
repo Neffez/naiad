@@ -25,6 +25,8 @@ Exception: user-visible UI strings are managed through i18n (`src/frontend/src/i
 - Backend unit tests in `src/backend/tests/` using pytest.
 - Mock the HA client (`ha_client.py`) in all unit tests — never make real WebSocket calls in tests.
 - Test all state machine paths: idle→running, running→paused, running→aborted (rain), running→aborted (watchdog).
+- Frontend unit tests live alongside the code as `*.test.ts`/`*.test.tsx` files under `src/frontend/src/`, using Vitest. Run them with `npm test` (`vitest run`) or `npm run test:watch` during development.
+- Both backend (pytest) and frontend (vitest) tests run on every CI pass — see `.github/workflows/ci.yml`.
 
 ## Security
 
@@ -35,3 +37,20 @@ Exception: user-visible UI strings are managed through i18n (`src/frontend/src/i
 ## Commits
 
 Follow conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`.
+
+A `pre-commit` hook enforces the linters/formatters on every commit (CI fails
+the build otherwise). After cloning, install it once:
+
+```
+pip install pre-commit   # if not already available
+pre-commit install
+```
+
+The hook (`.pre-commit-config.yaml`) runs:
+- Backend: `ruff` (with `--fix`), `ruff-format`, `mypy`.
+- Frontend: `eslint` and `tsc -b`.
+
+To run it manually without committing: `pre-commit run --all-files`. If a commit
+is ever made in an environment where the hook is not installed, run the checks by
+hand first: `ruff format . && ruff check .` (in `src/backend/`) and
+`npm run lint && npx tsc -b` (in `src/frontend/`).

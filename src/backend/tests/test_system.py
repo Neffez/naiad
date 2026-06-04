@@ -1,9 +1,14 @@
-from datetime import UTC, datetime
+import uuid
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlmodel import Session, SQLModel, create_engine
 
-from naiad.api.system import _week_series
-from naiad.domain.models import RunHistory
+from naiad.api.system import _upcoming_day_runs, _week_series
+from naiad.config import AppConfig
+from naiad.domain.models import Plan, RunHistory
+from tests.conftest import MINIMAL_CONFIG_DATA
 
 
 def _engine():
@@ -35,3 +40,58 @@ def test_week_series_buckets_runs_by_local_weekday() -> None:
 def test_week_series_empty() -> None:
     with Session(_engine()) as s:
         assert _week_series(s, "Europe/Berlin") == [0.0] * 7
+
+
+def _config_no_schedule() -> AppConfig:
+    """Config whose sequences have no cron schedule, so the only upcoming runs
+    are the ones we inject (a running run, in these tests)."""
+    cfg = AppConfig.model_validate(MINIMAL_CONFIG_DATA)
+    for seq in cfg.sequences.values():
+        seq.schedule.cron = None
+        seq.schedule.times = []
+        seq.schedule.days = []
+    return cfg
+
+
+def test_running_sequence_excluded_from_upcoming_runs() -> None:
+    """A run currently executing must NOT appear in the upcoming list — live runs
+    are surfaced on the sequence/zone cards instead. With no schedule and only a
+    running run in the system, the upcoming list is therefore empty."""
+    cfg = _config_no_schedule()
+    sched = AsyncIOScheduler(timezone=cfg.timezone)
+    with Session(_engine()) as s:
+        runs = _upcoming_day_runs(s, cfg, sched)
+
+    assert runs == []
+
+
+def _plan_at(local_dt: datetime) -> Plan:
+    """A one-off seq_1 plan at a local-aware datetime, stored as naive UTC."""
+    return Plan(
+        id=str(uuid.uuid4()),
+        sequence_id="seq_1",
+        scheduled_at=local_dt.astimezone(UTC).replace(tzinfo=None),
+        duration_min=10,
+    )
+
+
+def test_upcoming_runs_span_first_future_day_only() -> None:
+    """The upcoming list covers the next future day that has runs (all of them)
+    but stops there — runs on the day after are not included."""
+    cfg = _config_no_schedule()
+    tz = ZoneInfo(cfg.timezone)
+    # Use tomorrow as the first future day so the assertions don't depend on how
+    # much of today is left at test time.
+    tomorrow = datetime.now(tz).date() + timedelta(days=1)
+    day_after = tomorrow + timedelta(days=1)
+    sched = AsyncIOScheduler(timezone=cfg.timezone)
+    with Session(_engine()) as s:
+        s.add(_plan_at(datetime.combine(tomorrow, time(6, 0), tzinfo=tz)))
+        s.add(_plan_at(datetime.combine(tomorrow, time(20, 0), tzinfo=tz)))
+        s.add(_plan_at(datetime.combine(day_after, time(6, 0), tzinfo=tz)))
+        s.commit()
+        runs = _upcoming_day_runs(s, cfg, sched)
+
+    # Both of tomorrow's runs, sorted, and nothing from the day after.
+    times = [r.scheduled_at.replace(tzinfo=UTC).astimezone(tz).date() for r in runs]
+    assert times == [tomorrow, tomorrow]

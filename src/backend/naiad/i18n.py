@@ -26,11 +26,25 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "skip.zero_factor": "💧 {label}: factor 0 % — run skipped",
         "skip.conflict_sequence": "⚠️ Schedule conflict: {label} skipped — {running} still running",
         "skip.conflict_zone": "⚠️ Schedule conflict: zone {label} skipped — {running} still running",
+        "skip.expired": (
+            "⚠️ {label}: scheduled run dropped — valve safety work blocked it for too long"
+        ),
         "start.sequence": "🌿 {label} started ({trigger}, factor {pct} %)",
         "start.zone": "🌿 Zone {label} started ({trigger}, {minutes} min)",
         "abort.paused_rain": "🌧 Paused run discarded: rain ({label})",
         "abort.rain": "🌧 Watering stopped: rain ({label})",
         "abort.watchdog": "🚨 Watchdog: {label} — zone {zone} ran too long, stopped.",
+        "abort.staircase_failed": (
+            "⚠️ {label} ended early — zone {zone}: the actuator stopped responding "
+            "(staircase re-trigger failed)."
+        ),
+        "abort.close_failed": (
+            "🚨 {label} stopped — zone {zone}: the valve could not be confirmed closed. "
+            "Remaining zones were skipped; the close will be retried."
+        ),
+        "abort.start_failed": (
+            "⚠️ {label} could not start — zone {zone}: the valve was closed again safely."
+        ),
         "reminder.header": "💦🌱 Tomorrow:",
         "reminder.line": "• {time} {label}",
         "reminder.planned": "{label} (planned)",
@@ -50,6 +64,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "skip.conflict_zone": (
             "⚠️ Zeitplan-Konflikt: Zone {label} übersprungen — {running} läuft noch"
         ),
+        "skip.expired": (
+            "⚠️ {label}: geplanter Lauf verworfen — Ventil-Sicherheitsarbeiten "
+            "blockierten ihn zu lange"
+        ),
         # Starts
         "start.sequence": "🌿 {label} gestartet ({trigger}, Faktor {pct} %)",
         "start.zone": "🌿 Zone {label} gestartet ({trigger}, {minutes} min)",
@@ -57,6 +75,17 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "abort.paused_rain": "🌧 Pausierte Bewässerung verworfen: Regen ({label})",
         "abort.rain": "🌧 Bewässerung gestoppt: Regen ({label})",
         "abort.watchdog": "🚨 Watchdog: {label} — Zone {zone} lief zu lange, gestoppt.",
+        "abort.staircase_failed": (
+            "⚠️ {label} vorzeitig beendet — Zone {zone}: Aktor reagierte nicht "
+            "(Treppenlicht-Re-Trigger fehlgeschlagen)."
+        ),
+        "abort.close_failed": (
+            "🚨 {label} gestoppt — Zone {zone}: Ventil konnte nicht bestätigt geschlossen "
+            "werden. Restliche Zonen übersprungen; das Schließen wird erneut versucht."
+        ),
+        "abort.start_failed": (
+            "⚠️ {label} konnte nicht starten — Zone {zone}: Ventil wurde wieder sicher geschlossen."
+        ),
         # Nightly reminder
         "reminder.header": "💦🌱 Morgen:",
         "reminder.line": "• {time} {label}",

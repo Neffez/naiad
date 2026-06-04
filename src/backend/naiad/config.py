@@ -162,15 +162,52 @@ class SensorsConfig(BaseModel):
     precipitation_prob_tomorrow: str
     precipitation_today: str
     precipitation_tomorrow: str
+    # Optional actual precipitation amount sensor. Naiad reads its HA recorder
+    # history and turns recent positive deltas into a multi-day rain credit for
+    # the water-balance rain mode. Works with daily-reset or total-increasing mm
+    # sensors as long as state changes are numeric.
+    precipitation_actual: str = ""
 
 
 # ── Zones ─────────────────────────────────────────────────────────────────────
 
 
+# Some valve actuators (e.g. KNX switch actuators) offer a hardware "staircase
+# light" timer: a turn-on keeps the switch on for a fixed time and then closes it
+# on its own, bounding how long a valve can stay open if a turn-off is ever lost.
+# When enabled for a zone, Naiad re-sends "on" before that timer expires so the
+# valve stays open for the full watering, while the actuator still acts as a
+# hardware safety net. The re-trigger interval is derived (no benefit to making it
+# configurable): re-trigger at half the actuator timer, which tolerates a single
+# missed/failed trigger without the valve dropping.
+STAIRCASE_RETRIGGER_FRACTION = 0.5
+# On a failed re-trigger (HA hiccup), retry sooner than the normal interval — we
+# still have until the actuator's timer elapses to land a successful "on".
+STAIRCASE_RETRY_ON_FAILURE_S = 5.0
+
+
 class ZoneConfig(BaseModel):
     label: str
     switch: str
-    flow_lph: float
+    flow_lph: float = Field(gt=0)
+    # Hardware staircase-light timer support (see note above). When enabled,
+    # ``staircase_min`` is the actuator's configured on-time in minutes.
+    staircase_enabled: bool = False
+    staircase_min: float = 0.0
+
+    @model_validator(mode="after")
+    def _validate_staircase(self) -> "ZoneConfig":
+        if self.staircase_enabled and self.staircase_min <= 0:
+            raise ValueError("staircase_min must be > 0 when staircase_enabled is true")
+        return self
+
+
+def staircase_retrigger_interval_min(zone: ZoneConfig) -> float | None:
+    """The interval (minutes) at which to re-send "on" for a staircase zone, or
+    None when the zone does not use the actuator's staircase timer."""
+    if not zone.staircase_enabled or zone.staircase_min <= 0:
+        return None
+    return zone.staircase_min * STAIRCASE_RETRIGGER_FRACTION
 
 
 # ── Sequences ────────────────────────────────────────────────────────────────
@@ -295,19 +332,29 @@ class ScheduleConfig(BaseModel):
         return [cron_for_time(t, self.days) for t in self.times]
 
 
+# Accent-color keys for the colored bar on a sequence card. The hex values
+# behind each key live in the frontend palette (src/frontend/src/theme/
+# sequenceColors.ts); the backend only stores/validates the key. None means no
+# explicit choice (a neutral default bar is shown when colors are enabled).
+SequenceColor = Literal["green", "sand", "purple", "slate", "blue", "rose"]
+
+
 class SequenceConfig(BaseModel):
     label: str
     zones: list[str]
-    basis_min_per_zone: float
+    basis_min_per_zone: float = Field(gt=0)
     range: tuple[float, float] = (5.0, 240.0)
-    watchdog_min: int
+    watchdog_min: int = Field(gt=0)
     schedule: ScheduleConfig
     enabled: bool = True
     wind_blocks: bool = False
+    color: SequenceColor | None = None
 
     @model_validator(mode="after")
     def validate_range(self) -> "SequenceConfig":
         lo, hi = self.range
+        if lo < 0:
+            raise ValueError(f"range[0] must be >= 0, got {lo}")
         if lo >= hi:
             raise ValueError(f"range[0] must be < range[1], got [{lo}, {hi}]")
         return self
@@ -331,11 +378,26 @@ class TempFactorConfig(BaseModel):
 
 
 class RainFactorConfig(BaseModel):
+    mode: Literal["forecast", "water_balance"] = "forecast"
     forecast_days: int = Field(default=2, ge=1)
     threshold_prob: int = Field(default=70, ge=0, le=100)
     reduce_above_mm: float = 5.0
     zero_above_mm: float = 20.0
     forecast_decay: float = Field(default=0.5, ge=0.0, le=1.0)
+    water_balance_days: int = Field(default=4, ge=1, le=14)
+    water_balance_decay: float = Field(default=0.65, ge=0.0, le=1.0)
+    # When True the rain factor also uses the day's *peak* forecast for tomorrow
+    # (the highest value seen since local midnight), not just the latest reading —
+    # mirroring how today is handled. Today always uses the peak; tomorrow's
+    # forecast is more volatile, so peaking it is opt-in. False = today only.
+    peak_tomorrow: bool = False
+    # When True today's peak forecast only counts if the binary rain sensor
+    # (``sensors.rain``) actually fired at some point today; otherwise today falls
+    # back to the latest reading. This stops a forecast spike that never produced
+    # real rain from suppressing irrigation all day. Only meaningful for *today*
+    # (tomorrow has not happened yet). Opt-in so a noisy/misconfigured rain sensor
+    # can't silently reduce suppression. False = today always uses the peak.
+    confirm_with_rain_sensor: bool = False
 
     @model_validator(mode="after")
     def validate_mm_thresholds(self) -> "RainFactorConfig":
@@ -360,6 +422,18 @@ class NotificationsConfig(BaseModel):
     platform) live on each :class:`NotifyTarget`."""
 
     evening_reminder_cron: str = "0 21 * * *"  # when the nightly reminder is sent
+    # When Home Assistant is unreachable, notifications that could not be sent are
+    # queued and re-delivered on reconnect. Items older than this many hours are
+    # dropped instead of arriving late. 0 disables queuing (failed sends are dropped
+    # immediately, the previous behaviour).
+    queue_max_hours: float = 6.0
+
+    @field_validator("queue_max_hours")
+    @classmethod
+    def _non_negative_max_hours(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("queue_max_hours must be >= 0")
+        return v
 
 
 # ── Root ─────────────────────────────────────────────────────────────────────
@@ -378,6 +452,9 @@ class AppConfig(BaseModel):
     notifications: NotificationsConfig = NotificationsConfig()
     timezone: str = "Europe/Berlin"  # IANA tz for cron schedules and day bucketing
     language: Literal["de", "en"] = "en"  # language of server-side notifications
+    # Global switch for the colored accent bars on sequence cards. When false, no
+    # bars are shown anywhere regardless of per-sequence color choices.
+    sequence_colors_enabled: bool = True
 
     @model_validator(mode="after")
     def validate_timezone(self) -> "AppConfig":
@@ -395,6 +472,29 @@ class AppConfig(BaseModel):
             for zone_id in seq.zones:
                 if zone_id not in self.zones:
                     raise ValueError(f"Sequence '{seq_id}' references unknown zone '{zone_id}'")
+        return self
+
+    @model_validator(mode="after")
+    def validate_unique_switches(self) -> "AppConfig":
+        """Each switch entity must belong to exactly one zone.
+
+        Zone reservation and valve ownership are tracked by switch entity, so two
+        zones sharing a switch could run in parallel and physically fight over the
+        same valve. Forbid the ambiguity at config time.
+        """
+        seen: dict[str, str] = {}
+        for zone_id, zone in self.zones.items():
+            # An empty switch means "not yet configured" — these are allowed in any
+            # number (a run on such a zone is rejected separately at start time) and
+            # are not a physical entity, so they never collide.
+            if not zone.switch:
+                continue
+            if zone.switch in seen:
+                raise ValueError(
+                    f"Zones '{seen[zone.switch]}' and '{zone_id}' share switch "
+                    f"'{zone.switch}'; each switch must map to exactly one zone"
+                )
+            seen[zone.switch] = zone_id
         return self
 
 

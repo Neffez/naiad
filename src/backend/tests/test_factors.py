@@ -75,6 +75,37 @@ def test_rain_full_block(minimal_config: AppConfig) -> None:
     assert result.factor_pct == pytest.approx(0.0)
 
 
+def test_actual_rain_credit_ignored_in_forecast_mode(minimal_config: AppConfig) -> None:
+    result = compute_factors(_snap(actual_rain_credit_mm=25.0), minimal_config)
+    assert result.rain_factor_pct == pytest.approx(100.0)
+    assert result.factor_pct == pytest.approx(100.0)
+
+
+def test_water_balance_credit_reduces_factor(minimal_config: AppConfig, factor_engine) -> None:
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_mode="water_balance"))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(_snap(actual_rain_credit_mm=10.0), minimal_config, session)
+
+    assert result.rain_factor_pct == pytest.approx(100.0 * (1.0 - 5.0 / 15.0), rel=1e-3)
+    assert result.rain_mm == pytest.approx(10.0)
+    assert result.rain_prob_pct == pytest.approx(100.0)
+
+
+def test_water_balance_credit_can_skip_run(minimal_config: AppConfig, factor_engine) -> None:
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_mode="water_balance"))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(_snap(actual_rain_credit_mm=25.0), minimal_config, session)
+
+    assert result.rain_factor_pct == pytest.approx(0.0)
+    assert result.factor_pct == pytest.approx(0.0)
+
+
 def test_season_off_returns_zero_factor(minimal_config: AppConfig) -> None:
     result = compute_factors(_snap(season_on=False), minimal_config)
     assert result.season_off is True
@@ -157,6 +188,70 @@ def test_no_factor_override_uses_yaml(minimal_config: AppConfig, factor_engine) 
     assert result.factor_pct == pytest.approx(100.0)
 
 
+# ── Manual adjustment override ────────────────────────────────────────────────
+
+
+def test_manual_mode_overrides_automatic_factor(minimal_config: AppConfig, factor_engine) -> None:
+    """With manual_mode on, the automatic temp/rain calculation is bypassed."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, manual_mode=True, manual_pct=120))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        # A hot day that would normally push the factor up, plus heavy rain that
+        # would normally zero it out — neither applies in manual mode.
+        result = compute_factors(
+            _snap(temperature_c=40.0, precipitation_prob_today=90.0, precipitation_today_mm=25.0),
+            minimal_config,
+            session,
+        )
+
+    assert result.manual is True
+    assert result.factor_pct == pytest.approx(120.0)
+    assert result.temp_delta_pct == pytest.approx(0.0)
+    assert result.rain_factor_pct == pytest.approx(100.0)
+
+
+def test_manual_mode_clamped_to_temp_bounds(minimal_config: AppConfig, factor_engine) -> None:
+    """A manual percentage beyond the temp factor's min/max is clamped."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, manual_mode=True, manual_pct=999))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(_snap(), minimal_config, session)
+
+    # minimal_config temp max_pct = 150
+    assert result.factor_pct == pytest.approx(150.0)
+
+
+def test_manual_mode_off_uses_automatic(minimal_config: AppConfig, factor_engine) -> None:
+    """A stored manual_pct is ignored when manual_mode is False."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, manual_mode=False, manual_pct=120))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(_snap(temperature_c=25.0), minimal_config, session)
+
+    assert result.manual is False
+    assert result.factor_pct == pytest.approx(135.0)
+
+
+def test_manual_mode_overrides_season_off(minimal_config: AppConfig, factor_engine) -> None:
+    """Manual mode takes precedence even when the season is off."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, manual_mode=True, manual_pct=100))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(_snap(season_on=False), minimal_config, session)
+
+    assert result.manual is True
+    assert result.season_off is False
+    assert result.factor_pct == pytest.approx(100.0)
+
+
 # ── Override validation (C-2 regression) ──────────────────────────────────────
 
 
@@ -193,3 +288,136 @@ def test_merge_factor_config_accepts_valid_override(minimal_config: AppConfig) -
     temp, rain = merge_factor_config(minimal_config, good)
     assert rain.reduce_above_mm == 2.0
     assert rain.zero_above_mm == 15.0
+
+
+def test_tomorrow_peak_ignored_by_default(minimal_config: AppConfig) -> None:
+    """peak_tomorrow defaults off: the live tomorrow reading drives the factor and a
+    higher peak seen earlier today is ignored."""
+    result = compute_factors(
+        _snap(
+            precipitation_prob_tomorrow=20.0,
+            precipitation_tomorrow_mm=2.0,
+            precipitation_prob_tomorrow_peak=90.0,
+            precipitation_tomorrow_mm_peak=40.0,
+        ),
+        minimal_config,
+    )
+    assert result.rain_factor_pct == pytest.approx(100.0)  # live 2mm/20% → no reduction
+
+
+def test_tomorrow_peak_used_when_enabled(minimal_config: AppConfig, factor_engine) -> None:
+    """With peak_tomorrow on, the day's peak tomorrow forecast drives the factor even
+    after the live reading has dropped back."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_peak_tomorrow=True))
+        session.commit()
+    with Session(factor_engine) as session:
+        result = compute_factors(
+            _snap(
+                precipitation_prob_tomorrow=20.0,
+                precipitation_tomorrow_mm=2.0,
+                precipitation_prob_tomorrow_peak=90.0,
+                precipitation_tomorrow_mm_peak=40.0,
+            ),
+            minimal_config,
+            session,
+        )
+    # peak 40mm × decay 0.5 = 20mm effective at 90% prob → full block
+    assert result.rain_factor_pct == pytest.approx(0.0)
+
+
+def test_today_always_uses_peak(minimal_config: AppConfig) -> None:
+    """Today's peak always drives the factor regardless of peak_tomorrow: the snapshot
+    already carries the peak in precipitation_today_mm."""
+    result = compute_factors(
+        _snap(precipitation_prob_today=90.0, precipitation_today_mm=40.0),
+        minimal_config,
+    )
+    assert result.rain_factor_pct == pytest.approx(0.0)
+
+
+def _peak_vs_current_snap(
+    confirmed_mm: float | None, confirmed_prob: float | None
+) -> SensorSnapshot:
+    # High peak earlier today (40mm/90%) but the latest reading has dropped back
+    # (2mm/20%): the day spiked in the forecast but may never have actually rained.
+    # ``confirmed_*`` is the peak that coincided with the rain sensor being on.
+    return _snap(
+        precipitation_prob_today=90.0,
+        precipitation_today_mm=40.0,
+        precipitation_prob_today_current=20.0,
+        precipitation_today_mm_current=2.0,
+        precipitation_prob_today_confirmed=confirmed_prob,
+        precipitation_today_mm_confirmed=confirmed_mm,
+    )
+
+
+def _enable_confirm(engine) -> None:
+    with Session(engine) as session:
+        session.add(FactorOverride(id=1, rain_confirm_with_sensor=True))
+        session.commit()
+
+
+def test_rain_sensor_gate_off_by_default_uses_peak(minimal_config: AppConfig) -> None:
+    """Without the opt-in flag, today keeps using the peak even if it never rained."""
+    result = compute_factors(
+        _peak_vs_current_snap(confirmed_mm=0.0, confirmed_prob=0.0), minimal_config
+    )
+    assert result.rain_factor_pct == pytest.approx(0.0)  # peak 40mm → full block
+
+
+def test_rain_sensor_gate_falls_back_to_current_when_no_rain(
+    minimal_config: AppConfig, factor_engine
+) -> None:
+    """With confirm_with_rain_sensor on and a confirmed peak of 0 (it never rained),
+    today's sticky peak is ignored — the latest reading drives the factor, so a phantom
+    forecast spike does not suppress watering."""
+    _enable_confirm(factor_engine)
+    with Session(factor_engine) as session:
+        result = compute_factors(
+            _peak_vs_current_snap(confirmed_mm=0.0, confirmed_prob=0.0), minimal_config, session
+        )
+    assert result.rain_factor_pct == pytest.approx(100.0)  # current 2mm/20% → no reduction
+
+
+def test_rain_sensor_gate_uses_confirmed_peak(minimal_config: AppConfig, factor_engine) -> None:
+    """The peak that actually coincided with rain (40mm/90%) drives the factor, even
+    after the live reading dropped back."""
+    _enable_confirm(factor_engine)
+    snap = _peak_vs_current_snap(confirmed_mm=40.0, confirmed_prob=90.0)
+    with Session(factor_engine) as session:
+        result = compute_factors(snap, minimal_config, session)
+    assert result.rain_factor_pct == pytest.approx(0.0)  # confirmed 40mm → full block
+
+
+def test_rain_sensor_gate_uses_max_of_current_and_confirmed(
+    minimal_config: AppConfig, factor_engine
+) -> None:
+    """Mixed case: it rained only lightly (confirmed 5mm) but the live reading is now
+    higher (10mm) — the live reading always counts, so today = max(current, confirmed)."""
+    _enable_confirm(factor_engine)
+    # current 10mm/80%, confirmed 5mm/75%, sticky peak 40mm/90% (never confirmed).
+    snap = _snap(
+        precipitation_prob_today=90.0,
+        precipitation_today_mm=40.0,
+        precipitation_prob_today_current=80.0,
+        precipitation_today_mm_current=10.0,
+        precipitation_prob_today_confirmed=75.0,
+        precipitation_today_mm_confirmed=5.0,
+    )
+    with Session(factor_engine) as session:
+        result = compute_factors(snap, minimal_config, session)
+    # 10mm with reduce_above=5, zero_above=20 → 1 - (5/15) ≈ 0.667 (neither phantom 40 nor 5)
+    assert result.rain_factor_pct == pytest.approx(100.0 * (1.0 - 5.0 / 15.0), rel=1e-3)
+
+
+def test_rain_sensor_gate_falls_back_to_peak_when_confirmed_unknown(
+    minimal_config: AppConfig, factor_engine
+) -> None:
+    """A None confirmed peak (not yet computed, e.g. before the first refresh) falls
+    back to the unconfirmed peak rather than dropping suppression."""
+    _enable_confirm(factor_engine)
+    snap = _peak_vs_current_snap(confirmed_mm=None, confirmed_prob=None)
+    with Session(factor_engine) as session:
+        result = compute_factors(snap, minimal_config, session)
+    assert result.rain_factor_pct == pytest.approx(0.0)  # conservative peak 40mm → full block

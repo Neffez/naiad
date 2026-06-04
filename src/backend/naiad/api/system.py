@@ -23,30 +23,16 @@ from naiad.dependencies import (
     get_scheduler,
     require_auth,
 )
-from naiad.domain.factors import compute_factors
-from naiad.domain.models import Plan, RunHistory, SequenceOverride, SkippedRun, UserPreference
+from naiad.domain.factors import compute_factors, merge_factor_config, rain_factor_inputs
+from naiad.domain.models import FactorOverride, Plan, RunHistory, SequenceOverride, SkippedRun
+from naiad.domain.preferences import read_master_on, set_master_on
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.domain.sequences import SequenceRunner, zone_run_id
 from naiad.ha_client import HAClient
 from naiad.scheduler import next_run_for_sequence, upcoming_cron_runs
-from naiad.timeutil import local_day_start_utc, local_week_start_utc
+from naiad.timeutil import local_day_start_utc, local_week_start_utc, parse_iso_or_none
 
 router = APIRouter(tags=["system"])
-
-
-def _get_master(session: Session) -> bool:
-    pref = session.get(UserPreference, "master_on")
-    return pref is None or pref.value == "1"
-
-
-def _set_master(session: Session, value: bool) -> None:
-    pref = session.get(UserPreference, "master_on")
-    if pref is None:
-        pref = UserPreference(key="master_on", value="1" if value else "0")
-    else:
-        pref.value = "1" if value else "0"
-    session.add(pref)
-    session.commit()
 
 
 def _week_series(session: Session, tz_name: str) -> list[float]:
@@ -169,15 +155,19 @@ def _upcoming_day_runs(
     config: AppConfig,
     scheduler: AsyncIOScheduler,
 ) -> list[NextRunResponse]:
-    """Upcoming runs for the next day that has any (local calendar day).
+    """Upcoming (not-yet-started) runs: today's remaining runs plus all runs of
+    the next future day that has any (local calendar days).
 
-    If runs remain today, returns all of today's remaining runs; otherwise all
-    runs of the next day that has scheduled runs. Both one-off plans and recurring
-    cron schedules are merged, and user-skipped cron occurrences are excluded.
+    Returns today's remaining runs (if any) followed by every run of the earliest
+    later day that has scheduled runs — at most two calendar days, or just the next
+    day when nothing remains today. Both one-off plans and recurring cron schedules
+    are merged and user-skipped cron occurrences are excluded. Currently-running
+    runs are *not* included here; they are surfaced live on the sequence/zone cards.
     """
     tz = ZoneInfo(config.timezone)
     now = datetime.now(UTC)
     until = now + timedelta(days=8)
+    today = now.astimezone(tz).date()
 
     # User-skipped cron occurrences, keyed by sequence → set of minute-truncated
     # naive-UTC fire times.
@@ -222,8 +212,16 @@ def _upcoming_day_runs(
         return []
 
     candidates.sort(key=lambda c: c[0])
-    target_date = candidates[0][0].astimezone(tz).date()
-    return [run for when, run in candidates if when.astimezone(tz).date() == target_date]
+
+    # All candidates fire at or after "now", so each lands on today or a later day.
+    today_runs = [run for when, run in candidates if when.astimezone(tz).date() == today]
+    later = [(when, run) for when, run in candidates if when.astimezone(tz).date() > today]
+    next_day_runs: list[NextRunResponse] = []
+    if later:
+        next_date = later[0][0].astimezone(tz).date()
+        next_day_runs = [run for when, run in later if when.astimezone(tz).date() == next_date]
+
+    return today_runs + next_day_runs
 
 
 @router.get("/status", response_model=SystemStatusResponse)
@@ -236,6 +234,20 @@ async def get_status(
 ) -> SystemStatusResponse:
     snapshot = read_sensor_snapshot(ha, config)
     factors = compute_factors(snapshot, config, session)
+
+    # Mirror the rain inputs compute_factors actually used (today peak — gated on the
+    # rain sensor when confirm_with_rain_sensor is on — and tomorrow per peak_tomorrow)
+    # so the displayed rain figures match the applied adjustment.
+    _eff_temp, eff_rain = merge_factor_config(config, session.get(FactorOverride, 1))
+    rain_prob_today, rain_prob_tomorrow, rain_mm_today, rain_mm_tomorrow = rain_factor_inputs(
+        snapshot, eff_rain.peak_tomorrow, eff_rain.confirm_with_rain_sensor
+    )
+    display_rain_prob = factors.rain_prob_pct
+    display_rain_mm = factors.rain_mm
+    if display_rain_prob is None:
+        display_rain_prob = max(rain_prob_today, rain_prob_tomorrow)
+    if display_rain_mm is None:
+        display_rain_mm = max(rain_mm_today, rain_mm_tomorrow * eff_rain.forecast_decay)
 
     wind_blocking = [
         seq_id for seq_id, seq in config.sequences.items() if seq.wind_blocks and snapshot.wind_on
@@ -251,11 +263,11 @@ async def get_status(
     next_runs = _next_runs(session, config, scheduler, 2)
 
     return SystemStatusResponse(
-        master_on=_get_master(session),
+        master_on=read_master_on(session),
         ha_connected=ha.is_connected,
         weather=WeatherSummaryResponse(
             temp_c=snapshot.temperature_c,
-            rain_24h_mm=snapshot.precipitation_today_mm,
+            rain_24h_mm=rain_mm_today,
             wind_label="on" if snapshot.wind_on else "off",
             season_active=snapshot.season_on,
         ),
@@ -266,7 +278,15 @@ async def get_status(
             temp_pct=int(round(factors.temp_delta_pct)),
             rain_pct=int(round(factors.rain_factor_pct)) - 100,
             combined_pct=int(round(factors.factor_pct)),
+            manual=factors.manual,
             wind_blocking_sequences=wind_blocking,
+            temp_input_c=(
+                snapshot.max_temperature_c
+                if snapshot.max_temperature_c is not None
+                else snapshot.temperature_c
+            ),
+            rain_prob_pct=display_rain_prob,
+            rain_mm=display_rain_mm,
         ),
         next_run=next_runs[0] if len(next_runs) > 0 else None,
         after_next=next_runs[1] if len(next_runs) > 1 else None,
@@ -283,7 +303,7 @@ async def set_master(
     _: None = Depends(require_auth),
     session: Session = Depends(get_session),
 ) -> dict[str, bool]:
-    _set_master(session, body.on)
+    set_master_on(session, body.on)
     return {"master_on": body.on}
 
 
@@ -326,7 +346,6 @@ async def list_valves(
     ha: HAClient = Depends(get_ha_client),
     runner: SequenceRunner = Depends(get_runner),
 ) -> list[ValveStateResponse]:
-    running_id = runner.status().sequence_id
     result = []
     for zone_id, zone in config.zones.items():
         state_dict = ha.get_state(zone.switch)
@@ -338,15 +357,19 @@ async def list_valves(
             state = raw if raw in ("on", "off") else "unknown"
             on_since = None
             if state == "on":
-                raw_ts = state_dict.get("last_changed", "")
-                try:
-                    on_since = datetime.fromisoformat(raw_ts)
-                except (ValueError, TypeError):
-                    on_since = None
+                on_since = parse_iso_or_none(state_dict.get("last_changed"))
 
         runtime_min: float | None = None
         if on_since is not None:
             runtime_min = (datetime.now(UTC) - on_since).total_seconds() / 60.0
+
+        # For a standalone single-zone run, expose its planned duration so the UI
+        # can show remaining time (e.g. "5 / 10 min").
+        zone_run = runner.find_zone_run(zone_id)
+        single_run = zone_run is not None and zone_run[0] == zone_run_id(zone_id)
+        total_min: float | None = None
+        if single_run and zone_run is not None:
+            total_min = zone_run[1].duration_min
 
         result.append(
             ValveStateResponse(
@@ -356,7 +379,8 @@ async def list_valves(
                 state=state,
                 on_since=on_since,
                 runtime_min=runtime_min,
-                single_run=running_id == zone_run_id(zone_id),
+                total_min=total_min,
+                single_run=single_run,
             )
         )
     return result
