@@ -18,6 +18,7 @@ import History from './pages/History'
 import Login from './pages/Login'
 import Planner from './pages/Planner'
 import SettingsLayout from './pages/settings/SettingsLayout'
+import { DEFAULT_SECTION } from './pages/settings/sectionsMeta'
 import AdvancedSection from './pages/settings/sections/AdvancedSection'
 import ConnectionSection from './pages/settings/sections/ConnectionSection'
 import IntegrationsSection from './pages/settings/sections/IntegrationsSection'
@@ -129,7 +130,7 @@ function AppShell() {
               <Route path="/planner" element={<PageShell title={t('nav.planner')}><Planner /></PageShell>} />
               <Route path="/history" element={<PageShell title={t('nav.history')}><History /></PageShell>} />
               <Route path="/settings" element={<PageShell title={t('nav.settings')}><SettingsLayout /></PageShell>}>
-                <Route index element={<Navigate to="zones" replace />} />
+                <Route index element={<Navigate to={DEFAULT_SECTION} replace />} />
                 <Route path="zones" element={<ZonesSection />} />
                 <Route path="sequences" element={<SequencesSection />} />
                 <Route path="watering" element={<WateringSection />} />

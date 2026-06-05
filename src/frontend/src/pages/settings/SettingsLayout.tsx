@@ -18,7 +18,7 @@ import { toast } from '../../components/Toast'
 import { SubNav } from '../../components/config/SubNav'
 import { Banner, Pill } from '../../components/config/primitives'
 import { ConfigProvider } from './ConfigContext'
-import { type SectionId } from './sectionsMeta'
+import { SECTIONS, type SectionId } from './sectionsMeta'
 
 export default function SettingsLayout() {
   const { t } = useTranslation()
@@ -150,8 +150,13 @@ export default function SettingsLayout() {
   }
   const dirtySections = new Set<SectionId>()
   if (data) {
-    for (const id of ['zones', 'sequences', 'notifications', 'connection', 'integrations', 'advanced'] as SectionId[]) {
-      if (JSON.stringify(slice(draft, id)) !== JSON.stringify(slice(data, id))) dirtySections.add(id)
+    // Derive the draft-backed sections from the metadata so a new section (or a
+    // change to usesDraft) is picked up here without editing a parallel list.
+    for (const s of SECTIONS) {
+      if (!s.usesDraft) continue
+      if (JSON.stringify(slice(draft, s.id)) !== JSON.stringify(slice(data, s.id))) {
+        dirtySections.add(s.id)
+      }
     }
   }
   const counts: Partial<Record<SectionId, number>> = {

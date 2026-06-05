@@ -168,6 +168,29 @@ def rain_factor_inputs(
     return (prob_today, prob_tomorrow, mm_today, mm_tomorrow)
 
 
+# Single source of truth mapping a FactorConfig field to its FactorOverride
+# column. Used both to merge overrides at runtime and (in the settings API) to
+# detect and clear overrides — keep all three in lockstep by deriving from here.
+TEMP_OVERRIDE_MAP: tuple[tuple[str, str], ...] = (
+    ("basis_c", "temp_basis_c"),
+    ("pct_per_c", "temp_pct_per_c"),
+    ("min_pct", "temp_min_pct"),
+    ("max_pct", "temp_max_pct"),
+)
+RAIN_OVERRIDE_MAP: tuple[tuple[str, str], ...] = (
+    ("forecast_days", "rain_forecast_days"),
+    ("mode", "rain_mode"),
+    ("threshold_prob", "rain_threshold_prob"),
+    ("reduce_above_mm", "rain_reduce_above_mm"),
+    ("zero_above_mm", "rain_zero_above_mm"),
+    ("forecast_decay", "rain_forecast_decay"),
+    ("water_balance_days", "rain_water_balance_days"),
+    ("water_balance_decay", "rain_water_balance_decay"),
+    ("peak_tomorrow", "rain_peak_tomorrow"),
+    ("confirm_with_rain_sensor", "rain_confirm_with_sensor"),
+)
+
+
 def merge_factor_config(
     config: AppConfig,
     fo: FactorOverride | None,
@@ -185,30 +208,14 @@ def merge_factor_config(
         return temp_cfg, rain_cfg
 
     temp_data = temp_cfg.model_dump()
-    for field_name, db_attr in [
-        ("basis_c", "temp_basis_c"),
-        ("pct_per_c", "temp_pct_per_c"),
-        ("min_pct", "temp_min_pct"),
-        ("max_pct", "temp_max_pct"),
-    ]:
+    for field_name, db_attr in TEMP_OVERRIDE_MAP:
         val = getattr(fo, db_attr)
         if val is not None:
             temp_data[field_name] = val
     eff_temp = TempFactorConfig.model_validate(temp_data)
 
     rain_data = rain_cfg.model_dump()
-    for field_name, db_attr in [
-        ("forecast_days", "rain_forecast_days"),
-        ("mode", "rain_mode"),
-        ("threshold_prob", "rain_threshold_prob"),
-        ("reduce_above_mm", "rain_reduce_above_mm"),
-        ("zero_above_mm", "rain_zero_above_mm"),
-        ("forecast_decay", "rain_forecast_decay"),
-        ("water_balance_days", "rain_water_balance_days"),
-        ("water_balance_decay", "rain_water_balance_decay"),
-        ("peak_tomorrow", "rain_peak_tomorrow"),
-        ("confirm_with_rain_sensor", "rain_confirm_with_sensor"),
-    ]:
+    for field_name, db_attr in RAIN_OVERRIDE_MAP:
         val = getattr(fo, db_attr)
         if val is not None:
             rain_data[field_name] = val

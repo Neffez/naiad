@@ -5,6 +5,8 @@ import { clearFactorOverrides, getSettings, updateSettings } from '../../../api/
 import { queryKeys } from '../../../api/queryKeys'
 import { InfoTip } from '../../../components/InfoTip'
 import { NumberField } from '../../../components/NumberField'
+import { toast } from '../../../components/Toast'
+import { ButtonGroup } from '../../../components/config/ButtonGroup'
 import { Row, Section } from '../../../components/config/primitives'
 
 // Watering factors live in the settings (FactorOverride) domain and persist
@@ -22,8 +24,12 @@ export default function WateringSection() {
     setTimeout(() => setSaved(false), 2000)
   }
 
-  const mut = useMutation({ mutationFn: updateSettings, onSuccess: onSaved })
-  const resetMut = useMutation({ mutationFn: clearFactorOverrides, onSuccess: onSaved })
+  function onError(e: unknown) {
+    toast(e instanceof Error ? e.message : String(e), 'error')
+  }
+
+  const mut = useMutation({ mutationFn: updateSettings, onSuccess: onSaved, onError })
+  const resetMut = useMutation({ mutationFn: clearFactorOverrides, onSuccess: onSaved, onError })
 
   if (!settings) return (
     <div style={{ padding: 20, color: 'var(--n-fg-muted)' }}>{t('settings.loading')}</div>
@@ -161,23 +167,3 @@ function ResetAction({ onReset, disabled }: { onReset: () => void; disabled: boo
   )
 }
 
-function ButtonGroup({ label, options }: {
-  label: string
-  options: { value: string; active: boolean; label: string; onClick: () => void }[]
-}) {
-  return (
-    <div role="group" aria-label={label} style={{ display: 'flex', gap: 6 }}>
-      {options.map((o) => (
-        <button
-          key={o.value}
-          className={`n-btn${o.active ? ' primary' : ''}`}
-          aria-pressed={o.active}
-          style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
-          onClick={o.onClick}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  )
-}

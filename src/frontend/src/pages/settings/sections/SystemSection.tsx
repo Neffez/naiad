@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getHealth, getStatus, logout } from '../../../api/client'
 import { queryKeys } from '../../../api/queryKeys'
+import { ButtonGroup } from '../../../components/config/ButtonGroup'
 import { Row, Section } from '../../../components/config/primitives'
 import { useConfig } from '../ConfigContext'
 
@@ -25,37 +26,29 @@ export default function SystemSection() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <Section title={t('settings.system')}>
         <Row label={t('settings.theme')}>
-          <div role="group" aria-label={t('settings.theme')} style={{ display: 'flex', gap: 6 }}>
-            {(['dark', 'light'] as const).map((mode) => (
-              <button
-                key={mode}
-                className={`n-btn${theme === mode ? ' primary' : ''}`}
-                aria-pressed={theme === mode}
-                style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
-                onClick={() => applyTheme(mode)}
-              >
-                {t(`settings.theme_${mode}`, { defaultValue: mode === 'dark' ? 'Dark' : 'Light' })}
-              </button>
-            ))}
-          </div>
+          <ButtonGroup
+            label={t('settings.theme')}
+            options={(['dark', 'light'] as const).map((mode) => ({
+              value: mode,
+              active: theme === mode,
+              label: t(`settings.theme_${mode}`, { defaultValue: mode === 'dark' ? 'Dark' : 'Light' }),
+              onClick: () => applyTheme(mode),
+            }))}
+          />
         </Row>
         <Row label={t('settings.language')}>
-          <div role="group" aria-label={t('settings.language')} style={{ display: 'flex', gap: 6 }}>
-            {(['de', 'en'] as const).map((lng) => (
-              <button
-                key={lng}
-                className={`n-btn${i18n.language?.startsWith(lng) ? ' primary' : ''}`}
-                aria-pressed={i18n.language?.startsWith(lng)}
-                style={{ height: 32, padding: '0 12px', fontSize: 12.5 }}
-                onClick={() => {
-                  i18n.changeLanguage(lng)
-                  localStorage.setItem('naiad_lang', lng)
-                }}
-              >
-                {lng.toUpperCase()}
-              </button>
-            ))}
-          </div>
+          <ButtonGroup
+            label={t('settings.language')}
+            options={(['de', 'en'] as const).map((lng) => ({
+              value: lng,
+              active: i18n.language?.startsWith(lng) ?? false,
+              label: lng.toUpperCase(),
+              onClick: () => {
+                i18n.changeLanguage(lng)
+                localStorage.setItem('naiad_lang', lng)
+              },
+            }))}
+          />
         </Row>
         <Row label={t('settings.version')}>
           <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>

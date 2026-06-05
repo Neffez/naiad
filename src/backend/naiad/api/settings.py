@@ -15,7 +15,7 @@ from naiad.api.schemas import (
 from naiad.config import AppConfig
 from naiad.database import get_session
 from naiad.dependencies import get_config, require_auth
-from naiad.domain.factors import merge_factor_config
+from naiad.domain.factors import RAIN_OVERRIDE_MAP, TEMP_OVERRIDE_MAP, merge_factor_config
 from naiad.domain.models import FactorOverride, SequenceOverride, UserPreference
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -24,21 +24,11 @@ _DEFAULT_TOKEN_LIFETIME = 30
 
 _T = TypeVar("_T")
 
-# FactorOverride columns grouped by factor, so the "overridden" flags and the
-# reset endpoint stay in sync with a single source of truth.
-_TEMP_OVERRIDE_FIELDS = ("temp_basis_c", "temp_pct_per_c", "temp_min_pct", "temp_max_pct")
-_RAIN_OVERRIDE_FIELDS = (
-    "rain_mode",
-    "rain_forecast_days",
-    "rain_threshold_prob",
-    "rain_reduce_above_mm",
-    "rain_zero_above_mm",
-    "rain_forecast_decay",
-    "rain_water_balance_days",
-    "rain_water_balance_decay",
-    "rain_peak_tomorrow",
-    "rain_confirm_with_sensor",
-)
+# FactorOverride columns grouped by factor, derived from the single source of
+# truth in domain.factors so the "overridden" flags and the reset endpoint can
+# never drift from what merge_factor_config actually applies.
+_TEMP_OVERRIDE_FIELDS = tuple(db_attr for _, db_attr in TEMP_OVERRIDE_MAP)
+_RAIN_OVERRIDE_FIELDS = tuple(db_attr for _, db_attr in RAIN_OVERRIDE_MAP)
 
 
 def _rain_mode(
