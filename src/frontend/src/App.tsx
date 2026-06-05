@@ -13,12 +13,19 @@ import './index.css'
 import { useAuth } from './hooks/useAuth'
 import { BASE_PATH } from './api/base'
 import { getStatus, setMaster, type SystemStatus } from './api/client'
-import Config from './pages/Config'
 import Dashboard from './pages/Dashboard'
 import History from './pages/History'
 import Login from './pages/Login'
 import Planner from './pages/Planner'
-import Settings from './pages/Settings'
+import SettingsLayout from './pages/settings/SettingsLayout'
+import AdvancedSection from './pages/settings/sections/AdvancedSection'
+import ConnectionSection from './pages/settings/sections/ConnectionSection'
+import IntegrationsSection from './pages/settings/sections/IntegrationsSection'
+import NotificationsSection from './pages/settings/sections/NotificationsSection'
+import SequencesSection from './pages/settings/sections/SequencesSection'
+import SystemSection from './pages/settings/sections/SystemSection'
+import WateringSection from './pages/settings/sections/WateringSection'
+import ZonesSection from './pages/settings/sections/ZonesSection'
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5000 } } })
 
@@ -121,8 +128,19 @@ function AppShell() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/planner" element={<PageShell title={t('nav.planner')}><Planner /></PageShell>} />
               <Route path="/history" element={<PageShell title={t('nav.history')}><History /></PageShell>} />
-              <Route path="/settings" element={<PageShell title={t('nav.settings')}><Settings /></PageShell>} />
-              <Route path="/config" element={<PageShell title={t('nav.config')}><Config /></PageShell>} />
+              <Route path="/settings" element={<PageShell title={t('nav.settings')}><SettingsLayout /></PageShell>}>
+                <Route index element={<Navigate to="zones" replace />} />
+                <Route path="zones" element={<ZonesSection />} />
+                <Route path="sequences" element={<SequencesSection />} />
+                <Route path="watering" element={<WateringSection />} />
+                <Route path="notifications" element={<NotificationsSection />} />
+                <Route path="connection" element={<ConnectionSection />} />
+                <Route path="integrations" element={<IntegrationsSection />} />
+                <Route path="advanced" element={<AdvancedSection />} />
+                <Route path="system" element={<SystemSection />} />
+              </Route>
+              {/* Backward-compat: the standalone config page is now a settings section. */}
+              <Route path="/config" element={<Navigate to="/settings" replace />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

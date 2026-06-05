@@ -574,19 +574,161 @@ svg { display: block; }
   border-radius: var(--n-r-sm);
 }
 
+/* ── Settings area (sectioned layout) ────────────────────────────────────── */
+.n-settings-shell {
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+  max-width: 1120px;
+}
+
+/* Section navigation — sticky vertical list on desktop. */
+.n-subnav {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.n-subnav-group { display: flex; flex-direction: column; gap: 2px; }
+.n-subnav-grouplabel {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--n-fg-dim);
+  padding: 0 12px 4px;
+}
+.n-subnav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: var(--n-r-sm);
+  color: var(--n-fg-muted);
+  text-decoration: none;
+  font-size: 13.5px;
+  line-height: 1.2;
+}
+.n-subnav-item:hover { background: var(--n-surface-overlay); color: var(--n-fg); }
+.n-subnav-item.active {
+  background: var(--n-teal-glow);
+  color: var(--n-teal-200);
+  font-weight: 500;
+}
+.n-subnav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.n-subnav-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--n-fg-dim);
+  background: var(--n-surface-overlay);
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+.n-subnav-item.active .n-subnav-count { color: var(--n-teal-200); background: var(--n-glow-border); }
+.n-subnav-dot {
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--n-paused);
+  flex-shrink: 0;
+}
+.n-subnav-count + .n-subnav-dot { margin-left: 0; }
+
+/* Zones table — aligned columns on desktop, stacked cards on mobile. */
+.n-zone-grid { display: flex; flex-direction: column; }
+.n-zone-grid-row {
+  display: grid;
+  grid-template-columns: minmax(90px, max-content) minmax(120px, 1fr) minmax(170px, 1.6fr) 90px minmax(170px, 1.2fr) 40px;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--n-line);
+}
+.n-zone-grid-row:last-child { border-bottom: none; }
+.n-zone-grid-row.head {
+  padding-top: 13px;
+  padding-bottom: 9px;
+  background: var(--n-surface-overlay);
+}
+.n-zone-h {
+  font-size: 11px;
+  color: var(--n-fg-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.n-zone-cell { min-width: 0; display: flex; align-items: center; }
+.n-zone-cell-stair { gap: 12px; flex-wrap: wrap; }
+.n-zone-cell-del { justify-content: flex-end; }
+.n-zone-id {
+  font-size: 12px;
+  color: var(--n-teal-200);
+  background: var(--n-teal-glow);
+  border: 1px solid var(--n-glow-border);
+  padding: 4px 8px;
+  border-radius: var(--n-r-sm);
+  white-space: nowrap;
+}
+
 /* ── Responsive helpers ──────────────────────────────────────────────────── */
 @media (max-width: 1023px) {
   .desktop-only { display: none !important; }
   .page-content { padding: 18px 20px 80px !important; }
 
-  /* Config: stack each row (label above control) and let inputs fill the width
-     instead of overflowing off-screen with no way to scroll to them. */
-  .config-page .n-cfg-row { flex-direction: column; align-items: stretch; }
-  .config-page .n-cfg-control { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
-  .config-page .n-cfg-control > input,
-  .config-page .n-cfg-control > select { width: 100%; }
-  .config-page input:not([type="checkbox"]),
-  .config-page select { max-width: 100%; box-sizing: border-box; }
+  /* Settings: stack the section nav above the content as a scrollable pill rail. */
+  .n-settings-shell { display: flex; flex-direction: column; gap: 16px; max-width: 100%; }
+  .n-subnav {
+    flex-direction: row;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 2px 0;
+    background: var(--n-bg);
+    z-index: 4;
+  }
+  .n-subnav::-webkit-scrollbar { display: none; }
+  .n-subnav-group { flex-direction: row; gap: 8px; }
+  .n-subnav-grouplabel { display: none; }
+  .n-subnav-item {
+    border: 1px solid var(--n-line-strong);
+    white-space: nowrap;
+    padding: 7px 14px;
+  }
+  .n-subnav-item.active { border-color: var(--n-glow-border); }
+  .n-subnav-count, .n-subnav-dot { margin-left: 0; }
+
+  /* Zones: each row becomes a stacked card with field labels via data-label. */
+  .n-zone-grid-row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .n-zone-grid-row.head { display: none; }
+  .n-zone-cell { flex-direction: column; align-items: stretch; gap: 4px; }
+  .n-zone-cell[data-label]::before {
+    content: attr(data-label);
+    font-size: 11px;
+    color: var(--n-fg-muted);
+    letter-spacing: 0.02em;
+  }
+  .n-zone-cell[data-col="id"] { flex-direction: row; }
+  .n-zone-cell-stair { flex-direction: row; align-items: center; }
+  .n-zone-cell-del { align-items: flex-start; }
+
+  /* Settings rows: stack each row (label above control) and let inputs fill the
+     width instead of overflowing off-screen with no way to scroll to them. */
+  .n-settings-content .n-cfg-row { flex-direction: column; align-items: stretch; }
+  .n-settings-content .n-cfg-control { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+  .n-settings-content .n-cfg-control > input,
+  .n-settings-content .n-cfg-control > select { width: 100%; }
+  .n-settings-content input:not([type="checkbox"]),
+  .n-settings-content select { max-width: 100%; box-sizing: border-box; }
 }
 @media (min-width: 1024px) {
   .mobile-only { display: none !important; }

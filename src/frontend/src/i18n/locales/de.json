@@ -149,7 +149,24 @@
     "language": "Sprache",
     "logout": "Abmelden",
     "configuration": "Anlagen-Konfiguration",
-    "editConfig": "Bearbeiten →"
+    "editConfig": "Bearbeiten →",
+    "configBackup": "Konfigurations-Backup",
+    "configBackupLabel": "Export / Import",
+    "group": {
+      "operation": "Betrieb",
+      "setup": "Einrichtung",
+      "system": "System"
+    },
+    "nav": {
+      "zones": "Zonen",
+      "sequences": "Sequenzen",
+      "watering": "Bewässerung",
+      "notifications": "Benachrichtigungen",
+      "connection": "Verbindung",
+      "integrations": "Integrationen",
+      "advanced": "Erweitert",
+      "system": "System"
+    }
   },
   "config": {
     "loading": "Laden…",

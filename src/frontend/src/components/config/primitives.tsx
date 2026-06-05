@@ -199,7 +199,7 @@ export function EntityCombobox({ value, onChange, entities, options, domain, hin
   options?: ComboOption[]
   domain?: string
   hint?: string
-  width?: number
+  width?: number | string
   ariaLabel?: string
 }) {
   const { t } = useTranslation()
