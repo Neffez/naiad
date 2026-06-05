@@ -15,7 +15,7 @@ from naiad.api.schemas import (
 from naiad.config import AppConfig
 from naiad.database import get_session
 from naiad.dependencies import get_config, require_auth
-from naiad.domain.factors import merge_factor_config
+from naiad.domain.factors import RAIN_OVERRIDE_MAP, TEMP_OVERRIDE_MAP, merge_factor_config
 from naiad.domain.models import FactorOverride, SequenceOverride, UserPreference
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -23,6 +23,12 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 _DEFAULT_TOKEN_LIFETIME = 30
 
 _T = TypeVar("_T")
+
+# FactorOverride columns grouped by factor, derived from the single source of
+# truth in domain.factors so the "overridden" flags and the reset endpoint can
+# never drift from what merge_factor_config actually applies.
+_TEMP_OVERRIDE_FIELDS = tuple(db_attr for _, db_attr in TEMP_OVERRIDE_MAP)
+_RAIN_OVERRIDE_FIELDS = tuple(db_attr for _, db_attr in RAIN_OVERRIDE_MAP)
 
 
 def _rain_mode(
@@ -86,6 +92,13 @@ def _read_settings(config: AppConfig, session: Session) -> AppSettingsResponse:
     auto_login_pref = session.get(UserPreference, "auto_login_enabled")
     auto_login = auto_login_pref.value == "1" if auto_login_pref else config.auth.auto_login.enabled
 
+    temp_overridden = fo is not None and any(
+        getattr(fo, f) is not None for f in _TEMP_OVERRIDE_FIELDS
+    )
+    rain_overridden = fo is not None and any(
+        getattr(fo, f) is not None for f in _RAIN_OVERRIDE_FIELDS
+    )
+
     return AppSettingsResponse(
         sequences=sequences,
         factors=FactorSettingsResponse(
@@ -93,6 +106,8 @@ def _read_settings(config: AppConfig, session: Session) -> AppSettingsResponse:
             rain=rain,
             manual_mode=fo.manual_mode if fo else False,
             manual_pct=fo.manual_pct if fo else None,
+            temp_overridden=temp_overridden,
+            rain_overridden=rain_overridden,
         ),
         token_lifetime_days=lifetime,
         auto_login_enabled=auto_login,
@@ -203,6 +218,51 @@ async def update_settings(
     session.commit()
 
     if body.factors is not None or body.sequences is not None:
+        from naiad.api.ws import broadcast_factor_updated
+
+        await broadcast_factor_updated()
+
+    return _read_settings(config, session)
+
+
+@router.delete("/factors", response_model=AppSettingsResponse)
+async def clear_factor_overrides(
+    group: Literal["temp", "rain"] | None = None,
+    _: None = Depends(require_auth),
+    config: AppConfig = Depends(get_config),
+    session: Session = Depends(get_session),
+) -> AppSettingsResponse:
+    """Clear factor overrides, restoring the configured base values.
+
+    ``group`` limits the reset to the temperature or rain factor; omitting it
+    resets both. The PATCH endpoint can only set override fields, never null them,
+    so this is the supported way to fall back to the base config. Manual-adjustment
+    fields are left untouched — they are a separate concern.
+    """
+    from datetime import UTC, datetime
+
+    fo = session.get(FactorOverride, 1)
+    if fo is not None:
+        fields: list[str] = []
+        if group in (None, "temp"):
+            fields += _TEMP_OVERRIDE_FIELDS
+        if group in (None, "rain"):
+            fields += _RAIN_OVERRIDE_FIELDS
+        for field in fields:
+            setattr(fo, field, None)
+
+        # Drop the row once no overrides remain, so a cleared state is the absence
+        # of a row (matching how compute_factors treats a missing override).
+        no_overrides = all(
+            getattr(fo, f) is None for f in (*_TEMP_OVERRIDE_FIELDS, *_RAIN_OVERRIDE_FIELDS)
+        )
+        if no_overrides and not fo.manual_mode and fo.manual_pct is None:
+            session.delete(fo)
+        else:
+            fo.updated_at = datetime.now(UTC)
+            session.add(fo)
+        session.commit()
+
         from naiad.api.ws import broadcast_factor_updated
 
         await broadcast_factor_updated()

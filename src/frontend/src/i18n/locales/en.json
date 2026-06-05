@@ -149,7 +149,26 @@
     "language": "Language",
     "logout": "Log out",
     "configuration": "System configuration",
-    "editConfig": "Edit →"
+    "editConfig": "Edit →",
+    "configBackup": "Configuration backup",
+    "configBackupLabel": "Export / Import",
+    "customized": "Customized",
+    "resetDefaults": "Reset to default",
+    "group": {
+      "operation": "Operation",
+      "setup": "Setup",
+      "system": "System"
+    },
+    "nav": {
+      "zones": "Zones",
+      "sequences": "Sequences",
+      "watering": "Watering",
+      "notifications": "Notifications",
+      "connection": "Connection",
+      "integrations": "Integrations",
+      "advanced": "Advanced",
+      "system": "System"
+    }
   },
   "config": {
     "loading": "Loading…",

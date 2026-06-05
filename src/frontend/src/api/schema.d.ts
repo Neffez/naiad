@@ -372,6 +372,23 @@ export interface paths {
         patch: operations["updateSettings"];
         trace?: never;
     };
+    "/settings/factors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Reset factor overrides to the configured base values */
+        delete: operations["clearFactorOverrides"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/settings/sequences": {
         parameters: {
             query?: never;
@@ -789,6 +806,10 @@ export interface components {
                 manual_mode: boolean;
                 /** @description Manual adjustment percentage (clamped to the temperature factor's min/max). */
                 manual_pct: number | null;
+                /** @description True when any temperature factor value is overridden in the DB (differs from the configured base). */
+                temp_overridden: boolean;
+                /** @description True when any rain factor value is overridden in the DB (differs from the configured base). */
+                rain_overridden: boolean;
             };
             token_lifetime_days: number;
             auto_login_enabled: boolean;
@@ -1679,6 +1700,28 @@ export interface operations {
                 "application/json": components["schemas"]["UpdateSettingsRequest"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppSettings"];
+                };
+            };
+        };
+    };
+    clearFactorOverrides: {
+        parameters: {
+            query?: {
+                /** @description Limit the reset to one factor group; omit to reset both. */
+                group?: "temp" | "rain";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {

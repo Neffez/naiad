@@ -385,12 +385,14 @@ components:
           additionalProperties: { $ref: '#/components/schemas/SequenceOverride' }
         factors:
           type: object
-          required: [temp, rain, manual_mode, manual_pct]
+          required: [temp, rain, manual_mode, manual_pct, temp_overridden, rain_overridden]
           properties:
             temp: { $ref: '#/components/schemas/TempFactorSettings' }
             rain: { $ref: '#/components/schemas/RainFactorSettings' }
             manual_mode: { type: boolean, description: "When true, the manual adjustment overrides the automatic factor." }
             manual_pct:  { type: integer, nullable: true, description: "Manual adjustment percentage (clamped to the temperature factor's min/max)." }
+            temp_overridden: { type: boolean, description: "True when any temperature factor value is overridden in the DB (differs from the configured base)." }
+            rain_overridden: { type: boolean, description: "True when any rain factor value is overridden in the DB (differs from the configured base)." }
         token_lifetime_days:  { type: integer }
         auto_login_enabled:   { type: boolean }
 
@@ -1206,6 +1208,22 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/UpdateSettingsRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppSettings' }
+
+  /settings/factors:
+    delete:
+      operationId: clearFactorOverrides
+      summary: Reset factor overrides to the configured base values
+      parameters:
+        - name: group
+          in: query
+          required: false
+          description: Limit the reset to one factor group; omit to reset both.
+          schema: { type: string, enum: [temp, rain] }
       responses:
         '200':
           content:
