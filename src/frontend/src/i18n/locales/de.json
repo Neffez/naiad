@@ -152,6 +152,8 @@
     "editConfig": "Bearbeiten →",
     "configBackup": "Konfigurations-Backup",
     "configBackupLabel": "Export / Import",
+    "customized": "Angepasst",
+    "resetDefaults": "Auf Standard",
     "group": {
       "operation": "Betrieb",
       "setup": "Einrichtung",

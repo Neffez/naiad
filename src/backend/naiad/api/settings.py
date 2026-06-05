@@ -24,6 +24,22 @@ _DEFAULT_TOKEN_LIFETIME = 30
 
 _T = TypeVar("_T")
 
+# FactorOverride columns grouped by factor, so the "overridden" flags and the
+# reset endpoint stay in sync with a single source of truth.
+_TEMP_OVERRIDE_FIELDS = ("temp_basis_c", "temp_pct_per_c", "temp_min_pct", "temp_max_pct")
+_RAIN_OVERRIDE_FIELDS = (
+    "rain_mode",
+    "rain_forecast_days",
+    "rain_threshold_prob",
+    "rain_reduce_above_mm",
+    "rain_zero_above_mm",
+    "rain_forecast_decay",
+    "rain_water_balance_days",
+    "rain_water_balance_decay",
+    "rain_peak_tomorrow",
+    "rain_confirm_with_sensor",
+)
+
 
 def _rain_mode(
     value: str | None, default: Literal["forecast", "water_balance"]
@@ -86,6 +102,13 @@ def _read_settings(config: AppConfig, session: Session) -> AppSettingsResponse:
     auto_login_pref = session.get(UserPreference, "auto_login_enabled")
     auto_login = auto_login_pref.value == "1" if auto_login_pref else config.auth.auto_login.enabled
 
+    temp_overridden = fo is not None and any(
+        getattr(fo, f) is not None for f in _TEMP_OVERRIDE_FIELDS
+    )
+    rain_overridden = fo is not None and any(
+        getattr(fo, f) is not None for f in _RAIN_OVERRIDE_FIELDS
+    )
+
     return AppSettingsResponse(
         sequences=sequences,
         factors=FactorSettingsResponse(
@@ -93,6 +116,8 @@ def _read_settings(config: AppConfig, session: Session) -> AppSettingsResponse:
             rain=rain,
             manual_mode=fo.manual_mode if fo else False,
             manual_pct=fo.manual_pct if fo else None,
+            temp_overridden=temp_overridden,
+            rain_overridden=rain_overridden,
         ),
         token_lifetime_days=lifetime,
         auto_login_enabled=auto_login,
@@ -203,6 +228,51 @@ async def update_settings(
     session.commit()
 
     if body.factors is not None or body.sequences is not None:
+        from naiad.api.ws import broadcast_factor_updated
+
+        await broadcast_factor_updated()
+
+    return _read_settings(config, session)
+
+
+@router.delete("/factors", response_model=AppSettingsResponse)
+async def clear_factor_overrides(
+    group: Literal["temp", "rain"] | None = None,
+    _: None = Depends(require_auth),
+    config: AppConfig = Depends(get_config),
+    session: Session = Depends(get_session),
+) -> AppSettingsResponse:
+    """Clear factor overrides, restoring the configured base values.
+
+    ``group`` limits the reset to the temperature or rain factor; omitting it
+    resets both. The PATCH endpoint can only set override fields, never null them,
+    so this is the supported way to fall back to the base config. Manual-adjustment
+    fields are left untouched — they are a separate concern.
+    """
+    from datetime import UTC, datetime
+
+    fo = session.get(FactorOverride, 1)
+    if fo is not None:
+        fields: list[str] = []
+        if group in (None, "temp"):
+            fields += _TEMP_OVERRIDE_FIELDS
+        if group in (None, "rain"):
+            fields += _RAIN_OVERRIDE_FIELDS
+        for field in fields:
+            setattr(fo, field, None)
+
+        # Drop the row once no overrides remain, so a cleared state is the absence
+        # of a row (matching how compute_factors treats a missing override).
+        no_overrides = all(
+            getattr(fo, f) is None for f in (*_TEMP_OVERRIDE_FIELDS, *_RAIN_OVERRIDE_FIELDS)
+        )
+        if no_overrides and not fo.manual_mode and fo.manual_pct is None:
+            session.delete(fo)
+        else:
+            fo.updated_at = datetime.now(UTC)
+            session.add(fo)
+        session.commit()
+
         from naiad.api.ws import broadcast_factor_updated
 
         await broadcast_factor_updated()

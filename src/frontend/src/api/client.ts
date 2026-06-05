@@ -129,6 +129,10 @@ export const deletePlan = (id: string) => api.delete(`/plans/${id}`)
 export const getSettings = () => api.get<AppSettings>('/settings')
 export const updateSettings = (body: Partial<UpdateSettingsRequest>) =>
   api.patch<AppSettings>('/settings', body)
+// Reset factor overrides back to the configured base values. Omit `group` to
+// reset both the temperature and rain factors.
+export const clearFactorOverrides = (group?: 'temp' | 'rain') =>
+  api.delete<AppSettings>(`/settings/factors${group ? `?group=${group}` : ''}`)
 
 // Configuration
 export const getConfig = () => api.get<ConfigDoc>('/config')

@@ -201,6 +201,91 @@ async def test_rain_peak_tomorrow_round_trips(minimal_config: AppConfig) -> None
         assert fo.rain_peak_tomorrow is True
 
 
+# ── Factor override reset ─────────────────────────────────────────────────────
+
+
+async def test_clear_factors_group_leaves_other_group(minimal_config: AppConfig) -> None:
+    """Resetting the temp group nulls only temp fields; rain stays overridden."""
+    from naiad.api.settings import clear_factor_overrides
+    from naiad.domain.models import FactorOverride
+
+    eng = _engine()
+    with Session(eng) as s:
+        s.add(FactorOverride(id=1, temp_basis_c=18.0, rain_threshold_prob=55))
+        s.commit()
+
+    with Session(eng) as s:
+        result = await clear_factor_overrides(
+            group="temp", _=None, config=minimal_config, session=s
+        )
+
+    # The temp override is gone (falls back to base), the rain override survives.
+    assert result.factors.temp_overridden is False
+    assert result.factors.rain_overridden is True
+    assert result.factors.rain.threshold_prob == 55
+
+    with Session(eng) as s:
+        fo = s.get(FactorOverride, 1)
+        assert fo is not None
+        assert fo.temp_basis_c is None
+        assert fo.rain_threshold_prob == 55
+
+
+async def test_clear_factors_all_removes_row(minimal_config: AppConfig) -> None:
+    """Resetting both groups with no manual state drops the row entirely."""
+    from naiad.api.settings import clear_factor_overrides
+    from naiad.domain.models import FactorOverride
+
+    eng = _engine()
+    with Session(eng) as s:
+        s.add(FactorOverride(id=1, temp_basis_c=18.0, rain_threshold_prob=55))
+        s.commit()
+
+    with Session(eng) as s:
+        result = await clear_factor_overrides(group=None, _=None, config=minimal_config, session=s)
+
+    assert result.factors.temp_overridden is False
+    assert result.factors.rain_overridden is False
+
+    with Session(eng) as s:
+        assert s.get(FactorOverride, 1) is None
+
+
+async def test_clear_factors_keeps_manual_state(minimal_config: AppConfig) -> None:
+    """A reset clears factor overrides but never the separate manual adjustment."""
+    from naiad.api.settings import clear_factor_overrides
+    from naiad.domain.models import FactorOverride
+
+    eng = _engine()
+    with Session(eng) as s:
+        s.add(FactorOverride(id=1, temp_basis_c=18.0, manual_mode=True, manual_pct=120))
+        s.commit()
+
+    with Session(eng) as s:
+        result = await clear_factor_overrides(group=None, _=None, config=minimal_config, session=s)
+
+    assert result.factors.temp_overridden is False
+    assert result.factors.manual_mode is True
+    assert result.factors.manual_pct == 120
+
+    with Session(eng) as s:
+        fo = s.get(FactorOverride, 1)
+        assert fo is not None
+        assert fo.temp_basis_c is None
+        assert fo.manual_mode is True
+
+
+async def test_clear_factors_no_override_is_noop(minimal_config: AppConfig) -> None:
+    """Clearing with no override row present still succeeds and reports base."""
+    from naiad.api.settings import clear_factor_overrides
+
+    eng = _engine()
+    with Session(eng) as s:
+        result = await clear_factor_overrides(group=None, _=None, config=minimal_config, session=s)
+    assert result.factors.temp_overridden is False
+    assert result.factors.rain_overridden is False
+
+
 # ── Token lifetime validation ─────────────────────────────────────────────────
 
 

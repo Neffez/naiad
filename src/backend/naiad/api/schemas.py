@@ -330,6 +330,11 @@ class FactorSettingsResponse(BaseModel):
     rain: RainFactorSettingsResponse
     manual_mode: bool = False
     manual_pct: int | None = None
+    # True when at least one value in the group is overridden in the DB (i.e.
+    # differs from the configured base). Lets the UI offer a "reset to default"
+    # action only when it would actually do something.
+    temp_overridden: bool = False
+    rain_overridden: bool = False
 
 
 class AppSettingsResponse(BaseModel):

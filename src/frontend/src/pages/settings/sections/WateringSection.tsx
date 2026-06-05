@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getSettings, updateSettings } from '../../../api/client'
+import { clearFactorOverrides, getSettings, updateSettings } from '../../../api/client'
 import { queryKeys } from '../../../api/queryKeys'
 import { InfoTip } from '../../../components/InfoTip'
 import { NumberField } from '../../../components/NumberField'
@@ -15,15 +15,15 @@ export default function WateringSection() {
   const { data: settings } = useQuery({ queryKey: queryKeys.settings, queryFn: getSettings })
   const [saved, setSaved] = useState(false)
 
-  const mut = useMutation({
-    mutationFn: updateSettings,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.settings })
-      qc.invalidateQueries({ queryKey: queryKeys.sequences })
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-    },
-  })
+  function onSaved() {
+    qc.invalidateQueries({ queryKey: queryKeys.settings })
+    qc.invalidateQueries({ queryKey: queryKeys.sequences })
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  const mut = useMutation({ mutationFn: updateSettings, onSuccess: onSaved })
+  const resetMut = useMutation({ mutationFn: clearFactorOverrides, onSuccess: onSaved })
 
   if (!settings) return (
     <div style={{ padding: 20, color: 'var(--n-fg-muted)' }}>{t('settings.loading')}</div>
@@ -45,7 +45,12 @@ export default function WateringSection() {
         </div>
       )}
 
-      <Section title={t('settings.factorTemp')}>
+      <Section
+        title={t('settings.factorTemp')}
+        action={settings.factors.temp_overridden ? (
+          <ResetAction disabled={resetMut.isPending} onReset={() => resetMut.mutate('temp')} />
+        ) : undefined}
+      >
         <FactorRow label={t('settings.basisC')} info={t('settings.help.basisC')}>
           <NumberField value={temp.basis_c} unit="°C" aria-label={t('settings.basisC')} onChange={(v) => mut.mutate({ factors: { temp: { basis_c: v } } })} />
         </FactorRow>
@@ -60,7 +65,12 @@ export default function WateringSection() {
         </FactorRow>
       </Section>
 
-      <Section title={t('settings.factorRain')}>
+      <Section
+        title={t('settings.factorRain')}
+        action={settings.factors.rain_overridden ? (
+          <ResetAction disabled={resetMut.isPending} onReset={() => resetMut.mutate('rain')} />
+        ) : undefined}
+      >
         <FactorRow label={t('settings.rainMode')} info={t('settings.help.rainMode')}>
           <ButtonGroup
             label={t('settings.rainMode')}
@@ -126,6 +136,28 @@ function FactorRow({ label, info, children, last }: { label: string; info: strin
     >
       {children}
     </Row>
+  )
+}
+
+// Shown in a factor section header only when that group has overrides. Frames the
+// override as a positive, reversible state ("customized → reset") rather than a
+// hidden mechanism.
+function ResetAction({ onReset, disabled }: { onReset: () => void; disabled: boolean }) {
+  const { t } = useTranslation()
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontSize: 11, color: 'var(--n-fg-dim)', letterSpacing: '0.02em' }}>
+        {t('settings.customized')}
+      </span>
+      <button
+        className="n-btn"
+        disabled={disabled}
+        style={{ height: 28, padding: '0 10px', fontSize: 12 }}
+        onClick={onReset}
+      >
+        {t('settings.resetDefaults')}
+      </button>
+    </div>
   )
 }
 

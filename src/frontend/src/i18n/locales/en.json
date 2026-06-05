@@ -152,6 +152,8 @@
     "editConfig": "Edit →",
     "configBackup": "Configuration backup",
     "configBackupLabel": "Export / Import",
+    "customized": "Customized",
+    "resetDefaults": "Reset to default",
     "group": {
       "operation": "Operation",
       "setup": "Setup",
