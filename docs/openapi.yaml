@@ -164,7 +164,7 @@ components:
 
     NextRunSummary:
       type: object
-      required: [sequence_id, sequence_label, scheduled_at, duration_min, plan_id, in_progress]
+      required: [sequence_id, sequence_label, scheduled_at, duration_min, plan_id]
       properties:
         sequence_id:    { type: string }
         sequence_label: { type: string }
@@ -174,9 +174,6 @@ components:
           type: string
           nullable: true
           description: Set for one-off planned runs; null for recurring cron runs.
-        in_progress:
-          type: boolean
-          description: "True when this is the run currently executing (live, not skippable)."
 
     SystemStatus:
       type: object
@@ -398,11 +395,8 @@ components:
 
     UserPreferences:
       type: object
-      required: [theme, language, sequence_order, zone_order]
+      required: [language, sequence_order, zone_order]
       properties:
-        theme:
-          type: string
-          enum: [dark, light]
         language:
           type: string
           enum: [de, en]
@@ -412,15 +406,12 @@ components:
           items: { type: string }
         zone_order:
           type: array
-          description: Zone (valve) IDs in the user's preferred dashboard order. IDs not present are appended in their natural order.
+          description: Zone IDs in the user's preferred dashboard order. IDs not present are appended in their natural order.
           items: { type: string }
 
     UpdatePreferencesRequest:
       type: object
       properties:
-        theme:
-          type: string
-          enum: [dark, light]
         language:
           type: string
           enum: [de, en]

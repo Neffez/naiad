@@ -15,7 +15,6 @@ async def test_defaults_when_unset() -> None:
     with Session(eng) as s:
         prefs = await get_preferences(_=None, session=s)
 
-    assert prefs.theme == "dark"
     assert prefs.language == "de"
     assert prefs.sequence_order == []
     assert prefs.zone_order == []
@@ -36,7 +35,7 @@ async def test_order_persists_and_round_trips() -> None:
     assert prefs.sequence_order == ["b", "a", "c"]
     assert prefs.zone_order == ["z2", "z1"]
     # Unrelated preferences keep their defaults.
-    assert prefs.theme == "dark"
+    assert prefs.language == "de"
 
 
 async def test_partial_update_leaves_other_keys_untouched() -> None:
@@ -49,7 +48,7 @@ async def test_partial_update_leaves_other_keys_untouched() -> None:
         )
     with Session(eng) as s:
         await update_preferences(
-            UpdatePreferencesRequest(theme="light"),
+            UpdatePreferencesRequest(language="en"),
             _=None,
             session=s,
         )
@@ -57,5 +56,5 @@ async def test_partial_update_leaves_other_keys_untouched() -> None:
     with Session(eng) as s:
         prefs = await get_preferences(_=None, session=s)
 
-    assert prefs.theme == "light"
+    assert prefs.language == "en"
     assert prefs.sequence_order == ["a", "b"]

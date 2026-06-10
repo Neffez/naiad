@@ -109,9 +109,12 @@ export function ValveGrid({
   } as const
 
   if (onReorder) {
+    // Sortable identity is the zone id (stable across config changes), not the
+    // switch entity in `valve.id` — so a re-pointed valve keeps its position
+    // and the saved zone_order preference really contains zone ids.
     return (
       <SortableGrid
-        items={valves}
+        items={valves.map((v) => ({ ...v, id: v.zone_id }))}
         onReorder={onReorder}
         renderItem={(v) => (
           <ValveCell valve={v} dense={dense} onStartZone={onStartZone} onStopZone={onStopZone} />
@@ -125,7 +128,7 @@ export function ValveGrid({
     <div style={gridStyle}>
       {valves.map((v) => (
         <ValveCell
-          key={v.id}
+          key={v.zone_id}
           valve={v}
           dense={dense}
           onStartZone={onStartZone}

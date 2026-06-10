@@ -72,6 +72,12 @@ class ZoneNotFound(Exception):
     """Zone ID does not exist in config."""
 
 
+# Crash recovery only resumes a run when at least this much of its zone window
+# is left. A smaller remainder would just cycle the valve open for seconds —
+# pointless wear with no meaningful watering.
+MIN_RESUME_REMAINING_MIN = 1.0
+
+
 # A standalone single-zone run reuses the whole sequence machinery (history,
 # watchdog, valve safety, crash-safe valve close) by executing under a synthetic
 # sequence id derived from the zone id. The prefix is deliberately unlikely to
@@ -911,19 +917,19 @@ class SequenceRunner:
         if started.tzinfo is None:
             started = started.replace(tzinfo=UTC)
         elapsed = (datetime.now(UTC) - started).total_seconds() / 60.0
+        remaining = min(record.zone_planned_min, record.zone_planned_min - elapsed)
 
-        if elapsed >= record.zone_planned_min:
+        if remaining < MIN_RESUME_REMAINING_MIN:
             logger.warning(
-                "Crash recovery: run '%s' is stale (zone elapsed %.1f >= planned %.1f min) "
-                "— closing valves and discarding",
+                "Crash recovery: run '%s' is stale (%.1f min of the planned %.1f min zone "
+                "window left, minimum to resume is %.1f) — closing valves and discarding",
                 record.sequence_id,
-                elapsed,
+                remaining,
                 record.zone_planned_min,
+                MIN_RESUME_REMAINING_MIN,
             )
             self._retain_active_switch_for_close(record, resuming_zone)
             return "closed_stale", None
-
-        remaining = max(0.0, min(record.zone_planned_min, record.zone_planned_min - elapsed))
         logger.info(
             "Crash recovery: resuming '%s' at zone '%s' (#%d) for %.1f more min",
             record.sequence_id,

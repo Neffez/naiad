@@ -77,3 +77,29 @@ def test_save_overwrites_existing(session: Session) -> None:
     assert snap.zone_id == "zone_b"
     assert snap.zone_index == 1
     assert snap.remaining_min == pytest.approx(7.0)
+
+
+def test_build_paused_run_maps_snapshot(minimal_config, session: Session) -> None:
+    """A paused sequence's API state surfaces the snapshot's remaining time."""
+    from naiad.api.sequences import _build_paused_run
+
+    save_pause_snapshot(session, "seq_1", "zone_a", 0, 12.5)
+    snap = load_snapshot(session, "seq_1")
+    assert snap is not None
+
+    run = _build_paused_run(snap, minimal_config)
+    assert run.zone_id == "zone_a"
+    assert run.zone_label == "Zone A"
+    assert run.remaining_min == pytest.approx(12.5)
+    # Pause stores only the remaining time, not the elapsed share of the zone.
+    assert run.elapsed_min == 0.0
+    assert run.total_min == pytest.approx(12.5)
+
+
+def test_build_paused_run_unknown_zone_falls_back_to_id(minimal_config, session: Session) -> None:
+    from naiad.api.sequences import _build_paused_run
+
+    save_pause_snapshot(session, "seq_1", "zone_gone", 0, 3.0)
+    snap = load_snapshot(session, "seq_1")
+    assert snap is not None
+    assert _build_paused_run(snap, minimal_config).zone_label == "zone_gone"

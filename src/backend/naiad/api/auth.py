@@ -100,8 +100,6 @@ _login_throttle = LoginThrottle()
 
 
 def _token_lifetime(session: Session) -> int:
-    from naiad.domain.models import UserPreference
-
     pref = session.get(UserPreference, "token_lifetime_days")
     if pref is not None:
         try:
@@ -116,11 +114,12 @@ def _check_password(provided: str, stored: str) -> bool:
         return False
     if stored.startswith("$2b$") or stored.startswith("$2a$"):
         return bcrypt.checkpw(provided.encode(), stored.encode())
-    # Plaintext fallback — constant-time to avoid a timing oracle.
-    return secrets.compare_digest(provided, stored)
+    # Plaintext fallback — constant-time to avoid a timing oracle. Compared as
+    # bytes: compare_digest raises TypeError for non-ASCII str inputs.
+    return secrets.compare_digest(provided.encode(), stored.encode())
 
 
-def _issue_token(body_label: str | None, session: Session, config: AppConfig) -> LoginResponse:
+def _issue_token(body_label: str | None, session: Session) -> LoginResponse:
     lifetime = _token_lifetime(session)
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(UTC) + timedelta(days=lifetime)
@@ -162,7 +161,7 @@ async def login(
         raise HTTPException(401, "Invalid password")
 
     _login_throttle.record_success(client_ip)
-    return _issue_token(body.device_label, session, config)
+    return _issue_token(body.device_label, session)
 
 
 def _auto_login_enabled(config: AppConfig, session: Session) -> bool:
@@ -202,7 +201,7 @@ async def auto_login(
     if not (referer_ok and ip_ok):
         raise HTTPException(403, "Auto-login conditions not met")
 
-    return _issue_token(body.device_label, session, config)
+    return _issue_token(body.device_label, session)
 
 
 @router.get("/verify")

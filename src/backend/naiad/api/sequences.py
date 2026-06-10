@@ -81,6 +81,26 @@ def _build_current_run(
     )
 
 
+def _build_paused_run(snap: ResumeSnapshot, config: AppConfig) -> CurrentRunResponse:
+    """Surface a paused run's persisted state as a current_run.
+
+    On pause the in-memory run ends and only the ResumeSnapshot survives, which
+    stores the remaining time of the interrupted zone — not how much of it had
+    elapsed. elapsed_min is therefore reported as 0 and total_min as the
+    remaining time; the UI shows remaining_min for paused sequences.
+    """
+    zone_cfg = config.zones.get(snap.zone_id)
+    return CurrentRunResponse(
+        zone_id=snap.zone_id,
+        zone_label=zone_cfg.label if zone_cfg else snap.zone_id,
+        started_at=snap.paused_at,
+        elapsed_min=0.0,
+        remaining_min=round(snap.remaining_min, 2),
+        total_min=round(snap.remaining_min, 2),
+        triggered_by="manual",
+    )
+
+
 def _build_state(
     seq_id: str,
     runner: SequenceRunner,
@@ -120,6 +140,14 @@ def _build_state(
         basis_override if basis_override is not None else int(seq_cfg.basis_min_per_zone)
     )
 
+    # A live run reports its in-memory progress; a paused run has no in-memory
+    # state, so its remaining time is reconstructed from the ResumeSnapshot.
+    current_run = _build_current_run(runner, seq_id, config)
+    if current_run is None and status == SequenceState.PAUSED:
+        snap = session.get(ResumeSnapshot, seq_id)
+        if snap is not None:
+            current_run = _build_paused_run(snap, config)
+
     return SequenceStateResponse(
         id=seq_id,
         label=seq_cfg.label,
@@ -136,7 +164,7 @@ def _build_state(
         next_run_at=_get_next_run_at(scheduler, seq_id),
         zones=zones,
         basis_min_per_zone=effective_basis,
-        current_run=_build_current_run(runner, seq_id, config),
+        current_run=current_run,
     )
 
 

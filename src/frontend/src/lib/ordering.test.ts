@@ -30,4 +30,18 @@ describe('applyOrder', () => {
     applyOrder(input, ['c', 'b', 'a'])
     expect(input).toEqual(items)
   })
+
+  it('orders by a custom identity when getId is given', () => {
+    // Valve cards order by zone_id while their `id` is the switch entity.
+    const valves = [
+      { id: 'switch.a', zone_id: 'za' },
+      { id: 'switch.b', zone_id: 'zb' },
+      { id: 'switch.c', zone_id: 'zc' },
+    ]
+    expect(applyOrder(valves, ['zc', 'za'], (v) => v.zone_id).map((v) => v.zone_id)).toEqual([
+      'zc',
+      'za',
+      'zb',
+    ])
+  })
 })

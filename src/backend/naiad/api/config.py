@@ -295,7 +295,7 @@ async def test_notify(
     tested. Reports exactly what failed."""
     targets = config.ha.notify_targets
     if service is not None:
-        targets = [t for t in targets if t.service == service]
+        targets = [tgt for tgt in targets if tgt.service == service]
         if not targets:
             raise HTTPException(404, f"Notify target '{service}' not found in configuration.")
     elif not targets:
@@ -315,4 +315,4 @@ async def test_notify(
             failures.append(f"{target.service}: {e}")
     if failures:
         raise HTTPException(502, "Notification failed — " + "; ".join(failures))
-    return {"sent": len(targets), "targets": [t.service for t in targets]}
+    return {"sent": len(targets), "targets": [tgt.service for tgt in targets]}

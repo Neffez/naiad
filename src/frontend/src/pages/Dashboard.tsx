@@ -85,10 +85,53 @@ export default function Dashboard() {
   })
 
   const orderedSequences = applyOrder(sequences, prefs?.sequence_order ?? [])
-  const orderedValves = applyOrder(valves, prefs?.zone_order ?? [])
+  // zone_order stores zone ids. Older clients saved switch entity ids
+  // (ValveState.id) instead — translate those on the fly so an existing order
+  // survives; the next reorder persists clean zone ids.
+  const zoneOrder = (prefs?.zone_order ?? []).map(
+    (id) => valves.find((v) => v.id === id)?.zone_id ?? id,
+  )
+  const orderedValves = applyOrder(valves, zoneOrder, (v) => v.zone_id)
 
   useWebSocket((msg) => {
-    if (['status_snapshot', 'sequence_changed', 'run_tick', 'valve_changed', 'factor_updated'].includes(msg.type)) {
+    if (msg.type === 'run_tick') {
+      // The tick already carries the progress — patch it into the caches
+      // instead of refetching three endpoints every 10 s.
+      const tick = msg.data as {
+        sequence_id: string
+        zone_id: string
+        elapsed_min: number
+        remaining_min: number
+      }
+      const cachedSeq = qc
+        .getQueryData<SequenceState[]>(queryKeys.sequences)
+        ?.find((s) => s.id === tick.sequence_id)
+      if (cachedSeq?.current_run?.zone_id === tick.zone_id) {
+        qc.setQueryData<SequenceState[]>(queryKeys.sequences, (old) =>
+          old?.map((s) =>
+            s.id === tick.sequence_id && s.current_run
+              ? {
+                  ...s,
+                  current_run: {
+                    ...s.current_run,
+                    elapsed_min: tick.elapsed_min,
+                    remaining_min: tick.remaining_min,
+                  },
+                }
+              : s,
+          ),
+        )
+      } else if (cachedSeq) {
+        // The run advanced to a different zone than the cache knows — refetch
+        // so the new zone's label and valve states load.
+        qc.invalidateQueries({ queryKey: queryKeys.sequences })
+      }
+      qc.setQueryData<ValveState[]>(queryKeys.valves, (old) =>
+        old?.map((v) => (v.zone_id === tick.zone_id ? { ...v, runtime_min: tick.elapsed_min } : v)),
+      )
+      return
+    }
+    if (['status_snapshot', 'sequence_changed', 'valve_changed', 'factor_updated'].includes(msg.type)) {
       qc.invalidateQueries({ queryKey: queryKeys.sequences })
       qc.invalidateQueries({ queryKey: queryKeys.status })
       qc.invalidateQueries({ queryKey: queryKeys.valves })

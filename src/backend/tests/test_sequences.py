@@ -1255,3 +1255,31 @@ async def test_pending_closes_keyed_by_switch_do_not_overwrite(engine) -> None:
         assert {p.switch for p in load_pending_closes(session)} == {"switch.old", "switch.new"}
         clear_pending_close(session, "switch.new")
         assert {p.switch for p in load_pending_closes(session)} == {"switch.old"}
+
+
+async def test_recover_discards_run_with_under_one_minute_left(
+    minimal_config: AppConfig, driver: FakeDriver, engine
+) -> None:
+    """A run with less than MIN_RESUME_REMAINING_MIN of its zone window left is
+    discarded as stale instead of cycling the valve open for a few seconds."""
+    data = minimal_config.model_dump()
+    config = AppConfig.model_validate(data)
+
+    with Session(engine) as session:
+        save_active_run(
+            session,
+            sequence_id="seq_1",
+            zone_index=0,
+            zone_started_at=datetime.now(UTC) - timedelta(minutes=29, seconds=30),
+            zone_planned_min=30.0,  # 0.5 min left < 1.0 min minimum → stale
+            run_duration_min=30.0,
+            triggered_by="cron",
+        )
+
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    actions = await runner.recover_runs()
+    assert actions == ["closed_stale"]
+    assert not runner.any_running()
+    assert "switch.zone_a" in driver.off_calls
+    with Session(engine) as session:
+        assert not load_active_runs(session)

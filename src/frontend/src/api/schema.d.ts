@@ -652,8 +652,6 @@ export interface components {
             duration_min: number;
             /** @description Set for one-off planned runs; null for recurring cron runs. */
             plan_id: string | null;
-            /** @description True when this is the run currently executing (live, not skippable). */
-            in_progress: boolean;
         };
         SystemStatus: {
             master_on: boolean;
@@ -816,17 +814,13 @@ export interface components {
         };
         UserPreferences: {
             /** @enum {string} */
-            theme: "dark" | "light";
-            /** @enum {string} */
             language: "de" | "en";
             /** @description Sequence IDs in the user's preferred dashboard order. IDs not present are appended in their natural order. */
             sequence_order: string[];
-            /** @description Zone (valve) IDs in the user's preferred dashboard order. IDs not present are appended in their natural order. */
+            /** @description Zone IDs in the user's preferred dashboard order. IDs not present are appended in their natural order. */
             zone_order: string[];
         };
         UpdatePreferencesRequest: {
-            /** @enum {string} */
-            theme?: "dark" | "light";
             /** @enum {string} */
             language?: "de" | "en";
             sequence_order?: string[];

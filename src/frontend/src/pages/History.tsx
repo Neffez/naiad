@@ -9,11 +9,23 @@ import { IClock, IPlay } from '../components/icons'
 import { resolveSeqColor } from '../theme/sequenceColors'
 
 const OLDER_THAN_DAYS = 30
+// Page size of the 7-day summary fetch (the backend cap). More than 200 runs in
+// 7 days would truncate the sum — far beyond a realistic garden schedule.
+const SUMMARY_PAGE_SIZE = 200
 
 function fmtDur(min: number | null): string {
   if (min == null) return '—'
   if (min < 60) return `${min.toFixed(0)} min`
   return `${(min / 60).toFixed(1)} h`
+}
+
+/** Local calendar date `days` days ago as YYYY-MM-DD (for the history `from` filter). */
+function localDateDaysAgo(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${month}-${day}`
 }
 
 function fmtDate(iso: string, lng: string): string {
@@ -36,15 +48,44 @@ export default function History() {
   const { t, i18n } = useTranslation()
   const [page, setPage] = useState(1)
   const [confirm, setConfirm] = useState<null | 'all' | 'old'>(null)
+  const [seqFilter, setSeqFilter] = useState('')
+  const [zoneFilter, setZoneFilter] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
   const qc = useQueryClient()
 
+  // Any filter change restarts at page 1 — the old page number is meaningless
+  // against a different result set.
+  function setFilter(setter: (v: string) => void): (v: string) => void {
+    return (v) => {
+      setter(v)
+      setPage(1)
+    }
+  }
+
+  const filters = {
+    sequence_id: seqFilter || undefined,
+    zone_id: zoneFilter || undefined,
+    from: fromDate || undefined,
+    to: toDate || undefined,
+  }
+  const hasFilters = Boolean(seqFilter || zoneFilter || fromDate || toDate)
+
   const { data, isError } = useQuery({
-    queryKey: queryKeys.historyPage(page),
-    queryFn: () => getHistory({ page, per_page: 50 }),
+    queryKey: queryKeys.historyPage(page, filters),
+    queryFn: () => getHistory({ page, per_page: 50, ...filters }),
   })
-  // Fetched once for the whole table (sequence accent colors); passed down so each
-  // row doesn't open its own ['config'] query subscription.
+  // Fetched once for the whole table (sequence accent colors + filter options);
+  // passed down so each row doesn't open its own ['config'] query subscription.
   const { data: config } = useQuery({ queryKey: queryKeys.config, queryFn: getConfig })
+
+  // The summary bar shows the real last 7 days (today included), independent of
+  // paging and filters — not just the rows of the current table page.
+  const summaryFrom = localDateDaysAgo(6)
+  const { data: week } = useQuery({
+    queryKey: queryKeys.historySummary(summaryFrom),
+    queryFn: () => getHistory({ from: summaryFrom, per_page: SUMMARY_PAGE_SIZE }),
+  })
 
   const deleteMut = useMutation({
     mutationFn: (olderThanDays?: number) => deleteHistory(olderThanDays),
@@ -56,9 +97,11 @@ export default function History() {
   })
 
   const items = data?.items ?? []
-  const totalLiters = items.reduce((a, r) => a + (r.liters ?? 0), 0)
-  const avgDur = items.length > 0
-    ? Math.round(items.reduce((a, r) => a + (r.duration_min ?? 0), 0) / items.length)
+  const weekItems = week?.items ?? []
+  const totalLiters = weekItems.reduce((a, r) => a + (r.liters ?? 0), 0)
+  const finished = weekItems.filter((r) => r.duration_min != null)
+  const avgDur = finished.length > 0
+    ? Math.round(finished.reduce((a, r) => a + (r.duration_min ?? 0), 0) / finished.length)
     : 0
 
   return (
@@ -105,6 +148,39 @@ export default function History() {
             {t('history.deleteAll')}
           </button>
         </div>
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+        <FilterSelect
+          value={seqFilter}
+          onChange={setFilter(setSeqFilter)}
+          placeholder={t('history.allSequences')}
+          options={Object.entries(config?.sequences ?? {}).map(([id, s]) => ({ id, label: s.label }))}
+        />
+        <FilterSelect
+          value={zoneFilter}
+          onChange={setFilter(setZoneFilter)}
+          placeholder={t('history.allZones')}
+          options={Object.entries(config?.zones ?? {}).map(([id, z]) => ({ id, label: z.label }))}
+        />
+        <FilterDate value={fromDate} onChange={setFilter(setFromDate)} label={t('history.from')} />
+        <FilterDate value={toDate} onChange={setFilter(setToDate)} label={t('history.to')} />
+        {hasFilters && (
+          <button
+            className="n-btn ghost"
+            onClick={() => {
+              setSeqFilter('')
+              setZoneFilter('')
+              setFromDate('')
+              setToDate('')
+              setPage(1)
+            }}
+            style={{ height: 38, padding: '0 12px', fontSize: 12.5, color: 'var(--n-fg-muted)' }}
+          >
+            {t('history.clearFilters')}
+          </button>
+        )}
       </div>
 
       {/* Table header */}
@@ -188,6 +264,61 @@ export default function History() {
         onCancel={() => setConfirm(null)}
       />
     </div>
+  )
+}
+
+const filterControlStyle = {
+  height: 38,
+  padding: '0 12px',
+  background: 'var(--n-card)',
+  border: '1px solid var(--n-line-strong)',
+  borderRadius: 'var(--n-r-md)',
+  fontSize: 13,
+  fontFamily: 'var(--n-sans)',
+  outline: 'none',
+} as const
+
+function FilterSelect({ value, onChange, placeholder, options }: {
+  value: string
+  onChange: (v: string) => void
+  placeholder: string
+  options: { id: string; label: string }[]
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={placeholder}
+      style={{
+        ...filterControlStyle,
+        color: value ? 'var(--n-fg)' : 'var(--n-fg-muted)',
+        cursor: 'pointer',
+        minWidth: 160,
+      }}
+    >
+      <option value="">{placeholder}</option>
+      {options.map((o) => (
+        <option key={o.id} value={o.id}>{o.label}</option>
+      ))}
+    </select>
+  )
+}
+
+function FilterDate({ value, onChange, label }: {
+  value: string
+  onChange: (v: string) => void
+  label: string
+}) {
+  return (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--n-fg-muted)' }}>
+      {label}
+      <input
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ ...filterControlStyle, color: 'var(--n-fg)', colorScheme: 'dark' }}
+      />
+    </label>
   )
 }
 

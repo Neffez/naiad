@@ -17,7 +17,10 @@ export const queryKeys = {
   plans: ['plans'] as const,
   health: ['health'] as const,
   history: ['history'] as const,
-  historyPage: (page: number) => ['history', page] as const,
+  historyPage: (page: number, filters?: Record<string, string | undefined>) =>
+    ['history', page, filters ?? {}] as const,
+  // Fixed 7-day aggregate for the history summary bar, independent of filters.
+  historySummary: (from: string) => ['history', 'summary', from] as const,
   entities: (domain: string) => ['entities', domain] as const,
   services: (domain: string) => ['services', domain] as const,
 } as const

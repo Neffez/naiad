@@ -369,27 +369,23 @@ function RunRow({
         </span>
         <span className="mono" style={{ fontSize: hero ? 14 : 12.5, color: 'var(--n-teal-200)', fontWeight: 500 }}>
           {formatClock(run.scheduled_at, lng)} · {run.duration_min} min
-          {run.in_progress
-            ? <span style={{ color: 'var(--n-leaf-300)' }}> · {t('today.live')}</span>
-            : hero && <span style={{ color: 'var(--n-fg-soft)' }}> · {formatRelative(run.scheduled_at, t)}</span>}
+          {hero && <span style={{ color: 'var(--n-fg-soft)' }}> · {formatRelative(run.scheduled_at, t)}</span>}
         </span>
       </div>
-      {!run.in_progress && (
-        <button
-          className="n-btn ghost"
-          onClick={onSkip}
-          disabled={skipping}
-          title={t('today.skip')}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            height: 32, padding: '0 10px', fontSize: 12, flex: '0 0 auto',
-            color: 'var(--n-fg-muted)',
-          }}
-        >
-          <IX size={13} />
-          <span>{t('today.skip')}</span>
-        </button>
-      )}
+      <button
+        className="n-btn ghost"
+        onClick={onSkip}
+        disabled={skipping}
+        title={t('today.skip')}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          height: 32, padding: '0 10px', fontSize: 12, flex: '0 0 auto',
+          color: 'var(--n-fg-muted)',
+        }}
+      >
+        <IX size={13} />
+        <span>{t('today.skip')}</span>
+      </button>
     </div>
   )
 }

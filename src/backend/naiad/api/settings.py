@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Literal, TypeVar, cast
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -130,8 +131,6 @@ async def update_settings(
     config: AppConfig = Depends(get_config),
     session: Session = Depends(get_session),
 ) -> AppSettingsResponse:
-    from datetime import UTC, datetime
-
     if body.factors is not None:
         fo = session.get(FactorOverride, 1) or FactorOverride(id=1)
         f = body.factors

@@ -195,6 +195,8 @@ async def websocket_endpoint(
     try:
         raw = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
         msg = json.loads(raw)
+    except WebSocketDisconnect:
+        return  # client went away during the handshake — nothing to answer
     except (TimeoutError, json.JSONDecodeError):
         await websocket.send_text(json.dumps({"type": "auth_failed", "detail": "Auth timeout"}))
         await websocket.close()

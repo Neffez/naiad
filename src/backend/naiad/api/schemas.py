@@ -151,9 +151,6 @@ class NextRunResponse(BaseModel):
     # Set for one-off planned runs; the skip endpoint deletes the plan directly.
     # None for recurring cron runs, which are skipped via a SkippedRun record.
     plan_id: str | None = None
-    # True when this entry is the run currently executing (started, not upcoming).
-    # The UI marks it as live and hides the skip action.
-    in_progress: bool = False
 
 
 class SystemStatusResponse(BaseModel):
@@ -348,14 +345,14 @@ class AppSettingsResponse(BaseModel):
 
 
 class UserPreferencesResponse(BaseModel):
-    theme: str
+    # The UI theme is intentionally absent: it is a per-device choice the
+    # frontend keeps in localStorage, not a server preference.
     language: str
     sequence_order: list[str]
     zone_order: list[str]
 
 
 class UpdatePreferencesRequest(BaseModel):
-    theme: str | None = None
     language: str | None = None
     sequence_order: list[str] | None = None
     zone_order: list[str] | None = None

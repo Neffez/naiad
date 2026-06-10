@@ -106,6 +106,7 @@ export const getHistory = (params: HistoryParams) => {
   if (params.page) qs.set('page', String(params.page))
   if (params.per_page) qs.set('per_page', String(params.per_page))
   if (params.sequence_id) qs.set('sequence_id', params.sequence_id)
+  if (params.zone_id) qs.set('zone_id', params.zone_id)
   if (params.from) qs.set('from', params.from)
   if (params.to) qs.set('to', params.to)
   return api.get<PaginatedHistory>(`/history?${qs}`)
@@ -194,6 +195,7 @@ export interface HistoryParams {
   page?: number
   per_page?: number
   sequence_id?: string
+  zone_id?: string
   from?: string
   to?: string
 }

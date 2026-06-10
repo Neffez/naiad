@@ -264,6 +264,20 @@ class HAClient:
             raise HAError(
                 {"message": f"Command timed out (id={msg_id}, type={msg.get('type')})"}
             ) from err
+        except asyncio.CancelledError:
+            self._pending.pop(msg_id, None)
+            # Two distinct cancellations end up here. (a) The *caller's task* is being
+            # cancelled (process shutdown) — propagate, so e.g. a run task keeps its
+            # crash-recovery semantics. (b) Only the *future* was cancelled by
+            # _mark_disconnected (HA dropped) — surface that as an HAError so callers'
+            # `except Exception` retry paths (e.g. _safe_turn_off) handle it instead
+            # of the BaseException silently killing their task.
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                raise
+            raise HAError(
+                {"message": f"Connection lost (id={msg_id}, type={msg.get('type')})"}
+            ) from None
 
     # ── Public API ────────────────────────────────────────────────────────────
 

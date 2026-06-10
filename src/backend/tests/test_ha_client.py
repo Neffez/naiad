@@ -332,3 +332,49 @@ def test_mark_disconnected_cancels_pending_and_fires_offline() -> None:
         assert offline_calls == [False]
 
     asyncio.run(run())
+
+
+class _FakeWS:
+    async def send(self, data: str) -> None:
+        pass
+
+
+def test_send_command_disconnect_surfaces_haerror() -> None:
+    """A disconnect while a command is in flight must fail the awaiting caller
+    with HAError — catchable by ``except Exception`` retry paths such as
+    ``_safe_turn_off`` — instead of leaking the cancelled future's
+    CancelledError (a BaseException) into the caller's task."""
+
+    async def run() -> None:
+        client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+
+        async def send_and_expect_error() -> None:
+            with pytest.raises(HAError):
+                await client._send_command(_FakeWS(), {"type": "call_service"})  # type: ignore[arg-type]
+
+        task = asyncio.create_task(send_and_expect_error())
+        await asyncio.sleep(0)  # let the command register its pending future
+        assert client._pending  # the command is in flight
+        client._mark_disconnected()
+        await task
+
+    asyncio.run(run())
+
+
+def test_send_command_task_cancellation_propagates() -> None:
+    """Cancelling the awaiting task itself (process shutdown) must still raise
+    CancelledError, so run tasks keep their crash-recovery semantics."""
+
+    async def run() -> None:
+        client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+
+        async def send() -> None:
+            await client._send_command(_FakeWS(), {"type": "call_service"})  # type: ignore[arg-type]
+
+        task = asyncio.create_task(send())
+        await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run())

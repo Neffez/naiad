@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlmodel import Session, col, select
+from sqlmodel import Session, col, func, select
 
 from naiad.api.ws import broadcast_notification, broadcast_sequence_changed
 from naiad.config import (
@@ -117,7 +117,11 @@ class NotificationQueue:
         if self._session_factory is None:
             return 0
         with self._session_factory() as session:
-            return len(session.exec(select(QueuedNotification)).all())
+            return self._count(session)
+
+    @staticmethod
+    def _count(session: Session) -> int:
+        return int(session.exec(select(func.count()).select_from(QueuedNotification)).one())
 
     def enqueue(self, target: NotifyTarget, message: str, category: str, config: AppConfig) -> None:
         if config.notifications.queue_max_hours <= 0:
@@ -139,7 +143,7 @@ class NotificationQueue:
             )
             session.commit()
             self._enforce_cap(session)
-            pending = len(session.exec(select(QueuedNotification)).all())
+            pending = self._count(session)
         logger.info(
             "Notification queued for '%s' (%s) — HA unreachable; %d pending",
             target.service,
@@ -165,14 +169,14 @@ class NotificationQueue:
             )
 
     def _enforce_cap(self, session: Session) -> None:
-        rows = list(
-            session.exec(
-                select(QueuedNotification).order_by(col(QueuedNotification.enqueued_at))
-            ).all()
-        )
-        overflow = len(rows) - _QUEUE_MAX_ITEMS
+        overflow = self._count(session) - _QUEUE_MAX_ITEMS
         if overflow > 0:
-            for row in rows[:overflow]:
+            oldest = session.exec(
+                select(QueuedNotification)
+                .order_by(col(QueuedNotification.enqueued_at))
+                .limit(overflow)
+            ).all()
+            for row in oldest:
                 session.delete(row)
             session.commit()
             logger.warning("Notification queue full — dropped %d oldest item(s)", overflow)
@@ -723,7 +727,7 @@ async def _evening_reminder(
     push_notification gates delivery per target (category "reminder"); we just skip
     the work when nobody is subscribed.
     """
-    if not any("reminder" in t.categories for t in config.ha.notify_targets):
+    if not any("reminder" in target.categories for target in config.ha.notify_targets):
         return
     tz = ZoneInfo(config.timezone)
     tomorrow = (datetime.now(tz) + timedelta(days=1)).date()
@@ -804,7 +808,7 @@ def _register_reminder_job(
     """(Re)register the nightly reminder; only when a target wants the reminder."""
     if scheduler.get_job("evening-reminder") is not None:
         scheduler.remove_job("evening-reminder")
-    if not any("reminder" in t.categories for t in config.ha.notify_targets):
+    if not any("reminder" in target.categories for target in config.ha.notify_targets):
         return
     try:
         trigger = CronTrigger.from_crontab(

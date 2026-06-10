@@ -9,7 +9,7 @@ from naiad.api.ws import broadcast_sequence_changed
 from naiad.config import AppConfig
 from naiad.database import get_session
 from naiad.dependencies import get_config, get_runner, require_auth
-from naiad.domain.models import UserPreference
+from naiad.domain.preferences import read_master_on
 from naiad.domain.sequences import (
     MutexConflict,
     NotRunning,
@@ -21,11 +21,6 @@ from naiad.domain.sequences import (
 
 router = APIRouter(prefix="/zones", tags=["zones"])
 logger = logging.getLogger(__name__)
-
-
-def _master_on(session: Session) -> bool:
-    pref = session.get(UserPreference, "master_on")
-    return pref is None or pref.value == "1"
 
 
 @router.post("/{zone_id}/start", status_code=202)
@@ -52,7 +47,7 @@ async def start_zone(
         raise _reject(404, f"Zone '{zone_id}' not found")
     if not config.zones[zone_id].switch:
         raise _reject(422, "Zone has no switch entity. Set it in the configuration.")
-    if not _master_on(session):
+    if not read_master_on(session):
         raise _reject(422, "Master switch is off")
 
     try:
