@@ -1,4 +1,4 @@
-"""Publish irrigation statistics to Home Assistant over MQTT discovery.
+"""Publish irrigation statistics and control entities to Home Assistant over MQTT.
 
 Naiad tracks every run's liters and duration in its own SQLite ``run_history``.
 This module mirrors those figures into Home Assistant as native sensor entities,
@@ -7,7 +7,7 @@ using the MQTT-discovery protocol, so that:
 * the cumulative liters/duration get long-term statistics in HA, and
 * HA's InfluxDB integration forwards the state changes to InfluxDB → Grafana.
 
-The published entities (grouped under one "Naiad" device):
+The published sensor entities (grouped under one "Naiad" device):
 
 * ``sensor.naiad_water_total``      — cumulative liters (``total_increasing``)
 * ``sensor.naiad_water_<zone>``     — cumulative liters per zone
@@ -20,6 +20,22 @@ The published entities (grouped under one "Naiad" device):
 * ``sensor.naiad_rain_factor``      — current rain multiplier in percent
 * ``sensor.naiad_adjustment_factor``— current combined watering factor in percent
 
+In addition, control entities make Naiad operable from HA automations and voice
+assistants without opening the Naiad UI:
+
+* ``switch.naiad_master``           — global watering on/off
+* ``switch.naiad_manual_mode``      — manual adjustment-factor mode on/off
+* ``number.naiad_manual_factor``    — the manual adjustment factor in percent
+* ``button.naiad_start_<sequence>`` — start a sequence
+* ``button.naiad_stop_<sequence>``  — stop a sequence (idempotent)
+
+Commands arrive on ``<base_topic>/<object_id>/set`` and are handled on the
+asyncio event loop. Sequence starts are delegated to the same gate path as
+scheduled runs (master, wind, season, factor, runner safety locks — wired in
+``main``), so MQTT control can never bypass the safety model. Note that broker
+access implies control access: commands are authorized by the MQTT broker's own
+authentication, not by Naiad's API auth.
+
 State and discovery messages are published with ``retain=True`` so the values
 survive both Naiad and Home Assistant restarts. The source of truth stays the
 SQLite history: every publish recomputes the totals from the database, so it can
@@ -29,7 +45,7 @@ never drift from what Naiad recorded.
 import asyncio
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -37,8 +53,14 @@ from typing import Any, Protocol
 from sqlmodel import Session, col, func, select
 
 from naiad.config import AppConfig
-from naiad.domain.factors import FactorResult, SensorSnapshot, compute_factors
-from naiad.domain.models import RunHistory
+from naiad.domain.factors import (
+    FactorResult,
+    SensorSnapshot,
+    compute_factors,
+    merge_factor_config,
+)
+from naiad.domain.models import FactorOverride, RunHistory
+from naiad.domain.preferences import read_master_on, set_master_on
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.ha_client import HAClient
 
@@ -119,13 +141,23 @@ def compute_totals(session: Session) -> RunTotals:
 
 @dataclass(frozen=True)
 class _EntitySpec:
-    """One published sensor: how to advertise it (discovery) and where its state goes."""
+    """One published entity: how to advertise it (discovery) and where its state goes."""
 
-    object_id: str  # unique slug, e.g. "water_total" or "water_zone_a"
+    object_id: str  # unique slug, e.g. "water_total" or "start_seq_1"
     name: str
-    device_class: str | None
-    state_class: str | None
-    unit: str | None
+    device_class: str | None = None
+    state_class: str | None = None
+    unit: str | None = None
+    # MQTT-discovery platform: "sensor", "switch", "button" or "number".
+    platform: str = "sensor"
+    # Additional platform-specific discovery payload entries (number min/max, icons…).
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+# Payload conventions of the HA MQTT switch/button platforms (their defaults).
+_ON = "ON"
+_OFF = "OFF"
+_PRESS = "PRESS"
 
 
 class StatsPublisher:
@@ -154,6 +186,10 @@ class StatsPublisher:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._connected = client is not None  # injected fakes are "ready" for tests
         self._discovered: set[str] = set()
+        # Invoked for a start/stop button press with (sequence_id, "start"|"stop").
+        # Wired in main to the shared run gates and the idempotent stop path; a
+        # press without a handler is logged and dropped.
+        self.on_sequence_command: Callable[[str, str], Awaitable[None]] | None = None
 
     # ── Topics ──────────────────────────────────────────────────────────────
 
@@ -164,8 +200,15 @@ class StatsPublisher:
     def _state_topic(self, object_id: str) -> str:
         return f"{self._config.mqtt.base_topic}/{object_id}/state"
 
-    def _discovery_topic(self, object_id: str) -> str:
-        return f"{self._config.mqtt.discovery_prefix}/sensor/naiad/{object_id}/config"
+    def _command_topic(self, object_id: str) -> str:
+        return f"{self._config.mqtt.base_topic}/{object_id}/set"
+
+    @property
+    def _command_subscription(self) -> str:
+        return f"{self._config.mqtt.base_topic}/+/set"
+
+    def _discovery_topic(self, spec: "_EntitySpec") -> str:
+        return f"{self._config.mqtt.discovery_prefix}/{spec.platform}/naiad/{spec.object_id}/config"
 
     # ── Entity catalogue ──────────────────────────────────────────────────────
 
@@ -202,12 +245,74 @@ class StatsPublisher:
             )
         return specs
 
+    def _manual_factor_bounds(self) -> tuple[int, int]:
+        """The effective min/max of the manual factor (temperature-factor bounds).
+
+        Commands are clamped server-side with the *current* bounds on every set
+        (see ``_dispatch_command``), so a later bounds change cannot be bypassed
+        through a stale discovery payload.
+        """
+        with self._session_factory() as session:
+            override = session.get(FactorOverride, 1)
+        eff_temp, _eff_rain = merge_factor_config(self._config, override)
+        return eff_temp.min_pct, eff_temp.max_pct
+
+    def _control_specs(self) -> list[_EntitySpec]:
+        """Control entities: master switch, manual-factor override, per-sequence
+        start/stop buttons. Commands arrive on ``<base_topic>/<object_id>/set``
+        and are routed by :meth:`handle_command`."""
+        min_pct, max_pct = self._manual_factor_bounds()
+        specs = [
+            _EntitySpec(
+                "master",
+                "Watering enabled",
+                platform="switch",
+                extra={"icon": "mdi:water"},
+            ),
+            _EntitySpec(
+                "manual_mode",
+                "Manual factor mode",
+                platform="switch",
+                extra={"icon": "mdi:tune-variant"},
+            ),
+            _EntitySpec(
+                "manual_factor",
+                "Manual factor",
+                unit="%",
+                platform="number",
+                extra={
+                    "min": min_pct,
+                    "max": max_pct,
+                    "step": 1,
+                    "mode": "slider",
+                    "icon": "mdi:water-percent",
+                },
+            ),
+        ]
+        for seq_id, seq in self._config.sequences.items():
+            specs.append(
+                _EntitySpec(
+                    f"start_{seq_id}",
+                    f"Start {seq.label}",
+                    platform="button",
+                    extra={"payload_press": _PRESS, "icon": "mdi:play"},
+                )
+            )
+            specs.append(
+                _EntitySpec(
+                    f"stop_{seq_id}",
+                    f"Stop {seq.label}",
+                    platform="button",
+                    extra={"payload_press": _PRESS, "icon": "mdi:stop"},
+                )
+            )
+        return specs
+
     def _discovery_payload(self, spec: _EntitySpec) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "name": spec.name,
             "unique_id": f"naiad_{spec.object_id}",
             "object_id": f"naiad_{spec.object_id}",
-            "state_topic": self._state_topic(spec.object_id),
             "availability_topic": self._availability_topic,
             "device": {
                 "identifiers": ["naiad"],
@@ -216,12 +321,17 @@ class StatsPublisher:
                 "model": "Irrigation controller",
             },
         }
+        if spec.platform != "button":  # buttons are stateless
+            payload["state_topic"] = self._state_topic(spec.object_id)
+        if spec.platform in ("switch", "button", "number"):
+            payload["command_topic"] = self._command_topic(spec.object_id)
         if spec.unit is not None:
             payload["unit_of_measurement"] = spec.unit
         if spec.device_class is not None:
             payload["device_class"] = spec.device_class
         if spec.state_class is not None:
             payload["state_class"] = spec.state_class
+        payload.update(spec.extra)
         return payload
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -265,6 +375,7 @@ class StatsPublisher:
         client.will_set(self._availability_topic, "offline", retain=True)
         client.on_connect = self._on_connect
         client.on_disconnect = self._on_disconnect
+        client.on_message = self._on_message
         client.reconnect_delay_set(min_delay=1, max_delay=60)
         self._client = client
         try:
@@ -301,6 +412,8 @@ class StatsPublisher:
         logger.info("MQTT statistics bridge connected")
         self._connected = True
         client.publish(self._availability_topic, "online", retain=True)
+        # Receive control commands (master switch, sequence buttons, manual factor).
+        client.subscribe(self._command_subscription)
         # Re-advertise discovery on every (re)connect, then push current values.
         self._discovered.clear()
         if self._loop is not None:
@@ -309,6 +422,16 @@ class StatsPublisher:
     def _on_disconnect(self, *args: Any) -> None:
         self._connected = False
         logger.warning("MQTT statistics bridge disconnected")
+
+    def _on_message(self, client: Any, userdata: Any, msg: Any) -> None:
+        """Inbound command (paho network thread) — hand off to the event loop."""
+        raw = msg.payload
+        payload = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+        if self._loop is None:
+            return
+        asyncio.run_coroutine_threadsafe(
+            self.handle_command(msg.topic, payload.strip()), self._loop
+        )
 
     # ── Publishing ──────────────────────────────────────────────────────────
 
@@ -331,11 +454,11 @@ class StatsPublisher:
         self._client.publish(topic, payload, retain=retain)
 
     def _publish_discovery(self) -> None:
-        for spec in self._entity_specs():
+        for spec in (*self._entity_specs(), *self._control_specs()):
             if spec.object_id in self._discovered:
                 continue
             self._publish(
-                self._discovery_topic(spec.object_id),
+                self._discovery_topic(spec),
                 json.dumps(self._discovery_payload(spec)),
             )
             self._discovered.add(spec.object_id)
@@ -372,6 +495,19 @@ class StatsPublisher:
             self._publish(self._state_topic("rain_factor"), _num(metrics.factors.rain_factor_pct))
             self._publish(self._state_topic("adjustment_factor"), _num(metrics.factors.factor_pct))
 
+        # Control-entity states mirror Naiad's stored settings.
+        with self._session_factory() as session:
+            master_on = read_master_on(session)
+            override = session.get(FactorOverride, 1)
+        self._publish(self._state_topic("master"), _ON if master_on else _OFF)
+        self._publish(
+            self._state_topic("manual_mode"),
+            _ON if override is not None and override.manual_mode else _OFF,
+        )
+        # 100 % is the neutral value while no manual factor has ever been set.
+        manual_pct = 100 if override is None or override.manual_pct is None else override.manual_pct
+        self._publish(self._state_topic("manual_factor"), _num(float(manual_pct)))
+
     def _weather_metrics(self) -> WeatherMetrics | None:
         if self._ha is None:
             return None
@@ -380,6 +516,89 @@ class StatsPublisher:
             factors = compute_factors(snapshot, self._config, session)
         return WeatherMetrics(snapshot=snapshot, factors=factors)
 
+    # ── Commands ────────────────────────────────────────────────────────────
+
+    async def handle_command(self, topic: str, payload: str) -> None:
+        """Handle one inbound control command (on the event loop).
+
+        Unknown topics and malformed payloads are logged and dropped — a stray
+        MQTT message must never take the bridge (or the app) down.
+        """
+        prefix = f"{self._config.mqtt.base_topic}/"
+        suffix = "/set"
+        if not (topic.startswith(prefix) and topic.endswith(suffix)):
+            return
+        object_id = topic[len(prefix) : -len(suffix)]
+        try:
+            await self._dispatch_command(object_id, payload)
+        except Exception:
+            logger.warning("MQTT command failed: %s %r", topic, payload, exc_info=True)
+
+    async def _dispatch_command(self, object_id: str, payload: str) -> None:
+        if object_id == "master":
+            value = _parse_on_off(payload)
+            if value is None:
+                logger.warning("Ignoring MQTT master command with payload %r", payload)
+                return
+            with self._session_factory() as session:
+                set_master_on(session, value)
+            logger.info("Master switch set to %s via MQTT", "on" if value else "off")
+            await self.publish_all()
+            return
+
+        if object_id == "manual_mode":
+            value = _parse_on_off(payload)
+            if value is None:
+                logger.warning("Ignoring MQTT manual_mode command with payload %r", payload)
+                return
+            with self._session_factory() as session:
+                override = session.get(FactorOverride, 1) or FactorOverride(id=1)
+                override.manual_mode = value
+                override.updated_at = datetime.now(UTC)
+                session.add(override)
+                session.commit()
+            logger.info("Manual factor mode set to %s via MQTT", "on" if value else "off")
+            await self.publish_all()
+            return
+
+        if object_id == "manual_factor":
+            try:
+                pct = int(round(float(payload)))
+            except ValueError:
+                logger.warning("Ignoring MQTT manual_factor command with payload %r", payload)
+                return
+            with self._session_factory() as session:
+                override = session.get(FactorOverride, 1) or FactorOverride(id=1)
+                # Clamp to the effective temperature-factor bounds — the same rule
+                # the settings API applies (see api/settings.py).
+                eff_temp, _eff_rain = merge_factor_config(self._config, override)
+                override.manual_pct = max(eff_temp.min_pct, min(eff_temp.max_pct, pct))
+                override.updated_at = datetime.now(UTC)
+                session.add(override)
+                session.commit()
+                applied = override.manual_pct
+            logger.info("Manual factor set to %d%% via MQTT (requested %d%%)", applied, pct)
+            await self.publish_all()
+            return
+
+        for action_prefix, action in (("start_", "start"), ("stop_", "stop")):
+            if not object_id.startswith(action_prefix):
+                continue
+            sequence_id = object_id[len(action_prefix) :]
+            if sequence_id not in self._config.sequences:
+                logger.warning("MQTT %s command for unknown sequence '%s'", action, sequence_id)
+                return
+            if self.on_sequence_command is None:
+                logger.warning(
+                    "MQTT %s command for '%s' dropped — no handler wired", action, sequence_id
+                )
+                return
+            logger.info("Sequence '%s' %s requested via MQTT", sequence_id, action)
+            await self.on_sequence_command(sequence_id, action)
+            return
+
+        logger.warning("Unknown MQTT command object '%s'", object_id)
+
     # ── Hooks ───────────────────────────────────────────────────────────────
 
     async def on_run_recorded(self) -> None:
@@ -387,7 +606,7 @@ class StatsPublisher:
         await self.publish_all()
 
     def on_config_changed(self) -> None:
-        """Re-advertise discovery (zones may have changed) and refresh state.
+        """Re-advertise discovery (zones/sequences may have changed) and refresh state.
 
         Called from the synchronous config-reload path; schedules the async
         publish on the running event loop.
@@ -400,6 +619,16 @@ class StatsPublisher:
             except RuntimeError:
                 return
         loop.create_task(self.publish_all())
+
+
+def _parse_on_off(payload: str) -> bool | None:
+    """Parse an HA switch command payload; None for anything unrecognized."""
+    value = payload.strip().upper()
+    if value == _ON:
+        return True
+    if value == _OFF:
+        return False
+    return None
 
 
 def _num(value: float) -> str:

@@ -13,7 +13,7 @@ class RunHistory(SQLModel, table=True):
     ended_at: datetime | None = None
     duration_min: float | None = None
     liters: float | None = None
-    triggered_by: str  # cron | manual | plan | resume
+    triggered_by: str  # cron | manual | plan | resume | mqtt
     aborted: bool = False
     abort_reason: str | None = None  # See docs/openapi.yaml: AbortReason
 

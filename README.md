@@ -186,7 +186,7 @@ environment only (see [`.env.example`](.env.example)).
 | `zones`         | Per-zone `label`, `switch` entity, and `flow_lph` (used for liter tracking).                                                                                                                                                                                                                                                                            |
 | `sequences`     | Ordered `zones`, `basis_min_per_zone`, allowed `range`, `watchdog_min`, `enabled`, `wind_blocks` (skips the run on a wind alarm), and a `schedule` — `days` (ISO 1=Mon…7=Sun, empty = every day) + `times` (`HH:MM`), with an advanced `cron` escape hatch that overrides them when set.                                                                |
 | `factors`       | `temp` (linear scaling around `basis_c`, clamped to `min_pct`..`max_pct`) and `rain`. `rain.mode: forecast` keeps the existing forecast-based reduction with `threshold_prob`, `reduce_above_mm`, `zero_above_mm`, `forecast_decay`, `peak_tomorrow`. `rain.mode: water_balance` additionally uses recent actual precipitation from `sensors.precipitation_actual` as a decaying rain credit (`water_balance_days`, `water_balance_decay`) so rain earlier in the week can reduce a later scheduled run. When `confirm_with_rain_sensor` is enabled, forecast peaks and water-balance precipitation deltas only count while the binary rain sensor actually detected rain. The temperature input prefers the forecast daily max, then falls back to yesterday's recorded max, and only uses the current temperature as a last resort. |
-| `mqtt`          | Optional MQTT statistics bridge — see [Statistics in Home Assistant](#statistics-in-home-assistant). `enabled`, broker `host`/`port`/`username`, `discovery_prefix`, `base_topic`.                                                                                                                                                                      |
+| `mqtt`          | Optional MQTT bridge: statistics sensors plus control entities (master switch, start/stop buttons, manual factor) — see [Statistics in Home Assistant](#statistics-in-home-assistant). `enabled`, broker `host`/`port`/`username`, `discovery_prefix`, `base_topic`.                                                                                     |
 | `notifications` | Optional HA push notifications.                                                                                                                                                                                                                                                                                                                         |
 | `auth`          | `mode` (`password` \| `forward_header` \| `none`), the shared `password`, optional `auto_login` for trusted embedding contexts, `ingress` trust for the HA App sidebar (additive — coexists with `mode`), and `frame_ancestors` for the CSP header.                                                                                                     |
 
@@ -288,6 +288,30 @@ For the Grafana path: HA's InfluxDB integration exports **state changes** (not
 the statistics tables), so it picks these sensors up automatically. Point Grafana
 at InfluxDB and build the dashboard from there (e.g. a per-day water consumption
 panel via `difference()` on the cumulative `naiad_water_total`).
+
+### Control entities
+
+The same MQTT device also exposes control entities, so Naiad can be driven from
+HA automations and voice assistants ("start lawn watering") without opening the
+Naiad UI:
+
+| Entity | Type | Action |
+|---|---|---|
+| `switch.naiad_master` | switch | Global watering on/off (the same master switch as in the UI) |
+| `switch.naiad_manual_mode` | switch | Toggle the manual adjustment-factor mode (bypasses the automatic temp/rain factor) |
+| `number.naiad_manual_factor` | number, `%` | The manual adjustment factor; values are clamped to the configured bounds |
+| `button.naiad_start_<sequence>` | button | Start a sequence |
+| `button.naiad_stop_<sequence>` | button | Stop a sequence (idempotent; also discards a paused run) |
+
+The safety model stays intact: a start command goes through exactly the same
+gate path as a scheduled run — master switch, paused override, wind block,
+season, zero-factor skip, zone conflicts, and the runner's recovery/cleanup
+locks — so MQTT control can never open a valve the scheduler would not have
+opened. Runs started this way appear in the history with trigger `mqtt`.
+
+Note that commands are authorized by the **MQTT broker's** authentication, not
+by Naiad's API login: anyone who can publish to the broker can use these
+controls, so secure the broker accordingly.
 
 The bridge is entirely optional and best-effort: a missing or unreachable broker
 is logged and ignored, it never affects irrigation.

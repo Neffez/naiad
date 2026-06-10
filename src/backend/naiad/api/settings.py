@@ -257,6 +257,12 @@ async def update_settings(
 
         await broadcast_factor_updated()
 
+    # Keep the MQTT control entities (manual mode/factor) in sync (best-effort).
+    if body.factors is not None and request is not None:
+        publisher = getattr(request.app.state, "stats_publisher", None)
+        if publisher is not None:
+            await publisher.publish_all()
+
     # A changed credit parameter must not act on the stale hourly cache.
     if body.factors is not None and body.factors.rain is not None:
         rain = body.factors.rain

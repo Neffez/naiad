@@ -26,7 +26,7 @@ components:
 
     TriggerSource:
       type: string
-      enum: [cron, manual, plan, resume]
+      enum: [cron, manual, plan, resume, mqtt]
 
     AbortReason:
       type: string

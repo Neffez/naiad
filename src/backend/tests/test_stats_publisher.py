@@ -6,7 +6,8 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
 from naiad.config import AppConfig
-from naiad.domain.models import RunHistory
+from naiad.domain.models import FactorOverride, RunHistory
+from naiad.domain.preferences import read_master_on, set_master_on
 from naiad.stats_publisher import StatsPublisher, compute_totals
 
 
@@ -27,7 +28,8 @@ class FakeMQTT:
         self.messages.append((topic, payload, retain))
 
     def by_topic(self, topic: str) -> str | None:
-        for t, payload, _ in self.messages:
+        # Most recent first, so command tests observe the state *after* the command.
+        for t, payload, _ in reversed(self.messages):
             if t == topic:
                 return payload
         return None
@@ -220,3 +222,142 @@ async def test_on_run_recorded_publishes(minimal_config: AppConfig, engine) -> N
     await pub.on_run_recorded()
 
     assert fake.by_topic("naiad/water_total/state") == "10"
+
+
+# ── control entities ──────────────────────────────────────────────────────────
+
+
+async def test_publish_emits_control_discovery_and_state(minimal_config: AppConfig, engine) -> None:
+    minimal_config.mqtt.enabled = True
+    pub, fake = _publisher(minimal_config, engine)
+
+    await pub.publish_all()
+
+    master = json.loads(fake.by_topic("homeassistant/switch/naiad/master/config") or "{}")
+    assert master["command_topic"] == "naiad/master/set"
+    assert master["state_topic"] == "naiad/master/state"
+    assert master["unique_id"] == "naiad_master"
+
+    start = json.loads(fake.by_topic("homeassistant/button/naiad/start_seq_1/config") or "{}")
+    assert start["command_topic"] == "naiad/start_seq_1/set"
+    assert "state_topic" not in start  # buttons are stateless
+    assert fake.by_topic("homeassistant/button/naiad/stop_seq_1/config") is not None
+    assert fake.by_topic("homeassistant/button/naiad/start_seq_wind/config") is not None
+
+    number = json.loads(fake.by_topic("homeassistant/number/naiad/manual_factor/config") or "{}")
+    assert number["command_topic"] == "naiad/manual_factor/set"
+    assert number["min"] == 80  # default temperature-factor bounds
+    assert number["max"] == 150
+    assert number["unit_of_measurement"] == "%"
+
+    assert fake.by_topic("homeassistant/switch/naiad/manual_mode/config") is not None
+
+    # Control states reflect the defaults: master on, automatic mode, neutral factor.
+    assert fake.by_topic("naiad/master/state") == "ON"
+    assert fake.by_topic("naiad/manual_mode/state") == "OFF"
+    assert fake.by_topic("naiad/manual_factor/state") == "100"
+
+
+async def test_master_command_toggles_master(minimal_config: AppConfig, engine) -> None:
+    pub, fake = _publisher(minimal_config, engine)
+
+    await pub.handle_command("naiad/master/set", "OFF")
+
+    with Session(engine) as session:
+        assert read_master_on(session) is False
+    assert fake.by_topic("naiad/master/state") == "OFF"
+
+    await pub.handle_command("naiad/master/set", "on")  # payload is case-insensitive
+
+    with Session(engine) as session:
+        assert read_master_on(session) is True
+    assert fake.by_topic("naiad/master/state") == "ON"
+
+
+async def test_manual_factor_command_clamps_and_persists(minimal_config: AppConfig, engine) -> None:
+    pub, fake = _publisher(minimal_config, engine)
+
+    await pub.handle_command("naiad/manual_factor/set", "120")
+
+    with Session(engine) as session:
+        override = session.get(FactorOverride, 1)
+        assert override is not None and override.manual_pct == 120
+    assert fake.by_topic("naiad/manual_factor/state") == "120"
+
+    # Out-of-bounds values are pinned to the temperature-factor limits, exactly
+    # like the settings API.
+    await pub.handle_command("naiad/manual_factor/set", "999")
+    with Session(engine) as session:
+        override = session.get(FactorOverride, 1)
+        assert override is not None and override.manual_pct == 150
+
+
+async def test_manual_mode_command_persists_and_republishes(
+    minimal_config: AppConfig, engine
+) -> None:
+    pub, fake = _publisher(minimal_config, engine)
+
+    await pub.handle_command("naiad/manual_mode/set", "ON")
+
+    with Session(engine) as session:
+        override = session.get(FactorOverride, 1)
+        assert override is not None and override.manual_mode is True
+    assert fake.by_topic("naiad/manual_mode/state") == "ON"
+
+
+async def test_sequence_button_commands_invoke_handler(minimal_config: AppConfig, engine) -> None:
+    pub, _fake = _publisher(minimal_config, engine)
+    calls: list[tuple[str, str]] = []
+
+    async def handler(sequence_id: str, action: str) -> None:
+        calls.append((sequence_id, action))
+
+    pub.on_sequence_command = handler
+
+    await pub.handle_command("naiad/start_seq_1/set", "PRESS")
+    await pub.handle_command("naiad/stop_seq_1/set", "PRESS")
+    assert calls == [("seq_1", "start"), ("seq_1", "stop")]
+
+    # Unknown sequences and missing handlers are dropped, never raised.
+    await pub.handle_command("naiad/start_nope/set", "PRESS")
+    assert len(calls) == 2
+    pub.on_sequence_command = None
+    await pub.handle_command("naiad/start_seq_1/set", "PRESS")
+    assert len(calls) == 2
+
+
+async def test_malformed_commands_are_ignored(minimal_config: AppConfig, engine) -> None:
+    pub, _fake = _publisher(minimal_config, engine)
+
+    await pub.handle_command("naiad/manual_factor/set", "not-a-number")
+    await pub.handle_command("naiad/master/set", "maybe")
+    await pub.handle_command("other/master/set", "ON")  # foreign base topic
+    await pub.handle_command("naiad/unknown_object/set", "ON")
+
+    with Session(engine) as session:
+        assert session.get(FactorOverride, 1) is None
+        assert read_master_on(session) is True  # untouched default
+
+
+async def test_handler_exception_does_not_propagate(minimal_config: AppConfig, engine) -> None:
+    pub, _fake = _publisher(minimal_config, engine)
+
+    async def failing_handler(sequence_id: str, action: str) -> None:
+        raise RuntimeError("boom")
+
+    pub.on_sequence_command = failing_handler
+
+    await pub.handle_command("naiad/start_seq_1/set", "PRESS")  # must not raise
+
+
+async def test_state_publish_reflects_externally_set_master(
+    minimal_config: AppConfig, engine
+) -> None:
+    # Master toggled through the REST API → the next publish mirrors it to MQTT.
+    with Session(engine) as session:
+        set_master_on(session, False)
+    pub, fake = _publisher(minimal_config, engine)
+
+    await pub.publish_all()
+
+    assert fake.by_topic("naiad/master/state") == "OFF"

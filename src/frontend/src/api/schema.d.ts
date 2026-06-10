@@ -568,7 +568,7 @@ export interface components {
         /** @enum {string} */
         SequenceStatus: "idle" | "running" | "paused" | "disabled";
         /** @enum {string} */
-        TriggerSource: "cron" | "manual" | "plan" | "resume";
+        TriggerSource: "cron" | "manual" | "plan" | "resume" | "mqtt";
         /** @enum {string} */
         AbortReason: "rain" | "wind" | "watchdog" | "manual_stop" | "ha_disconnect" | "staircase_retrigger_failed" | "close_failed" | "start_failed";
         /** @enum {string} */

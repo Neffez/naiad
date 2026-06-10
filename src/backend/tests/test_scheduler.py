@@ -22,11 +22,11 @@ from naiad.scheduler import (
     _plan_tick,
     _retry_deferred_cron_runs,
     _run_cron_sequence_job,
-    _run_sequence_job,
     flush_notification_queue,
     push_notification,
     refresh_rain_confirmed_peak,
     refresh_rain_forecast_max,
+    run_sequence_job,
 )
 from tests.conftest import MINIMAL_CONFIG_DATA
 
@@ -93,14 +93,14 @@ def fast_config(minimal_config: AppConfig) -> AppConfig:
     return AppConfig.model_validate(data)
 
 
-async def test_run_sequence_job_status_transitions(fast_config: AppConfig, engine) -> None:
+async def testrun_sequence_job_status_transitions(fast_config: AppConfig, engine) -> None:
     sf = lambda: Session(engine)  # noqa: E731
     runner = SequenceRunner(fast_config, FakeDriver(), sf)
     ha = FakeHA()
 
-    assert await _run_sequence_job("seq_1", runner, ha, fast_config, sf) == "started"
+    assert await run_sequence_job("seq_1", runner, ha, fast_config, sf) == "started"
     # Second start while running → transient conflict.
-    assert await _run_sequence_job("seq_1", runner, ha, fast_config, sf) == "conflict"
+    assert await run_sequence_job("seq_1", runner, ha, fast_config, sf) == "conflict"
     await runner.stop("seq_1")
 
 
@@ -140,16 +140,16 @@ async def test_expired_deferred_cron_retry_is_dropped(fast_config: AppConfig, en
         assert list(session.exec(select(DeferredCronRun)).all()) == []
 
 
-async def test_run_sequence_job_skips_when_master_off(fast_config: AppConfig, engine) -> None:
+async def testrun_sequence_job_skips_when_master_off(fast_config: AppConfig, engine) -> None:
     sf = lambda: Session(engine)  # noqa: E731
     with Session(engine) as s:
         s.add(UserPreference(key="master_on", value="0"))
         s.commit()
     runner = SequenceRunner(fast_config, FakeDriver(), sf)
-    assert await _run_sequence_job("seq_1", runner, FakeHA(), fast_config, sf) == "skipped"
+    assert await run_sequence_job("seq_1", runner, FakeHA(), fast_config, sf) == "skipped"
 
 
-async def test_run_sequence_job_skips_when_factor_zero(fast_config: AppConfig, engine) -> None:
+async def testrun_sequence_job_skips_when_factor_zero(fast_config: AppConfig, engine) -> None:
     """Heavy forecast rain drives the factor to 0 % → the run is skipped, not
     floored to the range minimum."""
     sf = lambda: Session(engine)  # noqa: E731
@@ -157,16 +157,16 @@ async def test_run_sequence_job_skips_when_factor_zero(fast_config: AppConfig, e
     runner = SequenceRunner(fast_config, driver, sf)
     # prob >= threshold_prob (70) and mm >= zero_above_mm (20) → rain factor 0.
     ha = FakeHA(prec_prob_today="100", prec_today="50")
-    result = await _run_sequence_job("seq_1", runner, ha, fast_config, sf, triggered_by="cron")
+    result = await run_sequence_job("seq_1", runner, ha, fast_config, sf, triggered_by="cron")
     assert result == "skipped"
     assert driver.on_calls == []  # no valve was opened
     assert not runner.any_running()
 
 
-async def test_run_sequence_job_skips_when_season_off(fast_config: AppConfig, engine) -> None:
+async def testrun_sequence_job_skips_when_season_off(fast_config: AppConfig, engine) -> None:
     sf = lambda: Session(engine)  # noqa: E731
     runner = SequenceRunner(fast_config, FakeDriver(), sf)
-    result = await _run_sequence_job("seq_1", runner, FakeHA(season="off"), fast_config, sf)
+    result = await run_sequence_job("seq_1", runner, FakeHA(season="off"), fast_config, sf)
     assert result == "skipped"
 
 
@@ -259,7 +259,7 @@ async def test_cron_run_skipped_when_occurrence_marked(fast_config: AppConfig, e
         s.add(SkippedRun(sequence_id="seq_1", scheduled_at=now))
         s.commit()
 
-    result = await _run_sequence_job("seq_1", runner, ha, fast_config, sf, triggered_by="cron")
+    result = await run_sequence_job("seq_1", runner, ha, fast_config, sf, triggered_by="cron")
     assert result == "skipped"
     # The skip record is consumed (one-off), so the next run is unaffected.
     with Session(engine) as s:
@@ -277,7 +277,7 @@ async def test_manual_trigger_ignores_skip(fast_config: AppConfig, engine) -> No
         s.add(SkippedRun(sequence_id="seq_1", scheduled_at=now))
         s.commit()
 
-    result = await _run_sequence_job("seq_1", runner, ha, fast_config, sf, triggered_by="plan")
+    result = await run_sequence_job("seq_1", runner, ha, fast_config, sf, triggered_by="plan")
     assert result == "started"
     await runner.stop("seq_1")
 

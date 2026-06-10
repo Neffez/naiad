@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -21,13 +22,14 @@ from naiad import __version__
 from naiad.config import is_addon_context, resolve_ha_connection
 from naiad.config_store import load_or_seed_config
 from naiad.database import create_tables, get_engine
-from naiad.domain.sequences import SequenceRunner
+from naiad.domain.sequences import NotRunning, SequenceRunner, SequenceState
 from naiad.domain.tracking import LiterTracker
 from naiad.drivers.ha_driver import HAEntityDriver
 from naiad.ha_client import HAClient
 from naiad.scheduler import (
     refresh_fallback_temp_max,
     refresh_rain_forecast_max,
+    run_sequence_job,
     setup_scheduler,
 )
 from naiad.stats_publisher import StatsPublisher
@@ -215,6 +217,24 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         await broadcast_notification(message, level)
 
     runner.on_notification = _on_run_notification
+
+    async def _on_sequence_command(sequence_id: str, action: str) -> None:
+        # MQTT start/stop button presses. A start goes through the same gate path
+        # as scheduled runs (master, wind, season, factor, runner safety locks);
+        # a stop mirrors the idempotent REST stop endpoint.
+        if action == "start":
+            await run_sequence_job(
+                sequence_id, runner, ha, config, _session_factory, triggered_by="mqtt"
+            )
+            return
+        if runner.status_of(sequence_id).state == SequenceState.RUNNING:
+            with contextlib.suppress(NotRunning):
+                await runner.stop(sequence_id)
+        else:
+            runner.discard_snapshot(sequence_id)
+        await broadcast_sequence_changed(sequence_id, "idle", "manual")
+
+    stats_publisher.on_sequence_command = _on_sequence_command
 
     async def _valve_state_cb(entity_id: str, new_state: dict[str, Any]) -> None:
         # Resolve the switch→zone mapping live from the shared config so a runtime

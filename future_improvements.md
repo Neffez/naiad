@@ -31,7 +31,7 @@ each history entry.
 
 ---
 
-## 2. MQTT control entities (not just statistics)
+## 2. MQTT control entities (not just statistics) — ✅ implemented 2026-06-10
 
 **Starting point:** The MQTT discovery infrastructure already exists
 (`stats_publisher.py`) but only publishes sensors.
@@ -48,6 +48,49 @@ intact because every command goes through the existing runner gates (master,
 wind, conflicts, recovery lock).
 
 **Effort:** medium. **Value:** the biggest integration lever for the project.
+
+Implemented (2026-06-10): `switch.naiad_master`, `switch.naiad_manual_mode`,
+`number.naiad_manual_factor`, and `button.naiad_start_<sequence>` /
+`button.naiad_stop_<sequence>`. Starts run through the same gate path as
+scheduled runs (`run_sequence_job`); runs appear in the history with trigger
+`mqtt`.
+
+### 2b. Follow-up ideas (not yet implemented)
+
+Candidates for a second MQTT-control iteration, roughly ordered by value:
+
+- **Start/stop per zone.** The backend already supports standalone single-zone
+  runs end to end (`runner.start_zone`: watchdog, crash recovery, pending-close,
+  history; REST endpoints in `api/zones.py`). The real value: the valve switches
+  are HA entities anyway, but toggling them directly bypasses Naiad entirely —
+  no watchdog, no time bound, and reconciliation closes externally opened valves
+  again. An MQTT zone start would use the managed path instead. One design
+  question: a zone start *requires* a duration (the weather factor is
+  intentionally not applied), and an HA button cannot carry one. Options:
+  1. One global `number.naiad_zone_duration` plus
+     `button.naiad_start_zone_<zone>` / `button.naiad_stop_zone_<zone>` per
+     zone — the button starts with the configured duration (default e.g.
+     10 min, matching planned zone runs without a duration). Voice-friendly,
+     only one extra entity. **Recommended.**
+  2. Use the implicit zone duration from sequences.
+  Gates as in the REST/plan path (`_run_zone_job`: master, switch present, zone
+  conflicts, recovery lock). Wind/season deliberately do not apply to single
+  zones (consistent with today); the rain abort still covers running zone runs.
+- **"Stop all" button.** Aborts every live run (and discards pause snapshots).
+  Trivial to build, very voice-friendly ("stop the watering"), and valuable as a
+  panic button in automations (window-open sensor, pool party).
+- **Status sensors as automation triggers:** `binary_sensor.naiad_running`,
+  `sensor.naiad_current_run` (which sequence/zone) and `sensor.naiad_next_run`
+  (timestamp, from `next_run_for_sequence`). Not control, but the missing half
+  for HA automations — "don't start the mower while watering runs" currently
+  requires watching the individual valve switches.
+- **Pause/resume buttons per sequence.** `runner.pause` and resume-via-start
+  already exist; pausing by voice is a real use case ("pause, I'm walking
+  through the garden").
+- **"Skip sequence" switch** (`SequenceOverride.paused`) — the counterpart of
+  the skip toggle in the settings; rarely automated, but cheap.
+- A `select` for the rain mode or similar is deliberately out: that is
+  configuration, not control, and belongs in the UI.
 
 ---
 

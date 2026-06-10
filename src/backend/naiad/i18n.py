@@ -23,6 +23,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "trigger.plan": "planned",
         "trigger.manual": "manual",
         "trigger.resume": "resumed",
+        "trigger.mqtt": "Home Assistant",
         "skip.wind": "⚠️ {label}: wind — run skipped",
         "skip.zero_factor": "💧 {label}: factor 0 % — run skipped",
         "skip.conflict_sequence": "⚠️ Schedule conflict: {label} skipped — {running} still running",
@@ -58,6 +59,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "trigger.plan": "geplant",
         "trigger.manual": "manuell",
         "trigger.resume": "fortgesetzt",
+        "trigger.mqtt": "Home Assistant",
         # Skips (deterministic refusals)
         "skip.wind": "⚠️ {label}: Wind — Lauf übersprungen",
         "skip.zero_factor": "💧 {label}: Faktor 0 % — Lauf übersprungen",

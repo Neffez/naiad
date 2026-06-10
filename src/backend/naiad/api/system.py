@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, func, select
 
 from naiad.api.schemas import (
@@ -303,10 +303,16 @@ async def get_status(
 @router.patch("/status/master")
 async def set_master(
     body: MasterToggleRequest,
+    request: Request = None,  # type: ignore[assignment]  # injected by FastAPI; None in unit tests
     _: None = Depends(require_auth),
     session: Session = Depends(get_session),
 ) -> dict[str, bool]:
     set_master_on(session, body.on)
+    # Mirror the new state to the MQTT master switch right away (best-effort) so
+    # the HA entity does not stay stale until the next scheduled publish.
+    publisher = getattr(request.app.state, "stats_publisher", None) if request else None
+    if publisher is not None:
+        await publisher.publish_all()
     return {"master_on": body.on}
 
 

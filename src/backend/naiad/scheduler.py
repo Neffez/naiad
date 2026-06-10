@@ -373,7 +373,7 @@ async def refresh_rain_confirmed_peak(config: AppConfig, ha: HAClient) -> None:
     )
 
 
-async def _run_sequence_job(
+async def run_sequence_job(
     sequence_id: str,
     runner: SequenceRunner,
     ha: HAClient,
@@ -387,6 +387,10 @@ async def _run_sequence_job(
 
     "busy" means valve safety work is active; "conflict" means another sequence
     reserves a valve. Both are transient. "skipped" is a deterministic refusal.
+
+    Shared gate path for every automatic start (cron, plans, MQTT commands):
+    paused override, master switch, wind block, season, zero factor, and the
+    runner's own safety locks all apply here.
     """
     seq_cfg = config.sequences.get(sequence_id)
     if seq_cfg is None or not seq_cfg.enabled:
@@ -492,7 +496,7 @@ async def _run_zone_job(
     triggered_by: str = "plan",
 ) -> str:
     """Attempt to start a standalone single-zone run. Returns "started",
-    "skipped", "busy" or "conflict" (same contract as ``_run_sequence_job``).
+    "skipped", "busy" or "conflict" (same contract as ``run_sequence_job``).
 
     A planned zone run waters exactly the requested duration: the weather factor
     is intentionally not applied (it targets one bed for a fixed time). Rain is
@@ -547,7 +551,7 @@ async def _run_cron_sequence_job(
     session_factory: SessionFactory,
 ) -> str:
     """Run a cron occurrence, durably deferring it while safety work is active."""
-    result = await _run_sequence_job(
+    result = await run_sequence_job(
         sequence_id,
         runner,
         ha,
@@ -600,7 +604,7 @@ async def _retry_deferred_cron_runs(
                 await push_notification(ha, config, note, category="skip")
                 await broadcast_notification(note, level="warning")
         else:
-            result = await _run_sequence_job(
+            result = await run_sequence_job(
                 row.sequence_id,
                 runner,
                 ha,
@@ -660,7 +664,7 @@ async def _plan_tick(
             )
         else:
             override_min = float(plan.duration_min) if plan.duration_min is not None else None
-            result = await _run_sequence_job(
+            result = await run_sequence_job(
                 plan.sequence_id,
                 runner,
                 ha,

@@ -22,7 +22,11 @@ ha:
 # Optional: mirror tracked liters and run durations into Home Assistant as MQTT
 # sensors (via MQTT discovery). HA then keeps long-term statistics for them and —
 # through its InfluxDB integration — forwards the state changes to InfluxDB/Grafana.
-# Requires an MQTT broker (e.g. the Mosquitto add-on). Disabled by default.
+# Also exposes control entities (master switch, start/stop buttons per sequence,
+# manual adjustment factor) so Naiad can be driven from HA automations and voice
+# assistants. Note: anyone with broker access can use these controls — secure the
+# broker accordingly. Requires an MQTT broker (e.g. the Mosquitto add-on).
+# Disabled by default.
 mqtt:
   enabled: false
   host: core-mosquitto        # broker hostname (the Mosquitto add-on inside HA)
