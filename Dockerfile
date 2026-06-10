@@ -4,7 +4,10 @@ WORKDIR /app/src/frontend
 COPY src/frontend/package.json src/frontend/package-lock.json ./
 # --legacy-peer-deps: the toolchain pins a newer TypeScript than some lint peers
 # declare; the build itself (tsc + vite) is clean with it.
-RUN npm ci --legacy-peer-deps --no-audit --no-fund
+# Retry flags: GitHub runners occasionally drop connections to the npm registry
+# (ECONNRESET); default npm gives up too quickly for CI.
+RUN npm ci --legacy-peer-deps --no-audit --no-fund \
+    --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 COPY src/frontend/ ./
 # vite `outDir` is ../../static → builds to /app/static
 RUN npm run build
