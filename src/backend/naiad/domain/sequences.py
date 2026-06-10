@@ -988,6 +988,11 @@ class SequenceRunner:
 
         if override_min is not None:
             duration_min = override_min
+            # An explicit per-zone duration is intentional: keep the watchdog a
+            # strict safety net *above* it instead of letting it abort the run
+            # mid-way with an alarming notification (mirrors build_zone_sequence,
+            # which does the same for standalone zone runs).
+            effective_watchdog = max(effective_watchdog, duration_min + 10.0)
         else:
             lo, hi = seq.range
             basis = effective_basis * factor_pct / 100.0

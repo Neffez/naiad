@@ -70,3 +70,67 @@ async def test_delete_history_leaves_settings_and_plans_untouched() -> None:
         assert s.exec(select(RunHistory)).all() == []
         assert len(s.exec(select(Plan)).all()) == 1
         assert len(s.exec(select(SequenceOverride)).all()) == 1
+
+
+async def test_history_summary_aggregates_window(minimal_config) -> None:
+    """The summary aggregates liters/runs/avg duration over the local calendar
+    window — and ignores rows outside it as well as unfinished durations."""
+    from naiad.api.history import get_history_summary
+
+    eng = _engine()
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with Session(eng) as s:
+        s.add(
+            RunHistory(
+                zone_id="z",
+                sequence_id="seq",
+                started_at=now,
+                triggered_by="cron",
+                liters=10.0,
+                duration_min=20.0,
+            )
+        )
+        s.add(
+            RunHistory(
+                zone_id="z",
+                sequence_id="seq",
+                started_at=now - timedelta(days=2),
+                triggered_by="cron",
+                liters=5.0,
+                duration_min=10.0,
+            )
+        )
+        # In-flight run: liters/duration still NULL — counted as a run, ignored in avg.
+        s.add(RunHistory(zone_id="z", sequence_id="seq", started_at=now, triggered_by="cron"))
+        # Outside the 7-day window.
+        s.add(
+            RunHistory(
+                zone_id="z",
+                sequence_id="seq",
+                started_at=now - timedelta(days=30),
+                triggered_by="cron",
+                liters=99.0,
+                duration_min=99.0,
+            )
+        )
+        s.commit()
+
+    with Session(eng) as s:
+        result = await get_history_summary(_=None, config=minimal_config, session=s, days=7)
+
+    assert result.days == 7
+    assert result.liters == 15.0
+    assert result.runs == 3
+    assert result.avg_duration_min == 15.0
+
+
+async def test_history_summary_empty_window(minimal_config) -> None:
+    from naiad.api.history import get_history_summary
+
+    eng = _engine()
+    with Session(eng) as s:
+        result = await get_history_summary(_=None, config=minimal_config, session=s, days=7)
+
+    assert result.liters == 0.0
+    assert result.runs == 0
+    assert result.avg_duration_min is None

@@ -298,7 +298,11 @@
     "deleteZoneTitle": "Zone löschen?",
     "deleteZoneMsg": "Zone „{{name}}\" wirklich löschen? Sie wird auch aus allen Sequenzen entfernt.",
     "deleteSequenceTitle": "Sequenz löschen?",
-    "deleteSequenceMsg": "Sequenz „{{name}}\" wirklich löschen?"
+    "deleteSequenceMsg": "Sequenz „{{name}}\" wirklich löschen?",
+    "wind": "Wind",
+    "windAbortAfter": "Laufende Sequenzen abbrechen nach",
+    "windAbortAfterHelp": "So viele Minuten muss der Windalarm anhalten, bevor eine laufende windgeblockte Sequenz abgebrochen wird — eine kurze Böe stoppt die Bewässerung nicht. Pro Lauf gilt höchstens 10% seiner geplanten Dauer; endet der Alarm vorher, wird der Abbruch verworfen. 0 = sofort abbrechen.",
+    "windAbortAfterUnit": "min"
   },
   "schedule": {
     "days": "Wochentage",
@@ -346,7 +350,9 @@
     "subtitle": "Gartenbewässerung",
     "password": "Passwort",
     "login": "Einloggen",
-    "error": "Falsches Passwort"
+    "error": "Falsches Passwort",
+    "tooManyAttempts": "Zu viele Fehlversuche — bitte kurz warten und erneut versuchen.",
+    "tooManyAttemptsRetry": "Zu viele Fehlversuche — in {{seconds}} s erneut versuchen."
   },
   "confirm": {
     "startNow": "Sofort starten",
@@ -424,7 +430,8 @@
     "ha_disconnect": "HA getrennt",
     "staircase_retrigger_failed": "Treppenlicht-Timer fehlgeschlagen",
     "close_failed": "Ventil nicht geschlossen",
-    "start_failed": "Start fehlgeschlagen"
+    "start_failed": "Start fehlgeschlagen",
+    "wind": "Wind"
   },
   "weekdaysShort": [
     "Mo",

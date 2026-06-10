@@ -1,6 +1,40 @@
 import { API_BASE } from './base'
 import type { components, operations } from './schema'
 
+/** API failure carrying the HTTP status (and Retry-After, when sent) so callers
+ *  can branch on it — e.g. the login form telling a 429 lockout apart from a 401. */
+export class ApiError extends Error {
+  status: number
+  /** Seconds from a Retry-After header, when the server sent one (429). */
+  retryAfterS: number | null
+
+  constructor(message: string, status: number, retryAfterS: number | null = null) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.retryAfterS = retryAfterS
+  }
+}
+
+/** FastAPI's `detail` is a string for explicit HTTPExceptions but a list of
+ *  objects for body-validation errors — stringify those instead of showing
+ *  "[object Object]" in a toast. */
+function detailMessage(detail: unknown, fallback: string): string {
+  if (typeof detail === 'string' && detail) return detail
+  if (detail != null && typeof detail === 'object') return JSON.stringify(detail)
+  return fallback
+}
+
+async function errorFromResponse(res: Response): Promise<ApiError> {
+  const body = await res.json().catch(() => null)
+  const retryAfter = Number(res.headers.get('Retry-After'))
+  return new ApiError(
+    detailMessage((body as { detail?: unknown } | null)?.detail, res.statusText),
+    res.status,
+    Number.isFinite(retryAfter) ? retryAfter : null,
+  )
+}
+
 function getToken(): string | null {
   return localStorage.getItem('naiad_token')
 }
@@ -42,8 +76,7 @@ async function request<T>(
   }
 
   if (!res.ok) {
-    const detail = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(detail?.detail ?? res.statusText)
+    throw await errorFromResponse(res)
   }
 
   if (res.status === 204) return undefined as T
@@ -112,6 +145,11 @@ export const getHistory = (params: HistoryParams) => {
   return api.get<PaginatedHistory>(`/history?${qs}`)
 }
 
+// Aggregate over the last N local calendar days (today included), computed
+// server-side so it is exact regardless of how many runs the window holds.
+export const getHistorySummary = (days = 7) =>
+  api.get<HistorySummary>(`/history/summary?days=${days}`)
+
 // Deletes run history only — settings and plans are never affected.
 // Pass olderThanDays to remove only entries older than that many days.
 export const deleteHistory = (olderThanDays?: number) => {
@@ -160,8 +198,7 @@ export async function importConfig(text: string): Promise<ConfigDoc> {
     body: text,
   })
   if (!res.ok) {
-    const detail = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(detail?.detail ?? res.statusText)
+    throw await errorFromResponse(res)
   }
   return res.json() as Promise<ConfigDoc>
 }
@@ -201,6 +238,7 @@ export interface HistoryParams {
 }
 
 export type DeleteHistoryResult = ApiSchemas['DeleteHistoryResult']
+export type HistorySummary = ApiSchemas['HistorySummary']
 export type Plan = ApiSchemas['Plan']
 export type CreatePlanRequest = ApiSchemas['CreatePlanRequest']
 export type AppSettings = ApiSchemas['AppSettings']

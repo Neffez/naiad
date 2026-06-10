@@ -2,30 +2,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../api/queryKeys'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { type ConfigDoc, deleteHistory, getConfig, getHistory, type HistoryEntry } from '../api/client'
+import { type ConfigDoc, deleteHistory, getConfig, getHistory, getHistorySummary, type HistoryEntry } from '../api/client'
 import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
 import { LoadError } from '../components/LoadError'
 import { IClock, IPlay } from '../components/icons'
 import { resolveSeqColor } from '../theme/sequenceColors'
 
 const OLDER_THAN_DAYS = 30
-// Page size of the 7-day summary fetch (the backend cap). More than 200 runs in
-// 7 days would truncate the sum — far beyond a realistic garden schedule.
-const SUMMARY_PAGE_SIZE = 200
+const SUMMARY_DAYS = 7
 
 function fmtDur(min: number | null): string {
   if (min == null) return '—'
   if (min < 60) return `${min.toFixed(0)} min`
   return `${(min / 60).toFixed(1)} h`
-}
-
-/** Local calendar date `days` days ago as YYYY-MM-DD (for the history `from` filter). */
-function localDateDaysAgo(days: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() - days)
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${d.getFullYear()}-${month}-${day}`
 }
 
 function fmtDate(iso: string, lng: string): string {
@@ -80,11 +69,11 @@ export default function History() {
   const { data: config } = useQuery({ queryKey: queryKeys.config, queryFn: getConfig })
 
   // The summary bar shows the real last 7 days (today included), independent of
-  // paging and filters — not just the rows of the current table page.
-  const summaryFrom = localDateDaysAgo(6)
-  const { data: week } = useQuery({
-    queryKey: queryKeys.historySummary(summaryFrom),
-    queryFn: () => getHistory({ from: summaryFrom, per_page: SUMMARY_PAGE_SIZE }),
+  // paging and filters — aggregated server-side, so it is exact regardless of
+  // how many runs the window holds.
+  const { data: summary } = useQuery({
+    queryKey: queryKeys.historySummary(SUMMARY_DAYS),
+    queryFn: () => getHistorySummary(SUMMARY_DAYS),
   })
 
   const deleteMut = useMutation({
@@ -97,12 +86,8 @@ export default function History() {
   })
 
   const items = data?.items ?? []
-  const weekItems = week?.items ?? []
-  const totalLiters = weekItems.reduce((a, r) => a + (r.liters ?? 0), 0)
-  const finished = weekItems.filter((r) => r.duration_min != null)
-  const avgDur = finished.length > 0
-    ? Math.round(finished.reduce((a, r) => a + (r.duration_min ?? 0), 0) / finished.length)
-    : 0
+  const totalLiters = summary?.liters ?? 0
+  const avgDur = Math.round(summary?.avg_duration_min ?? 0)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>

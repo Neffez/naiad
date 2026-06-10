@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, time, timedelta
@@ -14,6 +15,7 @@ from naiad.config import (
     NOTIFICATION_CATEGORIES,
     AppConfig,
     NotifyTarget,
+    SequenceConfig,
     target_service_data,
 )
 from naiad.domain.factors import compute_factors, merge_factor_config
@@ -31,6 +33,7 @@ from naiad.domain.sequences import (
     MutexConflict,
     RunnerBusy,
     SequenceRunner,
+    SequenceStatus,
     zone_id_of_run,
 )
 from naiad.ha_client import HAClient
@@ -716,6 +719,85 @@ async def _on_rain(
         await broadcast_notification(rain_note, level="warning")
 
 
+class WindAbortMonitor:
+    """Aborts running wind-blocked sequences only after a *sustained* wind alarm.
+
+    Wind blocking at start is handled by the run gates; this covers wind that
+    begins mid-run. A brief gust must not abort the watering, so each affected
+    run is aborted only if the alarm is still active after its threshold:
+    ``min(config.wind.abort_after_min, 10% of the run's planned duration)`` —
+    short runs react proportionally faster. The alarm clearing before the
+    threshold cancels every pending abort.
+
+    Only real sequences with ``wind_blocks`` are affected; standalone zone runs
+    have no wind blocking. A run resumed by crash recovery while the alarm is
+    already active is picked up on the next wind transition (edge case).
+    """
+
+    def __init__(self, runner: SequenceRunner, config: AppConfig, ha: HAClient) -> None:
+        self._runner = runner
+        self._config = config
+        self._ha = ha
+        self._tasks: dict[str, asyncio.Task[None]] = {}
+
+    async def on_wind_state(self, is_on: bool) -> None:
+        if not is_on:
+            for task in self._tasks.values():
+                task.cancel()
+            self._tasks.clear()
+            return
+        for status in self._runner.iter_runs():
+            run_id = status.sequence_id
+            if run_id is None or run_id in self._tasks:
+                continue
+            seq = self._config.sequences.get(run_id)
+            if seq is None or not seq.wind_blocks:
+                continue
+            delay_s = self._threshold_min(status, seq) * 60.0
+            task = asyncio.create_task(
+                self._abort_after(run_id, delay_s), name=f"wind-abort-{run_id}"
+            )
+            self._tasks[run_id] = task
+
+            def _cleanup(t: asyncio.Task[None], rid: str = run_id) -> None:
+                self._discard(rid, t)
+
+            task.add_done_callback(_cleanup)
+
+    def _discard(self, run_id: str, task: asyncio.Task[None]) -> None:
+        if self._tasks.get(run_id) is task:
+            self._tasks.pop(run_id, None)
+
+    def _threshold_min(self, status: SequenceStatus, seq: SequenceConfig) -> float:
+        configured = self._config.wind.abort_after_min
+        if status.current_zone is None:
+            return configured
+        # Planned total ≈ current per-zone duration × zone count (good enough for
+        # a reaction threshold; resumed first zones make it slightly conservative).
+        planned_total = status.current_zone.duration_min * max(1, len(seq.zones))
+        return min(configured, 0.1 * planned_total)
+
+    async def _abort_after(self, run_id: str, delay_s: float) -> None:
+        await asyncio.sleep(delay_s)
+        # Re-check live conditions: the run may have ended on its own, and a
+        # missed "off" event must not abort a run after the alarm cleared.
+        if self._ha.get_state_value(self._config.sensors.wind) != "on":
+            return
+        if run_id not in self._runner.running_run_ids():
+            return
+        label = _run_label(self._config, run_id)
+        logger.info("Sustained wind alarm — aborting '%s'", run_id)
+        try:
+            await self._runner.stop(run_id, reason="wind")
+        except Exception:
+            logger.exception("Error aborting run '%s' on wind", run_id)
+            return
+        note = t("abort.wind", self._config.language, label=label)
+        await push_notification(self._ha, self._config, note, category="abort")
+        await broadcast_sequence_changed(run_id, "idle", "wind")
+        await broadcast_notification(note, level="warning")
+
+
 async def _evening_reminder(
     scheduler: AsyncIOScheduler,
     config: AppConfig,
@@ -966,5 +1048,18 @@ def setup_scheduler(
 
     ha.subscribe_state_changes(_rain_cb)
     logger.info("Rain listener registered: '%s'", config.sensors.rain)
+
+    # Sustained wind aborts running wind-blocked sequences (a gust does not).
+    wind_monitor = WindAbortMonitor(runner, config, ha)
+
+    async def _wind_cb(entity_id: str, new_state: dict[str, Any]) -> None:
+        if entity_id != config.sensors.wind:
+            return
+        state = new_state.get("state")
+        if state in ("on", "off"):
+            await wind_monitor.on_wind_state(state == "on")
+
+    ha.subscribe_state_changes(_wind_cb)
+    logger.info("Wind listener registered: '%s'", config.sensors.wind)
 
     return scheduler

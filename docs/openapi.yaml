@@ -30,7 +30,7 @@ components:
 
     AbortReason:
       type: string
-      enum: [rain, watchdog, manual_stop, ha_disconnect, staircase_retrigger_failed, close_failed, start_failed]
+      enum: [rain, wind, watchdog, manual_stop, ha_disconnect, staircase_retrigger_failed, close_failed, start_failed]
 
     ValveStateEnum:
       type: string
@@ -288,6 +288,18 @@ components:
       properties:
         deleted: { type: integer }  # number of run-history rows removed
 
+    HistorySummary:
+      type: object
+      required: [days, liters, runs, avg_duration_min]
+      properties:
+        days:   { type: integer }
+        liters: { type: number }
+        runs:   { type: integer }
+        avg_duration_min:
+          type: number
+          nullable: true
+          description: Average over finished runs only; null when the window has no finished run.
+
     # ── Settings ──────────────────────────────────────────────────────────────
 
     TempFactorSettings:
@@ -395,11 +407,8 @@ components:
 
     UserPreferences:
       type: object
-      required: [language, sequence_order, zone_order]
+      required: [sequence_order, zone_order]
       properties:
-        language:
-          type: string
-          enum: [de, en]
         sequence_order:
           type: array
           description: Sequence IDs in the user's preferred dashboard order. IDs not present are appended in their natural order.
@@ -412,9 +421,6 @@ components:
     UpdatePreferencesRequest:
       type: object
       properties:
-        language:
-          type: string
-          enum: [de, en]
         sequence_order:
           type: array
           items: { type: string }
@@ -555,6 +561,19 @@ components:
         precipitation_tomorrow: { type: string }
         precipitation_actual: { type: string }
 
+    WindConfig:
+      type: object
+      required: [abort_after_min]
+      properties:
+        abort_after_min:
+          type: number
+          minimum: 0
+          description: >-
+            Minutes the wind alarm must be sustained before a running
+            wind-blocked sequence is aborted. The effective delay per run is
+            min(abort_after_min, 10% of the run's planned duration); the alarm
+            clearing earlier cancels the abort. 0 aborts immediately.
+
     ZoneConfig:
       type: object
       required: [label, switch, flow_lph, staircase_enabled, staircase_min]
@@ -640,12 +659,13 @@ components:
 
     ConfigDoc:
       type: object
-      required: [ha, mqtt, auth, sensors, zones, sequences, factors, notifications, timezone, sequence_colors_enabled, restart_required]
+      required: [ha, mqtt, auth, sensors, wind, zones, sequences, factors, notifications, timezone, sequence_colors_enabled, restart_required]
       properties:
         ha: { $ref: '#/components/schemas/HAConfigPublic' }
         mqtt: { $ref: '#/components/schemas/MQTTConfig' }
         auth: { $ref: '#/components/schemas/AuthConfig' }
         sensors: { $ref: '#/components/schemas/SensorsConfig' }
+        wind: { $ref: '#/components/schemas/WindConfig' }
         zones:
           type: object
           additionalProperties: { $ref: '#/components/schemas/ZoneConfig' }
@@ -666,6 +686,7 @@ components:
         mqtt: { $ref: '#/components/schemas/MQTTConfigInput' }
         auth: { $ref: '#/components/schemas/AuthConfigInput' }
         sensors: { $ref: '#/components/schemas/SensorsConfig' }
+        wind: { $ref: '#/components/schemas/WindConfig' }
         zones:
           type: object
           additionalProperties: { $ref: '#/components/schemas/ZoneConfig' }
@@ -1179,6 +1200,20 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DeleteHistoryResult' }
+
+  /history/summary:
+    get:
+      operationId: getHistorySummary
+      summary: Aggregate liters/runs/average duration over the last N local calendar days
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, default: 7, minimum: 1, maximum: 365 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HistorySummary' }
 
   # ── Settings ────────────────────────────────────────────────────────────────
 

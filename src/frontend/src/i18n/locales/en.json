@@ -298,7 +298,11 @@
     "deleteZoneTitle": "Delete zone?",
     "deleteZoneMsg": "Really delete zone “{{name}}”? It will also be removed from all sequences.",
     "deleteSequenceTitle": "Delete sequence?",
-    "deleteSequenceMsg": "Really delete sequence “{{name}}”?"
+    "deleteSequenceMsg": "Really delete sequence “{{name}}”?",
+    "wind": "Wind",
+    "windAbortAfter": "Abort running sequences after",
+    "windAbortAfterHelp": "Minutes the wind alarm must be sustained before a running wind-blocked sequence is aborted — a brief gust does not stop watering. Per run the effective delay is at most 10% of its planned duration; the alarm clearing earlier cancels the abort. 0 = abort immediately.",
+    "windAbortAfterUnit": "min"
   },
   "schedule": {
     "days": "Weekdays",
@@ -346,7 +350,9 @@
     "subtitle": "Garden irrigation",
     "password": "Password",
     "login": "Log in",
-    "error": "Wrong password"
+    "error": "Wrong password",
+    "tooManyAttempts": "Too many failed attempts — please wait a moment and try again.",
+    "tooManyAttemptsRetry": "Too many failed attempts — try again in {{seconds}} s."
   },
   "confirm": {
     "startNow": "Start now",
@@ -424,7 +430,8 @@
     "ha_disconnect": "HA disconnected",
     "staircase_retrigger_failed": "Staircase timer failed",
     "close_failed": "Valve not closed",
-    "start_failed": "Start failed"
+    "start_failed": "Start failed",
+    "wind": "Wind"
   },
   "weekdaysShort": [
     "Mon",

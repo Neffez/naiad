@@ -11,6 +11,7 @@ from naiad.config import (
     NotifyTarget,
     SensorsConfig,
     SequenceConfig,
+    WindConfig,
     ZoneConfig,
 )
 
@@ -224,6 +225,16 @@ class DeleteHistoryResponse(BaseModel):
     deleted: int  # number of run-history rows removed
 
 
+class HistorySummaryResponse(BaseModel):
+    """Aggregate over the last ``days`` local calendar days (today included)."""
+
+    days: int
+    liters: float
+    runs: int
+    # Average over finished runs only; None when the window has no finished run.
+    avg_duration_min: float | None
+
+
 # ── Plans ─────────────────────────────────────────────────────────────────────
 
 
@@ -345,15 +356,13 @@ class AppSettingsResponse(BaseModel):
 
 
 class UserPreferencesResponse(BaseModel):
-    # The UI theme is intentionally absent: it is a per-device choice the
-    # frontend keeps in localStorage, not a server preference.
-    language: str
+    # Theme and language are intentionally absent: both are per-device choices
+    # the frontend keeps in localStorage, not server preferences.
     sequence_order: list[str]
     zone_order: list[str]
 
 
 class UpdatePreferencesRequest(BaseModel):
-    language: str | None = None
     sequence_order: list[str] | None = None
     zone_order: list[str] | None = None
 
@@ -411,6 +420,7 @@ class ConfigResponse(BaseModel):
     mqtt: MQTTConfigResponse
     auth: AuthConfigResponse
     sensors: SensorsConfig
+    wind: WindConfig
     zones: dict[str, ZoneConfig]
     sequences: dict[str, SequenceConfig]
     factors: FactorsConfig
@@ -427,6 +437,7 @@ class ConfigUpdateRequest(BaseModel):
     mqtt: MQTTConfigInput = MQTTConfigInput()
     auth: AuthConfigInput
     sensors: SensorsConfig
+    wind: WindConfig = WindConfig()
     zones: dict[str, ZoneConfig]
     sequences: dict[str, SequenceConfig]
     factors: FactorsConfig

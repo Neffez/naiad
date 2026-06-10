@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ApiError } from '../api/client'
 import { ILogo } from '../components/icons'
 
 interface Props {
@@ -18,8 +19,18 @@ export default function Login({ onLogin }: Props) {
     setError('')
     try {
       await onLogin(pw)
-    } catch {
-      setError(t('login.error'))
+    } catch (err) {
+      // A 429 means the throttle locked this IP — "wrong password" would only
+      // make the user retry and extend the lockout.
+      if (err instanceof ApiError && err.status === 429) {
+        setError(
+          err.retryAfterS != null
+            ? t('login.tooManyAttemptsRetry', { seconds: err.retryAfterS })
+            : t('login.tooManyAttempts'),
+        )
+      } else {
+        setError(t('login.error'))
+      }
     } finally {
       setLoading(false)
     }

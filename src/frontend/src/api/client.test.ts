@@ -1,16 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { setToken, clearToken, login, getSequences, getHealth } from './client'
+import { ApiError, setToken, clearToken, login, getSequences, getHealth } from './client'
 
 const TOKEN_KEY = 'naiad_token'
 
 // Build a minimal fetch Response stand-in.
-function mockResponse(body: unknown, init: { status?: number } = {}): Response {
+function mockResponse(
+  body: unknown,
+  init: { status?: number; headers?: Record<string, string> } = {},
+): Response {
   const status = init.status ?? 200
   const ok = status >= 200 && status < 300
   return {
     ok,
     status,
     statusText: ok ? 'OK' : 'Error',
+    headers: new Headers(init.headers),
     json: async () => body,
   } as unknown as Response
 }
@@ -99,12 +103,39 @@ describe('request layer', () => {
         ok: false,
         status: 500,
         statusText: 'Internal Server Error',
+        headers: new Headers(),
         json: async () => {
           throw new Error('not json')
         },
       } as unknown as Response),
     )
     await expect(getSequences()).rejects.toThrow('Internal Server Error')
+  })
+
+  it('exposes status and Retry-After on the thrown ApiError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        mockResponse(
+          { detail: 'Too many failed login attempts — try again later.' },
+          { status: 429, headers: { 'Retry-After': '42' } },
+        ),
+      ),
+    )
+    const err = await getSequences().catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).status).toBe(429)
+    expect((err as ApiError).retryAfterS).toBe(42)
+  })
+
+  it('stringifies non-string error details (FastAPI validation lists)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        mockResponse({ detail: [{ loc: ['body', 'x'], msg: 'field required' }] }, { status: 422 }),
+      ),
+    )
+    await expect(getSequences()).rejects.toThrow('field required')
   })
 
   it('returns undefined for a 204 No Content response', async () => {

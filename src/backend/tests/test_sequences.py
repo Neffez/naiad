@@ -1283,3 +1283,28 @@ async def test_recover_discards_run_with_under_one_minute_left(
     assert "switch.zone_a" in driver.off_calls
     with Session(engine) as session:
         assert not load_active_runs(session)
+
+
+async def test_explicit_override_raises_watchdog(
+    minimal_config: AppConfig, driver: FakeDriver, engine
+) -> None:
+    """An explicit per-zone duration (manual/plan override) is intentional: the
+    watchdog is raised above it instead of aborting the run mid-way."""
+    data = minimal_config.model_dump()
+    config = AppConfig.model_validate(data)
+    # A watchdog of 0 fires immediately — without the auto-raise, any run would
+    # abort as "watchdog" right away (config validation forbids 0, so set it on
+    # the validated instance to exercise the runtime path).
+    for seq in config.sequences.values():
+        seq.watchdog_min = 0
+
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    await runner.start("seq_1", override_min=0.005)  # ~0.3s zone
+    await asyncio.wait_for(_task(runner, "seq_1"), timeout=2.0)
+
+    assert "switch.zone_a" in driver.off_calls
+    with Session(engine) as session:
+        history = list(session.exec(select(RunHistory)).all())
+    assert len(history) == 1
+    assert history[0].aborted is False
+    assert history[0].abort_reason is None

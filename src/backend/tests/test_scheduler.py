@@ -606,3 +606,86 @@ async def test_refresh_rain_forecast_max_covers_all_precipitation_sensors(
     assert ha.confirmed_peak_calls == [
         (["sensor.prec_today", "sensor.prec_prob_today"], "binary_sensor.regen")
     ]
+
+
+# ── Sustained-wind abort ───────────────────────────────────────────────────────
+
+
+def _wind_config(
+    minimal_config: AppConfig, *, basis_min: float, abort_after_min: float
+) -> AppConfig:
+    data = minimal_config.model_dump()
+    for seq in data["sequences"].values():
+        seq["basis_min_per_zone"] = basis_min
+        seq["range"] = [0.0, max(0.1, basis_min * 2)]
+    data["wind"] = {"abort_after_min": abort_after_min}
+    return AppConfig.model_validate(data)
+
+
+async def test_sustained_wind_aborts_wind_blocked_run(minimal_config: AppConfig, engine) -> None:
+    """A wind alarm that outlasts the threshold aborts a running wind-blocked
+    sequence with abort_reason 'wind'."""
+    from naiad.domain.models import RunHistory
+    from naiad.scheduler import WindAbortMonitor
+
+    # ~3s zone, ~30ms sustained-alarm threshold.
+    config = _wind_config(minimal_config, basis_min=0.05, abort_after_min=0.0005)
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(config, FakeDriver(), sf)
+    ha = FakeHA()
+    ha._states["binary_sensor.windalarm"] = "on"  # alarm holds through the re-check
+    monitor = WindAbortMonitor(runner, config, ha)  # type: ignore[arg-type]
+
+    await runner.start("seq_wind")
+    await asyncio.sleep(0)  # let the run open its valve
+    await monitor.on_wind_state(True)
+    await asyncio.sleep(0.4)  # past the threshold
+
+    assert "seq_wind" not in runner.running_run_ids()
+    with Session(engine) as session:
+        aborted = [h for h in session.exec(select(RunHistory)).all() if h.aborted]
+    assert len(aborted) == 1
+    assert aborted[0].abort_reason == "wind"
+
+
+async def test_gust_does_not_abort_run(minimal_config: AppConfig, engine) -> None:
+    """Wind clearing before the threshold cancels the pending abort — a brief
+    gust must not stop the watering."""
+    from naiad.scheduler import WindAbortMonitor
+
+    # Long zone (2 min) so 10% of the run (12s) doesn't undercut the 3s threshold.
+    config = _wind_config(minimal_config, basis_min=2.0, abort_after_min=0.05)
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(config, FakeDriver(), sf)
+    ha = FakeHA()
+    monitor = WindAbortMonitor(runner, config, ha)  # type: ignore[arg-type]
+
+    await runner.start("seq_wind")
+    await asyncio.sleep(0)
+    await monitor.on_wind_state(True)
+    await asyncio.sleep(0.05)  # gust — well under the 3s threshold
+    await monitor.on_wind_state(False)
+    await asyncio.sleep(0.1)
+
+    assert "seq_wind" in runner.running_run_ids()
+    await runner.stop("seq_wind")
+
+
+async def test_wind_ignores_non_wind_blocked_runs(minimal_config: AppConfig, engine) -> None:
+    """Sequences without wind_blocks keep running through a sustained alarm."""
+    from naiad.scheduler import WindAbortMonitor
+
+    config = _wind_config(minimal_config, basis_min=2.0, abort_after_min=0.0005)
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(config, FakeDriver(), sf)
+    ha = FakeHA()
+    ha._states["binary_sensor.windalarm"] = "on"
+    monitor = WindAbortMonitor(runner, config, ha)  # type: ignore[arg-type]
+
+    await runner.start("seq_1")  # wind_blocks is False for seq_1
+    await asyncio.sleep(0)
+    await monitor.on_wind_state(True)
+    await asyncio.sleep(0.2)
+
+    assert "seq_1" in runner.running_run_ids()
+    await runner.stop("seq_1")

@@ -1,12 +1,27 @@
 import os
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, event
 from sqlmodel import Session, SQLModel, create_engine
 
 _DATA_DIR = Path(os.environ.get("NAIAD_DATA_DIR", "/data"))
 _engine: Engine | None = None
+
+
+def _set_sqlite_pragmas(dbapi_connection: Any, _connection_record: Any) -> None:
+    """Configure each new SQLite connection for concurrent use.
+
+    Runner tasks, scheduler jobs, API requests and the liter tracker all write to
+    the same file. WAL lets readers and one writer proceed concurrently, and the
+    busy timeout makes a second writer wait instead of failing immediately with
+    "database is locked".
+    """
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.close()
 
 
 def get_engine() -> Engine:
@@ -15,6 +30,7 @@ def get_engine() -> Engine:
         _DATA_DIR.mkdir(parents=True, exist_ok=True)
         db_path = _DATA_DIR / "naiad.db"
         _engine = create_engine(f"sqlite:///{db_path}", echo=False)
+        event.listen(_engine, "connect", _set_sqlite_pragmas)
     return _engine
 
 

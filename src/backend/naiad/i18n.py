@@ -34,6 +34,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "start.zone": "🌿 Zone {label} started ({trigger}, {minutes} min)",
         "abort.paused_rain": "🌧 Paused run discarded: rain ({label})",
         "abort.rain": "🌧 Watering stopped: rain ({label})",
+        "abort.wind": "🌬 Watering stopped: sustained wind ({label})",
         "abort.watchdog": "🚨 Watchdog: {label} — zone {zone} ran too long, stopped.",
         "abort.staircase_failed": (
             "⚠️ {label} ended early — zone {zone}: the actuator stopped responding "
@@ -76,6 +77,7 @@ _MESSAGES: dict[str, dict[str, str]] = {
         # Aborts
         "abort.paused_rain": "🌧 Pausierte Bewässerung verworfen: Regen ({label})",
         "abort.rain": "🌧 Bewässerung gestoppt: Regen ({label})",
+        "abort.wind": "🌬 Bewässerung gestoppt: anhaltender Wind ({label})",
         "abort.watchdog": "🚨 Watchdog: {label} — Zone {zone} lief zu lange, gestoppt.",
         "abort.staircase_failed": (
             "⚠️ {label} vorzeitig beendet — Zone {zone}: Aktor reagierte nicht "

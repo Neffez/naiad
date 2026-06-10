@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { type ConfigDoc } from '../../../api/client'
 import { InfoTip } from '../../../components/InfoTip'
+import { NumberField } from '../../../components/NumberField'
 import { EntityCombobox, Row, Section } from '../../../components/config/primitives'
 import { inputStyle } from '../../../components/config/formStyles'
 import { useConfig } from '../ConfigContext'
@@ -43,6 +44,31 @@ export default function ConnectionSection() {
             />
           </Row>
         ))}
+      </Section>
+
+      {/* Wind behaviour towards running sequences — wind blocking at start is
+          configured per sequence (wind_blocks); this is the sustained-alarm
+          threshold for aborting a run mid-way. */}
+      <Section title={t('config.wind')}>
+        <Row
+          label={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+              {t('config.windAbortAfter')}
+              <InfoTip text={t('config.windAbortAfterHelp')} />
+            </span>
+          }
+          last
+        >
+          <NumberField
+            value={draft.wind.abort_after_min}
+            unit={t('config.windAbortAfterUnit')}
+            min={0}
+            step={0.5}
+            width={90}
+            aria-label={t('config.windAbortAfter')}
+            onChange={(v) => patch((d) => { d.wind.abort_after_min = v })}
+          />
+        </Row>
       </Section>
     </div>
   )

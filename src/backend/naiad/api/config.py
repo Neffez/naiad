@@ -76,6 +76,7 @@ def build_config_response(config: AppConfig, *, restart_required: bool = False) 
             password_set=bool(config.auth.password),
         ),
         sensors=config.sensors,
+        wind=config.wind,
         zones=config.zones,
         sequences=config.sequences,
         factors=config.factors,

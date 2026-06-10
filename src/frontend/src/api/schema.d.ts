@@ -354,6 +354,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/history/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Aggregate liters/runs/average duration over the last N local calendar days */
+        get: operations["getHistorySummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/settings": {
         parameters: {
             query?: never;
@@ -553,7 +570,7 @@ export interface components {
         /** @enum {string} */
         TriggerSource: "cron" | "manual" | "plan" | "resume";
         /** @enum {string} */
-        AbortReason: "rain" | "watchdog" | "manual_stop" | "ha_disconnect" | "staircase_retrigger_failed" | "close_failed" | "start_failed";
+        AbortReason: "rain" | "wind" | "watchdog" | "manual_stop" | "ha_disconnect" | "staircase_retrigger_failed" | "close_failed" | "start_failed";
         /** @enum {string} */
         ValveStateEnum: "on" | "off" | "unknown";
         ValveState: {
@@ -721,6 +738,13 @@ export interface components {
         DeleteHistoryResult: {
             deleted: number;
         };
+        HistorySummary: {
+            days: number;
+            liters: number;
+            runs: number;
+            /** @description Average over finished runs only; null when the window has no finished run. */
+            avg_duration_min: number | null;
+        };
         TempFactorSettings: {
             basis_c: number;
             pct_per_c: number;
@@ -815,16 +839,12 @@ export interface components {
             auto_login_enabled: boolean;
         };
         UserPreferences: {
-            /** @enum {string} */
-            language: "de" | "en";
             /** @description Sequence IDs in the user's preferred dashboard order. IDs not present are appended in their natural order. */
             sequence_order: string[];
             /** @description Zone IDs in the user's preferred dashboard order. IDs not present are appended in their natural order. */
             zone_order: string[];
         };
         UpdatePreferencesRequest: {
-            /** @enum {string} */
-            language?: "de" | "en";
             sequence_order?: string[];
             zone_order?: string[];
         };
@@ -906,6 +926,10 @@ export interface components {
             precipitation_tomorrow: string;
             precipitation_actual: string;
         };
+        WindConfig: {
+            /** @description Minutes the wind alarm must be sustained before a running wind-blocked sequence is aborted. The effective delay per run is min(abort_after_min, 10% of the run's planned duration); the alarm clearing earlier cancels the abort. 0 aborts immediately. */
+            abort_after_min: number;
+        };
         ZoneConfig: {
             label: string;
             switch: string;
@@ -965,6 +989,7 @@ export interface components {
             mqtt: components["schemas"]["MQTTConfig"];
             auth: components["schemas"]["AuthConfig"];
             sensors: components["schemas"]["SensorsConfig"];
+            wind: components["schemas"]["WindConfig"];
             zones: {
                 [key: string]: components["schemas"]["ZoneConfig"];
             };
@@ -982,6 +1007,7 @@ export interface components {
             mqtt: components["schemas"]["MQTTConfigInput"];
             auth: components["schemas"]["AuthConfigInput"];
             sensors: components["schemas"]["SensorsConfig"];
+            wind?: components["schemas"]["WindConfig"];
             zones: {
                 [key: string]: components["schemas"]["ZoneConfig"];
             };
@@ -1663,6 +1689,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeleteHistoryResult"];
+                };
+            };
+        };
+    };
+    getHistorySummary: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistorySummary"];
                 };
             };
         };

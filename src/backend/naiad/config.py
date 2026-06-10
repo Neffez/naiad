@@ -169,6 +169,23 @@ class SensorsConfig(BaseModel):
     precipitation_actual: str = ""
 
 
+# ── Wind ──────────────────────────────────────────────────────────────────────
+
+
+class WindConfig(BaseModel):
+    """Behaviour of the wind alarm towards *running* sequences.
+
+    Starting a wind-blocked sequence during a wind alarm is always refused (the
+    start gates handle that). For a run already in progress, a brief gust must
+    not abort the watering: the alarm has to be sustained. The effective delay
+    for a run is ``min(abort_after_min, 10% of the run's planned duration)`` so
+    short runs react proportionally faster; the alarm clearing before the delay
+    elapses cancels the abort. 0 aborts immediately.
+    """
+
+    abort_after_min: float = Field(default=5.0, ge=0)
+
+
 # ── Zones ─────────────────────────────────────────────────────────────────────
 
 
@@ -451,6 +468,7 @@ class AppConfig(BaseModel):
     mqtt: MQTTConfig = MQTTConfig()
     auth: AuthConfig = AuthConfig()
     sensors: SensorsConfig
+    wind: WindConfig = WindConfig()
     zones: dict[str, ZoneConfig]
     sequences: dict[str, SequenceConfig]
     factors: FactorsConfig = FactorsConfig()

@@ -10,17 +10,11 @@ from naiad.domain.models import UserPreference
 
 router = APIRouter(prefix="/preferences", tags=["preferences"])
 
-# The theme is deliberately not a server preference: it is a per-device choice
-# kept in the browser's localStorage by the frontend.
-_DEFAULTS = {"language": "de"}
+# Theme and language are deliberately not server preferences: both are
+# per-device choices kept in the browser's localStorage by the frontend.
 
 # Preference keys whose value is a JSON-encoded list of entity IDs (display order).
 _ORDER_KEYS = ("sequence_order", "zone_order")
-
-
-def _get(session: Session, key: str) -> str:
-    pref = session.get(UserPreference, key)
-    return pref.value if pref is not None else _DEFAULTS[key]
 
 
 def _get_order(session: Session, key: str) -> list[str]:
@@ -42,7 +36,6 @@ def _set(session: Session, key: str, value: str) -> None:
 
 def _response(session: Session) -> UserPreferencesResponse:
     return UserPreferencesResponse(
-        language=_get(session, "language"),
         sequence_order=_get_order(session, "sequence_order"),
         zone_order=_get_order(session, "zone_order"),
     )
@@ -62,8 +55,6 @@ async def update_preferences(
     _: None = Depends(require_auth),
     session: Session = Depends(get_session),
 ) -> UserPreferencesResponse:
-    if body.language is not None:
-        _set(session, "language", body.language)
     for key in _ORDER_KEYS:
         value = getattr(body, key)
         if value is not None:

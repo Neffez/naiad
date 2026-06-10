@@ -6,6 +6,7 @@ from sqlmodel import Session, col, delete, func, select
 from naiad.api.schemas import (
     DeleteHistoryResponse,
     HistoryEntryResponse,
+    HistorySummaryResponse,
     PaginatedHistoryResponse,
 )
 from naiad.config import AppConfig
@@ -13,7 +14,7 @@ from naiad.database import get_session
 from naiad.dependencies import get_config, require_auth
 from naiad.domain.models import RunHistory
 from naiad.domain.sequences import zone_id_of_run
-from naiad.timeutil import local_date_to_utc, now_utc_naive
+from naiad.timeutil import local_date_to_utc, local_day_start_utc, now_utc_naive
 
 router = APIRouter(tags=["history"])
 
@@ -74,6 +75,38 @@ async def get_history(
         total=total,
         page=page,
         per_page=per_page,
+    )
+
+
+@router.get("/history/summary", response_model=HistorySummaryResponse)
+async def get_history_summary(
+    _: None = Depends(require_auth),
+    config: AppConfig = Depends(get_config),
+    session: Session = Depends(get_session),
+    days: int = Query(default=7, ge=1, le=365),
+) -> HistorySummaryResponse:
+    """Aggregate over the last ``days`` local calendar days (today included).
+
+    Computed in SQL so it is exact regardless of how many runs the window holds
+    — unlike a client summing one page of /history rows.
+    """
+    # Window start: local midnight of (today - (days - 1)), as naive UTC to
+    # match how started_at is stored.
+    start = local_day_start_utc(config.timezone) - timedelta(days=days - 1)
+
+    liters, runs, avg_duration = session.exec(
+        select(
+            func.coalesce(func.sum(RunHistory.liters), 0.0),
+            func.count(),
+            func.avg(RunHistory.duration_min),  # AVG ignores NULL (in-flight) rows
+        ).where(RunHistory.started_at >= start)
+    ).one()
+
+    return HistorySummaryResponse(
+        days=days,
+        liters=round(float(liters or 0.0), 1),
+        runs=int(runs),
+        avg_duration_min=round(float(avg_duration), 1) if avg_duration is not None else None,
     )
 
 
