@@ -1,7 +1,8 @@
+import asyncio
 from datetime import UTC, datetime
 from typing import Literal, TypeVar, cast
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 from sqlmodel import Session, delete, select
 
@@ -38,6 +39,40 @@ def _rain_mode(
     if value in ("forecast", "water_balance"):
         return cast(Literal["forecast", "water_balance"], value)
     return default
+
+
+# Strong references to fire-and-forget refresh tasks (the event loop only keeps
+# weak refs, so without this they could be garbage-collected mid-flight).
+_background_tasks: set[asyncio.Task[None]] = set()
+
+# Rain-override columns that feed the cached actual-rain credit. Changing any of
+# them warrants an immediate credit recompute instead of waiting for the next
+# hourly refresh.
+_CREDIT_FIELDS = ("mode", "water_balance_days", "water_balance_decay", "confirm_with_rain_sensor")
+
+
+def _schedule_rain_credit_refresh(request: Request | None, config: AppConfig) -> None:
+    """Recompute the cached actual-rain credit in the background (best-effort).
+
+    The credit is normally refreshed hourly; without this, a changed
+    water_balance_days/decay (or the rain-sensor gate) would keep acting on the
+    stale cached value for up to an hour. ``request`` is None in direct unit-test
+    invocations — then there is no app state (and no HA client) to refresh with.
+    """
+    if request is None:
+        return
+    ha = getattr(request.app.state, "ha_client", None)
+    session_factory = getattr(request.app.state, "session_factory", None)
+    if ha is None or session_factory is None:
+        return
+    from naiad.scheduler import refresh_recent_rain_credit
+
+    task = asyncio.create_task(
+        refresh_recent_rain_credit(config, ha, session_factory),
+        name="settings-rain-credit-refresh",
+    )
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 def _read_settings(config: AppConfig, session: Session) -> AppSettingsResponse:
@@ -127,6 +162,7 @@ async def get_settings(
 @router.patch("", response_model=AppSettingsResponse)
 async def update_settings(
     body: UpdateSettingsRequest,
+    request: Request = None,  # type: ignore[assignment]  # injected by FastAPI; None in unit tests
     _: None = Depends(require_auth),
     config: AppConfig = Depends(get_config),
     session: Session = Depends(get_session),
@@ -221,12 +257,19 @@ async def update_settings(
 
         await broadcast_factor_updated()
 
+    # A changed credit parameter must not act on the stale hourly cache.
+    if body.factors is not None and body.factors.rain is not None:
+        rain = body.factors.rain
+        if any(getattr(rain, field) is not None for field in _CREDIT_FIELDS):
+            _schedule_rain_credit_refresh(request, config)
+
     return _read_settings(config, session)
 
 
 @router.delete("/factors", response_model=AppSettingsResponse)
 async def clear_factor_overrides(
     group: Literal["temp", "rain"] | None = None,
+    request: Request = None,  # type: ignore[assignment]  # injected by FastAPI; None in unit tests
     _: None = Depends(require_auth),
     config: AppConfig = Depends(get_config),
     session: Session = Depends(get_session),
@@ -238,8 +281,6 @@ async def clear_factor_overrides(
     so this is the supported way to fall back to the base config. Manual-adjustment
     fields are left untouched — they are a separate concern.
     """
-    from datetime import UTC, datetime
-
     fo = session.get(FactorOverride, 1)
     if fo is not None:
         fields: list[str] = []
@@ -265,6 +306,10 @@ async def clear_factor_overrides(
         from naiad.api.ws import broadcast_factor_updated
 
         await broadcast_factor_updated()
+
+        # Resetting rain overrides changes the effective credit parameters too.
+        if group in (None, "rain"):
+            _schedule_rain_credit_refresh(request, config)
 
     return _read_settings(config, session)
 

@@ -730,6 +730,7 @@ export interface components {
         RainFactorSettings: {
             /** @enum {string} */
             mode: "forecast" | "water_balance";
+            /** @description Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2). */
             forecast_days: number;
             threshold_prob: number;
             reduce_above_mm: number;
@@ -758,6 +759,7 @@ export interface components {
         RainFactorSettingsUpdate: {
             /** @enum {string} */
             mode?: "forecast" | "water_balance";
+            /** @description Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2). */
             forecast_days?: number;
             threshold_prob?: number;
             reduce_above_mm?: number;
@@ -907,6 +909,7 @@ export interface components {
         ZoneConfig: {
             label: string;
             switch: string;
+            /** @description Liters per hour, used to derive recorded liters from run duration. 0 = no liter tracking for this zone. */
             flow_lph: number;
             staircase_enabled: boolean;
             staircase_min: number;
@@ -938,6 +941,7 @@ export interface components {
         RainFactorConfig: {
             /** @enum {string} */
             mode: "forecast" | "water_balance";
+            /** @description Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2). */
             forecast_days: number;
             threshold_prob: number;
             reduce_above_mm: number;

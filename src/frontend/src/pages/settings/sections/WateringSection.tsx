@@ -86,6 +86,18 @@ export default function WateringSection() {
             }))}
           />
         </FactorRow>
+        <FactorRow label={t('settings.forecastDays')} info={t('settings.help.forecastDays')}>
+          <ButtonGroup
+            label={t('settings.forecastDays')}
+            options={([1, 2] as const).map((val) => ({
+              value: String(val),
+              // Only two days of forecast sensors exist, so >= 2 means "today + tomorrow".
+              active: (rain.forecast_days >= 2 ? 2 : 1) === val,
+              label: val === 1 ? t('settings.forecastDays_today') : t('settings.forecastDays_both'),
+              onClick: () => mut.mutate({ factors: { rain: { forecast_days: val } } }),
+            }))}
+          />
+        </FactorRow>
         <FactorRow label={t('settings.thresholdProb')} info={t('settings.help.thresholdProb')}>
           <NumberField value={rain.threshold_prob} unit="%" aria-label={t('settings.thresholdProb')} onChange={(v) => mut.mutate({ factors: { rain: { threshold_prob: v } } })} />
         </FactorRow>

@@ -33,12 +33,22 @@ def test_unknown_zone_reference_raises() -> None:
         AppConfig.model_validate(data)
 
 
-@pytest.mark.parametrize("bad_flow", [0, -1, -500.0])
-def test_non_positive_flow_lph_rejected(bad_flow: float) -> None:
+@pytest.mark.parametrize("bad_flow", [-1, -500.0])
+def test_negative_flow_lph_rejected(bad_flow: float) -> None:
     data = copy.deepcopy(MINIMAL_CONFIG_DATA)
     data["zones"]["zone_a"]["flow_lph"] = bad_flow
     with pytest.raises(ValidationError, match="flow_lph"):
         AppConfig.model_validate(data)
+
+
+def test_zero_flow_lph_allowed() -> None:
+    """flow_lph = 0 means "no liter tracking for this zone" — runs are recorded
+    with 0 liters. It must be accepted so a zone without a known flow rate can
+    still be configured."""
+    data = copy.deepcopy(MINIMAL_CONFIG_DATA)
+    data["zones"]["zone_a"]["flow_lph"] = 0
+    config = AppConfig.model_validate(data)
+    assert config.zones["zone_a"].flow_lph == 0.0
 
 
 @pytest.mark.parametrize("field", ["watchdog_min", "basis_min_per_zone"])

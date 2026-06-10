@@ -306,7 +306,7 @@ components:
         mode:
           type: string
           enum: [forecast, water_balance]
-        forecast_days:     { type: integer }
+        forecast_days:     { type: integer, description: "Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2)." }
         threshold_prob:    { type: integer }
         reduce_above_mm:   { type: number }
         zero_above_mm:     { type: number }
@@ -338,7 +338,7 @@ components:
         mode:
           type: string
           enum: [forecast, water_balance]
-        forecast_days:     { type: integer }
+        forecast_days:     { type: integer, description: "Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2)." }
         threshold_prob:    { type: integer }
         reduce_above_mm:   { type: number }
         zero_above_mm:     { type: number }
@@ -561,7 +561,7 @@ components:
       properties:
         label: { type: string }
         switch: { type: string }
-        flow_lph: { type: number, exclusiveMinimum: 0 }
+        flow_lph: { type: number, minimum: 0, description: "Liters per hour, used to derive recorded liters from run duration. 0 = no liter tracking for this zone." }
         staircase_enabled: { type: boolean }
         staircase_min: { type: number }
 
@@ -614,7 +614,7 @@ components:
         mode:
           type: string
           enum: [forecast, water_balance]
-        forecast_days: { type: integer, minimum: 1 }
+        forecast_days: { type: integer, minimum: 1, description: "Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2)." }
         threshold_prob: { type: integer, minimum: 0, maximum: 100 }
         reduce_above_mm: { type: number }
         zero_above_mm: { type: number }

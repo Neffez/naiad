@@ -14,8 +14,7 @@
     "planner": "Planner",
     "history": "History",
     "settings": "Settings",
-    "config": "Configuration",
-    "theme": "Theme"
+    "config": "Configuration"
   },
   "status": {
     "running": "Running",
@@ -123,6 +122,9 @@
     "rainMode": "Rain mode",
     "rainMode_forecast": "Forecast",
     "rainMode_water_balance": "Water balance",
+    "forecastDays": "Forecast window",
+    "forecastDays_today": "Today only",
+    "forecastDays_both": "Today + tomorrow",
     "waterBalanceDays": "Balance window",
     "waterBalanceDecay": "Rain carryover",
     "peakTomorrow": "Peak forecast",
@@ -140,11 +142,12 @@
       "reduceAbove": "Forecast rainfall (mm) above which watering starts to be reduced.",
       "zeroAbove": "Forecast rainfall (mm) at or above which watering is skipped entirely.",
       "forecastDecay": "Weighting (0–1) of tomorrow's rain relative to today's. 1 = counts fully, 0 = ignored.",
-      "rainMode": "Forecast uses today/tomorrow prediction only. Water balance also uses recent actual rain from the configured actual precipitation sensor.",
+      "rainMode": "Forecast uses today/tomorrow prediction only. Water balance also uses recent actual rain from the configured actual precipitation sensor. Forecast and actual rain are not added together — the larger of the two counts.",
       "waterBalanceDays": "How many recent days of actual rain are retained as watering credit.",
       "waterBalanceDecay": "Daily carryover for actual rain. 1 = rain keeps full weight, 0 = only the latest sample matters.",
       "peakTomorrow": "Use the highest forecast value seen today for the rain adjustment instead of just the latest reading. Today is always treated this way; \"Today + tomorrow\" extends it to tomorrow's forecast too (more conservative, but more sensitive to fluctuating forecasts).",
-      "confirmRainSensor": "When on, today's forecast peak only reduces watering up to the level that coincided with the rain sensor actually detecting rain. In water-balance mode it also counts actual-rain deltas only while the rain sensor was on. Use this when the precipitation source comes from a forecast integration."
+      "confirmRainSensor": "When on, today's forecast peak only reduces watering up to the level that coincided with the rain sensor actually detecting rain. In water-balance mode it also counts actual-rain deltas only while the rain sensor was on. Use this when the precipitation source comes from a forecast integration.",
+      "forecastDays": "Which forecast days reduce watering: today only, or today and tomorrow (tomorrow weighted by the forecast weighting)."
     },
     "version": "Version",
     "haIntegration": "HA integration",

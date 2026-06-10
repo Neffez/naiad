@@ -680,19 +680,20 @@ svg { display: block; }
   .desktop-only { display: none !important; }
   .page-content { padding: 18px 20px 80px !important; }
 
-  /* Settings: stack the section nav above the content as a scrollable pill rail. */
+  /* Settings: stack the section nav above the content as a wrapped pill grid.
+     Wrapping (instead of a horizontal scroll rail) keeps every section visible
+     at a glance and removes horizontal scrolling entirely — a swipe on the
+     pills can no longer pan or rubber-band the whole page. The groups become
+     display:contents so all pills flow as one wrapped row set. */
   .n-settings-shell { display: flex; flex-direction: column; gap: 16px; max-width: 100%; }
   .n-subnav {
+    position: static; /* the desktop rule pins it sticky */
     flex-direction: row;
+    flex-wrap: wrap;
     gap: 8px;
-    overflow-x: auto;
-    scrollbar-width: none;
     padding: 2px 0;
-    background: var(--n-bg);
-    z-index: 4;
   }
-  .n-subnav::-webkit-scrollbar { display: none; }
-  .n-subnav-group { flex-direction: row; gap: 8px; }
+  .n-subnav-group { display: contents; }
   .n-subnav-grouplabel { display: none; }
   .n-subnav-item {
     border: 1px solid var(--n-line-strong);

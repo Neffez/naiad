@@ -421,3 +421,61 @@ def test_rain_sensor_gate_falls_back_to_peak_when_confirmed_unknown(
     with Session(factor_engine) as session:
         result = compute_factors(snap, minimal_config, session)
     assert result.rain_factor_pct == pytest.approx(0.0)  # conservative peak 40mm → full block
+
+
+def test_tomorrow_peak_used_in_water_balance_mode(minimal_config: AppConfig, factor_engine) -> None:
+    """peak_tomorrow applies in water-balance mode exactly like in forecast mode:
+    the day's peak tomorrow forecast drives the factor even after the live reading
+    dropped back (the modes share rain_factor_inputs)."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_mode="water_balance", rain_peak_tomorrow=True))
+        session.commit()
+    with Session(factor_engine) as session:
+        result = compute_factors(
+            _snap(
+                precipitation_prob_tomorrow=20.0,
+                precipitation_tomorrow_mm=2.0,
+                precipitation_prob_tomorrow_peak=90.0,
+                precipitation_tomorrow_mm_peak=40.0,
+            ),
+            minimal_config,
+            session,
+        )
+    # peak 40mm × decay 0.5 = 20mm effective at 90% prob → full block
+    assert result.rain_factor_pct == pytest.approx(0.0)
+
+
+def test_forecast_days_one_ignores_tomorrow(minimal_config: AppConfig, factor_engine) -> None:
+    """forecast_days=1 limits the window to today: a blocking tomorrow forecast no
+    longer reduces watering."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_forecast_days=1))
+        session.commit()
+    snap = _snap(precipitation_prob_tomorrow=90.0, precipitation_tomorrow_mm=40.0)
+    with Session(factor_engine) as session:
+        result = compute_factors(snap, minimal_config, session)
+    assert result.rain_factor_pct == pytest.approx(100.0)
+    # Sanity: without the override the same snapshot blocks fully (40mm × 0.5 = 20mm).
+    assert compute_factors(snap, minimal_config).rain_factor_pct == pytest.approx(0.0)
+
+
+def test_forecast_days_one_in_water_balance_keeps_credit(
+    minimal_config: AppConfig, factor_engine
+) -> None:
+    """forecast_days=1 in water-balance mode drops tomorrow's forecast but the
+    actual-rain credit still counts."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_mode="water_balance", rain_forecast_days=1))
+        session.commit()
+    with Session(factor_engine) as session:
+        result = compute_factors(
+            _snap(
+                precipitation_prob_tomorrow=90.0,
+                precipitation_tomorrow_mm=40.0,
+                actual_rain_credit_mm=10.0,
+            ),
+            minimal_config,
+            session,
+        )
+    # Tomorrow (40mm) is ignored; the 10mm credit alone → 1 - 5/15 ≈ 0.667.
+    assert result.rain_factor_pct == pytest.approx(100.0 * (1.0 - 5.0 / 15.0), rel=1e-3)

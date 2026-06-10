@@ -128,11 +128,18 @@ def _confirmed_today(confirmed: float | None, current: float | None, peak: float
 
 
 def rain_factor_inputs(
-    snapshot: SensorSnapshot, peak_tomorrow: bool, confirm_with_rain_sensor: bool = False
+    snapshot: SensorSnapshot,
+    peak_tomorrow: bool,
+    confirm_with_rain_sensor: bool = False,
+    forecast_days: int = 2,
 ) -> tuple[float, float, float, float]:
     """The (prob_today, prob_tomorrow, mm_today, mm_tomorrow) values fed to the rain
     factor. Today uses the day's peak forecast; tomorrow uses its peak only when
     ``peak_tomorrow`` is enabled, otherwise the latest reading.
+
+    ``forecast_days`` bounds the forecast window: 1 = today only (tomorrow's values
+    are zeroed), 2 = today + tomorrow. Only two days of forecast sensors exist, so
+    larger values behave like 2.
 
     When ``confirm_with_rain_sensor`` is enabled, today's peak is confirmed against the
     binary rain sensor: today = max(latest reading, the forecast peak that coincided
@@ -154,6 +161,10 @@ def rain_factor_inputs(
     else:
         prob_today = snapshot.precipitation_prob_today
         mm_today = snapshot.precipitation_today_mm
+
+    if forecast_days <= 1:
+        # Today-only window: tomorrow's forecast must not influence the factor.
+        return (prob_today, 0.0, mm_today, 0.0)
 
     if peak_tomorrow:
         prob_tomorrow = snapshot.precipitation_prob_tomorrow_peak
@@ -267,7 +278,10 @@ def compute_factors(
         )
 
     prob_today, prob_tomorrow, mm_today, mm_tomorrow = rain_factor_inputs(
-        snapshot, eff_rain.peak_tomorrow, eff_rain.confirm_with_rain_sensor
+        snapshot,
+        eff_rain.peak_tomorrow,
+        eff_rain.confirm_with_rain_sensor,
+        eff_rain.forecast_days,
     )
     if eff_rain.mode == "water_balance":
         rain_factor, rain_prob, rain_mm = _compute_water_balance_rain_factor(

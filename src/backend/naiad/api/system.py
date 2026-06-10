@@ -236,11 +236,14 @@ async def get_status(
     factors = compute_factors(snapshot, config, session)
 
     # Mirror the rain inputs compute_factors actually used (today peak — gated on the
-    # rain sensor when confirm_with_rain_sensor is on — and tomorrow per peak_tomorrow)
-    # so the displayed rain figures match the applied adjustment.
+    # rain sensor when confirm_with_rain_sensor is on — tomorrow per peak_tomorrow and
+    # forecast_days) so the displayed rain figures match the applied adjustment.
     _eff_temp, eff_rain = merge_factor_config(config, session.get(FactorOverride, 1))
     rain_prob_today, rain_prob_tomorrow, rain_mm_today, rain_mm_tomorrow = rain_factor_inputs(
-        snapshot, eff_rain.peak_tomorrow, eff_rain.confirm_with_rain_sensor
+        snapshot,
+        eff_rain.peak_tomorrow,
+        eff_rain.confirm_with_rain_sensor,
+        eff_rain.forecast_days,
     )
     display_rain_prob = factors.rain_prob_pct
     display_rain_mm = factors.rain_mm

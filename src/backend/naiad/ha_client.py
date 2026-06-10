@@ -393,9 +393,10 @@ class HAClient:
 
         The sensor may be either daily-reset or total-increasing. Positive deltas
         count as rain; negative deltas are treated as resets and ignored. The final
-        credit decays with age in whole days so Monday rain can still suppress a
-        Wednesday run without lasting indefinitely. When ``rain_entity`` is set,
-        deltas only count while that binary rain sensor is on.
+        credit decays continuously with age (``decay ** age_in_days``, fractional
+        days included) so Monday rain can still suppress a Wednesday run without
+        lasting indefinitely. When ``rain_entity`` is set, deltas only count while
+        that binary rain sensor is on.
         """
         try:
             samples = await self.fetch_history(entity_id, start, end)

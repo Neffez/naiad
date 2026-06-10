@@ -189,7 +189,10 @@ STAIRCASE_RETRY_ON_FAILURE_S = 5.0
 class ZoneConfig(BaseModel):
     label: str
     switch: str
-    flow_lph: float = Field(gt=0)
+    # Liters per hour this zone delivers, used to derive recorded liters from run
+    # duration. 0 disables liter tracking for the zone (runs are recorded with 0 L);
+    # it is only ever a multiplier, never a divisor.
+    flow_lph: float = Field(ge=0)
     # Hardware staircase-light timer support (see note above). When enabled,
     # ``staircase_min`` is the actuator's configured on-time in minutes.
     staircase_enabled: bool = False
@@ -379,6 +382,8 @@ class TempFactorConfig(BaseModel):
 
 class RainFactorConfig(BaseModel):
     mode: Literal["forecast", "water_balance"] = "forecast"
+    # Forecast window in days: 1 = today only, 2 = today + tomorrow. Only two
+    # days of forecast sensors exist, so values above 2 behave like 2.
     forecast_days: int = Field(default=2, ge=1)
     threshold_prob: int = Field(default=70, ge=0, le=100)
     reduce_above_mm: float = 5.0

@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { NavLink } from 'react-router-dom'
-import { IChart, ICal, IHome, ILogo, IMoon, ISettings } from './icons'
+import { IChart, ICal, IHome, ILogo, ISettings } from './icons'
 
 export function Sidebar() {
   const { t } = useTranslation()
@@ -11,13 +11,6 @@ export function Sidebar() {
     { to: '/history', icon: <IChart size={22} />, label: t('nav.history') },
     { to: '/settings', icon: <ISettings size={22} />, label: t('nav.settings') },
   ]
-
-  function toggleTheme() {
-    const current = localStorage.getItem('naiad_theme') ?? 'dark'
-    const next = current === 'dark' ? 'light' : 'dark'
-    localStorage.setItem('naiad_theme', next)
-    document.documentElement.setAttribute('data-theme', next)
-  }
 
   return (
     <nav
@@ -49,10 +42,6 @@ export function Sidebar() {
           )}
         </NavLink>
       ))}
-      <div style={{ flex: 1 }} />
-      <button className="n-iconbtn" style={{ width: 56, height: 56 }} title={t('nav.theme')} aria-label={t('nav.theme')} onClick={toggleTheme}>
-        <IMoon size={20} />
-      </button>
     </nav>
   )
 }

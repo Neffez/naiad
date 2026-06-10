@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Outlet } from 'react-router-dom'
 import { queryKeys } from '../../api/queryKeys'
@@ -19,6 +19,21 @@ import { SubNav } from '../../components/config/SubNav'
 import { Banner, Pill } from '../../components/config/primitives'
 import { ConfigProvider } from './ConfigContext'
 import { SECTIONS, type SectionId } from './sectionsMeta'
+
+// The config slice a section edits, for per-section dirty markers in the
+// sub-navigation. Dirty is computed per slice so the badge points at the
+// section that changed.
+function sectionSlice(d: ConfigDoc, id: SectionId): unknown {
+  switch (id) {
+    case 'zones': return d.zones
+    case 'sequences': return { sequences: d.sequences, colors: d.sequence_colors_enabled }
+    case 'notifications': return { notifications: d.notifications, targets: d.ha.notify_targets }
+    case 'connection': return { url: d.ha.url, sensors: d.sensors }
+    case 'integrations': return d.mqtt
+    case 'advanced': return { timezone: d.timezone, auth: d.auth }
+    default: return null
+  }
+}
 
 export default function SettingsLayout() {
   const { t } = useTranslation()
@@ -74,6 +89,26 @@ export default function SettingsLayout() {
     onError: (e: Error) => setError(e.message),
   })
 
+  // Memoized: the JSON round-trips only rerun when draft or data actually change
+  // (setDraft always produces a fresh object), not on unrelated rerenders.
+  const dirty = useMemo(
+    () => draft != null && data != null && JSON.stringify(draft) !== JSON.stringify(data),
+    [draft, data],
+  )
+  const dirtySections = useMemo(() => {
+    const out = new Set<SectionId>()
+    if (!draft || !data) return out
+    // Derive the draft-backed sections from the metadata so a new section (or a
+    // change to usesDraft) is picked up here without editing a parallel list.
+    for (const s of SECTIONS) {
+      if (!s.usesDraft) continue
+      if (JSON.stringify(sectionSlice(draft, s.id)) !== JSON.stringify(sectionSlice(data, s.id))) {
+        out.add(s.id)
+      }
+    }
+    return out
+  }, [draft, data])
+
   if (!draft) {
     return (
       <div style={{ padding: 20, color: 'var(--n-fg-muted)' }}>
@@ -81,8 +116,6 @@ export default function SettingsLayout() {
       </div>
     )
   }
-
-  const dirty = data != null && JSON.stringify(draft) !== JSON.stringify(data)
 
   function patch(mutator: (d: ConfigDoc) => void) {
     setDraft((prev) => {
@@ -135,30 +168,6 @@ export default function SettingsLayout() {
     binary_sensor: binarySensors.data?.entities,
   }
 
-  // Per-section dirty markers and counts shown in the sub-navigation. Dirty is
-  // computed per config slice so the badge points at the section that changed.
-  const slice = (d: ConfigDoc, id: SectionId): unknown => {
-    switch (id) {
-      case 'zones': return d.zones
-      case 'sequences': return { sequences: d.sequences, colors: d.sequence_colors_enabled }
-      case 'notifications': return { notifications: d.notifications, targets: d.ha.notify_targets }
-      case 'connection': return { url: d.ha.url, sensors: d.sensors }
-      case 'integrations': return d.mqtt
-      case 'advanced': return { timezone: d.timezone, auth: d.auth }
-      default: return null
-    }
-  }
-  const dirtySections = new Set<SectionId>()
-  if (data) {
-    // Derive the draft-backed sections from the metadata so a new section (or a
-    // change to usesDraft) is picked up here without editing a parallel list.
-    for (const s of SECTIONS) {
-      if (!s.usesDraft) continue
-      if (JSON.stringify(slice(draft, s.id)) !== JSON.stringify(slice(data, s.id))) {
-        dirtySections.add(s.id)
-      }
-    }
-  }
   const counts: Partial<Record<SectionId, number>> = {
     zones: Object.keys(draft.zones).length,
     sequences: Object.keys(draft.sequences).length,

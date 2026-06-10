@@ -14,8 +14,7 @@
     "planner": "Planen",
     "history": "Verlauf",
     "settings": "Einstellungen",
-    "config": "Konfiguration",
-    "theme": "Theme"
+    "config": "Konfiguration"
   },
   "status": {
     "running": "Läuft",
@@ -123,6 +122,9 @@
     "rainMode": "Regen-Modus",
     "rainMode_forecast": "Prognose",
     "rainMode_water_balance": "Wasserbilanz",
+    "forecastDays": "Prognosefenster",
+    "forecastDays_today": "Nur heute",
+    "forecastDays_both": "Heute + morgen",
     "waterBalanceDays": "Bilanzfenster",
     "waterBalanceDecay": "Regen-Nachlauf",
     "peakTomorrow": "Höchstwert-Prognose",
@@ -140,11 +142,12 @@
       "reduceAbove": "Prognostizierte Regenmenge (mm), ab der die Bewässerung reduziert wird.",
       "zeroAbove": "Prognostizierte Regenmenge (mm), ab der die Bewässerung ganz entfällt.",
       "forecastDecay": "Gewichtung (0–1) des morgigen Regens gegenüber dem heutigen. 1 = zählt voll, 0 = wird ignoriert.",
-      "rainMode": "Prognose nutzt nur heute/morgen. Wasserbilanz nutzt zusätzlich kürzlich tatsächlich gefallenen Regen aus dem konfigurierten Niederschlagssensor.",
+      "rainMode": "Prognose nutzt nur heute/morgen. Wasserbilanz nutzt zusätzlich kürzlich tatsächlich gefallenen Regen aus dem konfigurierten Niederschlagssensor. Prognose und tatsächlicher Regen werden nicht addiert — es zählt der größere der beiden Werte.",
       "waterBalanceDays": "Wie viele zurückliegende Tage tatsächlicher Regen als Guthaben behalten wird.",
       "waterBalanceDecay": "Täglicher Nachlauf für tatsächlichen Regen. 1 = Regen bleibt voll wirksam, 0 = nur der jüngste Wert zählt.",
       "peakTomorrow": "Für die Regenanpassung den höchsten heute gesehenen Vorhersagewert verwenden statt nur den aktuellen. „Heute“ wird immer so behandelt; mit „Heute + morgen“ gilt das auch für die morgige Prognose (vorsichtiger, aber empfindlicher gegenüber schwankenden Vorhersagen).",
-      "confirmRainSensor": "Wenn an, reduziert die heutige Höchstwert-Prognose die Bewässerung nur bis zu dem Wert, der mit tatsächlich vom Regensensor erkanntem Regen zusammenfiel. Im Wasserbilanz-Modus zählen auch Niederschlags-Deltas nur, während der Regensensor an war. Nutze das, wenn die Niederschlagsquelle aus einer Forecast-Integration kommt."
+      "confirmRainSensor": "Wenn an, reduziert die heutige Höchstwert-Prognose die Bewässerung nur bis zu dem Wert, der mit tatsächlich vom Regensensor erkanntem Regen zusammenfiel. Im Wasserbilanz-Modus zählen auch Niederschlags-Deltas nur, während der Regensensor an war. Nutze das, wenn die Niederschlagsquelle aus einer Forecast-Integration kommt.",
+      "forecastDays": "Welche Prognosetage die Bewässerung reduzieren: nur heute oder heute und morgen (morgen gewichtet über die Prognose-Gewichtung)."
     },
     "version": "Version",
     "haIntegration": "HA Integration",
