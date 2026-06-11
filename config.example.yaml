@@ -93,6 +93,27 @@ sensors:
   # enable rain.confirm_with_rain_sensor so only rain confirmed by sensors.rain counts.
   # precipitation_actual: sensor.precipitation_actual
 
+# Optional frost lockout: while the forecast daily minimum temperature is below
+# the threshold, automatic runs (schedule, plans, MQTT) are skipped — protects
+# pipes and sprinklers in the shoulder seasons. Manual starts are not affected;
+# an unreadable sensor never blocks watering.
+# frost:
+#   enabled: true
+#   temperature_min: sensor.forecast_temperature_min_today
+#   threshold_c: 3.0
+
+# Optional cistern guard: while the level sensor reads below the minimum,
+# automatic runs are skipped (dry-run protection for the pump). min_level uses
+# the sensor's own unit (e.g. % or cm). Manual starts are not affected.
+# cistern:
+#   enabled: true
+#   level_entity: sensor.cistern_level
+#   min_level: 20
+
+# Water price per cubic meter (e.g. EUR/m³): turns the tracked liters into a
+# cost display on the dashboard and history. 0 (default) hides it.
+# water_price_per_m3: 4.50
+
 zones:
   example_zone:
     label: "Example Zone"

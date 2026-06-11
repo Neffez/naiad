@@ -172,6 +172,10 @@ export const deleteHistory = (olderThanDays?: number) => {
 export const getPlans = () => api.get<Plan[]>('/plans')
 export const createPlan = (body: CreatePlanRequest) => api.post<Plan>('/plans', body)
 export const deletePlan = (id: string) => api.delete(`/plans/${id}`)
+// All upcoming runs (plans + cron schedules merged) of the next N days — the
+// data behind the planner's calendar week view.
+export const getUpcomingRuns = (days = 7) =>
+  api.get<NextRun[]>(`/plans/upcoming?days=${days}`)
 
 // Settings
 export const getSettings = () => api.get<AppSettings>('/settings')

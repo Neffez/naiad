@@ -176,7 +176,7 @@ trail, a soil balance cannot be debugged (see the review experience with
 
 ---
 
-## Quick wins (each < 1 day)
+## Quick wins (each < 1 day) — ✅ implemented 2026-06-11
 
 | Idea | Description |
 |------|-------------|
@@ -185,6 +185,29 @@ trail, a soil balance cannot be debugged (see the review experience with
 | **Cistern mode** | Level sensor + minimum level → skip runs (or switch to mains water via a second switch). A common setup in German gardens. |
 | **PWA manifest** | The mobile UI is good — making it installable as a home-screen app (manifest + service worker) is nearly free. |
 | **Calendar week view in the planner** | `upcoming_runs` already provides the data; only the presentation is missing. |
+
+Implemented (2026-06-11):
+
+- **Frost lockout** — optional `frost` config (forecast daily-minimum sensor +
+  threshold, default 3 °C). Gates the shared automatic start path
+  (`run_sequence_job`: cron, plans, MQTT) and logs `skipped`/`frost` to the
+  decision log with the factor inputs; manual starts are unaffected and an
+  unreadable sensor never blocks watering. Configured under Settings →
+  Connection & sensors.
+- **Cost display** — `water_price_per_m3` config value (Settings → Advanced);
+  the dashboard usage card and the history summary show the cost of the
+  tracked liters (EUR, locale-formatted). 0 hides the display.
+- **Cistern mode** — optional `cistern` config (level sensor + minimum level in
+  the sensor's unit). Skip-only variant: below the minimum, automatic runs are
+  skipped (`cistern_low` in the decision log) — the mains-switch variant
+  remains future work. Same gate semantics as frost.
+- **PWA** — manifest with PNG/maskable icons (generated via
+  `scripts/generate_pwa_icons.py`), apple-touch-icon, and a service worker
+  (`sw.js`: app-shell network-first, hashed assets cache-first, API never
+  cached). Registration is ingress-prefix-aware.
+- **Calendar week view in the planner** — new `GET /plans/upcoming?days=N`
+  (plans + cron fires merged, skips excluded) rendered as a 7-day grid
+  (stacked list on mobile) below the planner form.
 
 ---
 

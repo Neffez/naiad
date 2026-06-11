@@ -82,6 +82,7 @@
     "to": "To",
     "clearFilters": "Reset filters",
     "last7days": "Last 7 days",
+    "cost": "Water cost",
     "totalRuns": "Total runs",
     "avgDuration": "Avg. duration / run",
     "empty": "No runs recorded yet",
@@ -126,6 +127,8 @@
       "master_off": "Master off",
       "wind": "Wind",
       "season_off": "Out of season",
+      "frost": "Frost lockout",
+      "cistern_low": "Cistern level low",
       "zero_factor": "Watering factor 0 %",
       "expired": "Deferred run expired"
     }
@@ -337,7 +340,23 @@
     "wind": "Wind",
     "windAbortAfter": "Abort running sequences after",
     "windAbortAfterHelp": "Minutes the wind alarm must be sustained before a running wind-blocked sequence is aborted — a brief gust does not stop watering. Per run the effective delay is at most 10% of its planned duration; the alarm clearing earlier cancels the abort. 0 = abort immediately.",
-    "windAbortAfterUnit": "min"
+    "windAbortAfterUnit": "min",
+    "frost": "Frost lockout",
+    "frostEnabled": "Frost lockout",
+    "frostEnabledHint": "Skip scheduled runs when frost is forecast",
+    "frostHelp": "While the forecast daily minimum temperature is below the threshold, automatic runs (schedule, plans, MQTT) are skipped — protecting pipes and sprinklers in the shoulder seasons. Manual starts are not affected; an unreadable sensor never blocks watering.",
+    "frostSensor": "Min. temperature forecast",
+    "frostThreshold": "Threshold",
+    "frostSensorMissing": "Select a forecast minimum-temperature sensor — saving is rejected while the lockout is enabled without one.",
+    "cistern": "Cistern",
+    "cisternEnabled": "Cistern guard",
+    "cisternEnabledHint": "Skip scheduled runs while the cistern is below the minimum level",
+    "cisternHelp": "While the level sensor reads below the minimum, automatic runs (schedule, plans, MQTT) are skipped — protecting the pump from running dry. The minimum uses the sensor's own unit (e.g. % or cm). Manual starts are not affected; an unreadable sensor never blocks watering.",
+    "cisternSensor": "Level sensor",
+    "cisternMinLevel": "Minimum level",
+    "cisternSensorMissing": "Select a cistern level sensor — saving is rejected while the guard is enabled without one.",
+    "waterPrice": "Water price",
+    "waterPriceHelp": "Turns tracked liters into costs on the dashboard and history. 0 hides the cost display."
   },
   "schedule": {
     "days": "Weekdays",
@@ -378,7 +397,9 @@
     "durationPlaceholder": "Duration (min) — empty = config default",
     "hoursPlaceholder": "Hours",
     "remove": "Remove",
-    "zoneTag": "Zone"
+    "zoneTag": "Zone",
+    "weekTitle": "Next 7 days",
+    "weekNoRuns": "No runs"
   },
   "login": {
     "title": "Naiad",

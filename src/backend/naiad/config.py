@@ -169,6 +169,56 @@ class SensorsConfig(BaseModel):
     precipitation_actual: str = ""
 
 
+# ── Frost ─────────────────────────────────────────────────────────────────────
+
+
+class FrostConfig(BaseModel):
+    """Frost lockout: skip automatic starts when frost is forecast.
+
+    When enabled, the shared gate path skips a run whenever the forecast daily
+    minimum temperature (``temperature_min``) is below ``threshold_c`` —
+    protecting pipes and sprinklers in the shoulder seasons. An unreadable
+    sensor never blocks watering (the gate is simply not evaluated); manual
+    starts via the API are deliberately not subject to the gate.
+    """
+
+    enabled: bool = False
+    # Forecast of the day's minimum temperature (a sensor entity). Required when
+    # the lockout is enabled.
+    temperature_min: str = ""
+    threshold_c: float = 3.0
+
+    @model_validator(mode="after")
+    def _require_sensor(self) -> "FrostConfig":
+        if self.enabled and not self.temperature_min:
+            raise ValueError("frost.temperature_min must be set when the frost lockout is enabled")
+        return self
+
+
+# ── Cistern ───────────────────────────────────────────────────────────────────
+
+
+class CisternConfig(BaseModel):
+    """Cistern guard: skip automatic starts while the water level is too low.
+
+    ``level_entity`` is a numeric level sensor; ``min_level`` is compared in
+    whatever unit that sensor reports (%, cm, liters). When the reading is below
+    the minimum, the shared gate path skips the run — protecting the pump from
+    running dry. An unreadable sensor never blocks watering; manual starts via
+    the API are deliberately not subject to the gate.
+    """
+
+    enabled: bool = False
+    level_entity: str = ""
+    min_level: float = 0.0
+
+    @model_validator(mode="after")
+    def _require_sensor(self) -> "CisternConfig":
+        if self.enabled and not self.level_entity:
+            raise ValueError("cistern.level_entity must be set when the cistern guard is enabled")
+        return self
+
+
 # ── Wind ──────────────────────────────────────────────────────────────────────
 
 
@@ -469,10 +519,15 @@ class AppConfig(BaseModel):
     auth: AuthConfig = AuthConfig()
     sensors: SensorsConfig
     wind: WindConfig = WindConfig()
+    frost: FrostConfig = FrostConfig()
+    cistern: CisternConfig = CisternConfig()
     zones: dict[str, ZoneConfig]
     sequences: dict[str, SequenceConfig]
     factors: FactorsConfig = FactorsConfig()
     notifications: NotificationsConfig = NotificationsConfig()
+    # Water price in currency per cubic meter (e.g. EUR/m³), used to display the
+    # cost of tracked liters on the dashboard and history. 0 hides cost display.
+    water_price_per_m3: float = Field(default=0.0, ge=0)
     timezone: str = "Europe/Berlin"  # IANA tz for cron schedules and day bucketing
     language: Literal["de", "en"] = "en"  # language of server-side notifications
     # Global switch for the colored accent bars on sequence cards. When false, no

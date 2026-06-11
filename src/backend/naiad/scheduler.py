@@ -491,6 +491,53 @@ async def run_sequence_job(
         _log_decision(session_factory, sequence_id, triggered_by, "skipped", "season_off", factors)
         return "skipped"
 
+    # Frost lockout: a forecast daily minimum below the threshold skips the run
+    # (pipe protection in the shoulder seasons). An unreadable sensor never
+    # blocks watering — the gate is simply not evaluated.
+    if (
+        config.frost.enabled
+        and snapshot.min_temperature_c is not None
+        and snapshot.min_temperature_c < config.frost.threshold_c
+    ):
+        logger.info(
+            "Skipped (%s): frost lockout (min %.1f °C < %.1f °C)",
+            sequence_id,
+            snapshot.min_temperature_c,
+            config.frost.threshold_c,
+        )
+        _log_decision(session_factory, sequence_id, triggered_by, "skipped", "frost", factors)
+        await push_notification(
+            ha,
+            config,
+            t(
+                "skip.frost",
+                config.language,
+                label=seq_cfg.label,
+                temp=round(snapshot.min_temperature_c, 1),
+            ),
+            category="skip",
+        )
+        return "skipped"
+
+    # Cistern guard: a level below the configured minimum skips the run (dry-run
+    # protection for the pump). Same sensor semantics as the frost gate.
+    if (
+        config.cistern.enabled
+        and snapshot.cistern_level is not None
+        and snapshot.cistern_level < config.cistern.min_level
+    ):
+        logger.info(
+            "Skipped (%s): cistern level %.1f below minimum %.1f",
+            sequence_id,
+            snapshot.cistern_level,
+            config.cistern.min_level,
+        )
+        _log_decision(session_factory, sequence_id, triggered_by, "skipped", "cistern_low", factors)
+        await push_notification(
+            ha, config, t("skip.cistern", config.language, label=seq_cfg.label), category="skip"
+        )
+        return "skipped"
+
     # A computed factor of 0 % (e.g. forecast rain at/above zero_above_mm) means
     # "don't water" — skip rather than fall back to the range floor. This gate is
     # on the automatic path only (cron + plans both reach here); a manual start

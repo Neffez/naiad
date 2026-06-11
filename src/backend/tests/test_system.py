@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlmodel import Session, SQLModel, create_engine
 
-from naiad.api.system import _upcoming_day_runs, _week_series
+from naiad.api.system import _upcoming_day_runs, _week_series, upcoming_run_candidates
 from naiad.config import AppConfig
 from naiad.domain.models import Plan, RunHistory
 from tests.conftest import MINIMAL_CONFIG_DATA
@@ -95,3 +95,28 @@ def test_upcoming_runs_span_first_future_day_only() -> None:
     # Both of tomorrow's runs, sorted, and nothing from the day after.
     times = [r.scheduled_at.replace(tzinfo=UTC).astimezone(tz).date() for r in runs]
     assert times == [tomorrow, tomorrow]
+
+
+def test_upcoming_run_candidates_bounded_and_sorted() -> None:
+    """The week-view helper returns every plan inside the window, sorted by fire
+    time, and drops plans beyond ``until``."""
+    cfg = _config_no_schedule()
+    tz = ZoneInfo(cfg.timezone)
+    now = datetime.now(UTC)
+    tomorrow = datetime.now(tz).date() + timedelta(days=1)
+    in_window_late = datetime.combine(tomorrow + timedelta(days=4), time(6, 0), tzinfo=tz)
+    in_window_early = datetime.combine(tomorrow, time(20, 0), tzinfo=tz)
+    beyond = datetime.combine(tomorrow + timedelta(days=10), time(6, 0), tzinfo=tz)
+
+    sched = AsyncIOScheduler(timezone=cfg.timezone)
+    with Session(_engine()) as s:
+        s.add(_plan_at(in_window_late))
+        s.add(_plan_at(in_window_early))
+        s.add(_plan_at(beyond))
+        s.commit()
+        candidates = upcoming_run_candidates(s, cfg, sched, now + timedelta(days=7))
+
+    whens = [when for when, _run in candidates]
+    assert whens == sorted(whens)
+    assert len(candidates) == 2
+    assert all(when <= now + timedelta(days=7) for when in whens)

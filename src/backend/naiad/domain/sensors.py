@@ -66,6 +66,14 @@ def read_sensor_snapshot(ha: HAClient, config: AppConfig) -> SensorSnapshot:
     return SensorSnapshot(
         temperature_c=_float_or_none(sensors.temperature),
         max_temperature_c=max_temperature_c,
+        # Optional gate sensors (frost lockout, cistern guard). Unreadable values
+        # stay None — the gates never block watering on a broken sensor.
+        min_temperature_c=(
+            _float_or_none(config.frost.temperature_min) if config.frost.temperature_min else None
+        ),
+        cistern_level=(
+            _float_or_none(config.cistern.level_entity) if config.cistern.level_entity else None
+        ),
         season_on=_bool(sensors.season, safe_default=False),
         wind_on=_bool(sensors.wind, safe_default=False),
         precipitation_prob_today=_peak(sensors.precipitation_prob_today, prob_today),

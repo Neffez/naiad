@@ -15,6 +15,9 @@ export const queryKeys = {
   settings: ['settings'] as const,
   preferences: ['preferences'] as const,
   plans: ['plans'] as const,
+  // Week view shares the 'plans' prefix so creating/deleting a plan
+  // invalidates it too.
+  upcomingRuns: (days: number) => ['plans', 'upcoming', days] as const,
   health: ['health'] as const,
   history: ['history'] as const,
   historyPage: (page: number, filters?: Record<string, string | undefined>) =>
