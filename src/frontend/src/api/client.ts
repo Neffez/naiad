@@ -150,6 +150,15 @@ export const getHistory = (params: HistoryParams) => {
 export const getHistorySummary = (days = 7) =>
   api.get<HistorySummary>(`/history/summary?days=${days}`)
 
+// Decision log: why each automatic run (cron/plan/MQTT) started or was skipped.
+export const getDecisions = (params: DecisionsParams) => {
+  const qs = new URLSearchParams()
+  if (params.page) qs.set('page', String(params.page))
+  if (params.per_page) qs.set('per_page', String(params.per_page))
+  if (params.sequence_id) qs.set('sequence_id', params.sequence_id)
+  return api.get<PaginatedDecisions>(`/history/decisions?${qs}`)
+}
+
 // Deletes run history only — settings and plans are never affected.
 // Pass olderThanDays to remove only entries older than that many days.
 export const deleteHistory = (olderThanDays?: number) => {
@@ -235,6 +244,15 @@ export interface HistoryParams {
   zone_id?: string
   from?: string
   to?: string
+}
+
+export type DecisionEntry = ApiSchemas['DecisionEntry']
+export type PaginatedDecisions = ApiSchemas['PaginatedDecisions']
+
+export interface DecisionsParams {
+  page?: number
+  per_page?: number
+  sequence_id?: string
 }
 
 export type DeleteHistoryResult = ApiSchemas['DeleteHistoryResult']

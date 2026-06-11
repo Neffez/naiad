@@ -235,6 +235,40 @@ class HistorySummaryResponse(BaseModel):
     avg_duration_min: float | None
 
 
+class DecisionEntryResponse(BaseModel):
+    """One automatic start decision with the factor inputs that produced it.
+
+    The input fields are None when the decision was made before the sensors
+    were read (e.g. master off) — see ``DecisionLog``.
+    """
+
+    id: int
+    created_at: UtcDatetime
+    sequence_id: str
+    sequence_label: str
+    triggered_by: str
+    decision: str  # started | skipped
+    reason: str | None  # See docs/openapi.yaml: DecisionReason
+    factor_pct: float | None
+    temp_delta_pct: float | None
+    rain_factor_pct: float | None
+    temp_c: float | None
+    rain_today_mm: float | None
+    rain_tomorrow_mm: float | None
+    rain_prob_today_pct: float | None
+    rain_prob_tomorrow_pct: float | None
+    rain_credit_mm: float | None
+    rain_mode: str | None  # forecast | water_balance
+    manual_factor: bool
+
+
+class PaginatedDecisionsResponse(BaseModel):
+    items: list[DecisionEntryResponse]
+    total: int
+    page: int
+    per_page: int
+
+
 # ── Plans ─────────────────────────────────────────────────────────────────────
 
 

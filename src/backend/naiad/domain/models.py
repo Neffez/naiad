@@ -18,6 +18,40 @@ class RunHistory(SQLModel, table=True):
     abort_reason: str | None = None  # See docs/openapi.yaml: AbortReason
 
 
+class DecisionLog(SQLModel, table=True):
+    """Audit trail of automatic start decisions ("why did/didn't it water?").
+
+    One row per deterministic outcome of the shared gate path
+    (``run_sequence_job``: cron, plans, MQTT commands): ``started`` or
+    ``skipped`` with a reason. Transient outcomes (busy/conflict) are retried
+    and therefore not logged — the eventual retry produces the row. The factor
+    inputs are NULL when a gate fired before the sensors were read (e.g.
+    master off); ``temp_c`` is the temperature the factor actually used
+    (forecast daily max, falling back to the current reading).
+    """
+
+    __tablename__ = "decision_log"
+
+    id: int | None = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None))
+    sequence_id: str
+    triggered_by: str  # cron | plan | mqtt
+    decision: str  # started | skipped
+    reason: str | None = None  # See docs/openapi.yaml: DecisionReason
+    factor_pct: float | None = None
+    temp_delta_pct: float | None = None
+    rain_factor_pct: float | None = None
+    temp_c: float | None = None
+    rain_today_mm: float | None = None
+    rain_tomorrow_mm: float | None = None
+    rain_prob_today_pct: float | None = None
+    rain_prob_tomorrow_pct: float | None = None
+    rain_credit_mm: float | None = None
+    rain_mode: str | None = None  # forecast | water_balance
+    # True when factor_pct came from the manual adjustment override.
+    manual_factor: bool = False
+
+
 class Plan(SQLModel, table=True):
     __tablename__ = "plans"
 

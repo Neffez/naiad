@@ -62,6 +62,16 @@ class FactorResult:
     # True when factor_pct comes from a manual override rather than the automatic
     # temp/rain calculation. The temp/rain breakdown fields are neutral in that case.
     manual: bool = False
+    # Inputs the calculation actually used, kept for traceability (decision log,
+    # status display). None on the early-return paths (manual override, season off)
+    # where the rain inputs are never evaluated.
+    temp_input_c: float | None = None
+    rain_today_mm: float | None = None
+    rain_tomorrow_mm: float | None = None
+    rain_prob_today_pct: float | None = None
+    rain_prob_tomorrow_pct: float | None = None
+    rain_credit_mm: float | None = None
+    rain_mode: str | None = None
 
 
 def _compute_temp_factor(temp_c: float, cfg: TempFactorConfig) -> float:
@@ -322,4 +332,11 @@ def compute_factors(
         sensors_unavailable=snapshot.unavailable,
         rain_mm=round(rain_mm, 1),
         rain_prob_pct=round(rain_prob, 1),
+        temp_input_c=temp_for_factor,
+        rain_today_mm=round(mm_today, 1),
+        rain_tomorrow_mm=round(mm_tomorrow, 1),
+        rain_prob_today_pct=round(prob_today, 1),
+        rain_prob_tomorrow_pct=round(prob_tomorrow, 1),
+        rain_credit_mm=snapshot.actual_rain_credit_mm,
+        rain_mode=eff_rain.mode,
     )
