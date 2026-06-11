@@ -347,8 +347,25 @@ export interface paths {
         get: operations["getHistory"];
         put?: never;
         post?: never;
-        /** Delete run history (settings and plans are never affected) */
+        /** Delete run history and decision log (settings and plans are never affected) */
         delete: operations["deleteHistory"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/history/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Paginated decision log (why each automatic run started or was skipped) */
+        get: operations["getDecisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -744,6 +761,48 @@ export interface components {
             runs: number;
             /** @description Average over finished runs only; null when the window has no finished run. */
             avg_duration_min: number | null;
+        };
+        /**
+         * @description Why an automatic start was skipped.
+         * @enum {string}
+         */
+        DecisionReason: "disabled" | "user_skipped" | "paused" | "master_off" | "wind" | "season_off" | "zero_factor" | "expired";
+        /** @description One automatic start decision (cron/plan/MQTT) with the factor inputs that produced it. Input fields are null when the decision was made before the sensors were read (e.g. master off). */
+        DecisionEntry: {
+            id: number;
+            /** Format: date-time */
+            created_at: string;
+            sequence_id: string;
+            sequence_label: string;
+            triggered_by: components["schemas"]["TriggerSource"];
+            /** @enum {string} */
+            decision: "started" | "skipped";
+            /** @description Null for started decisions. */
+            reason: (components["schemas"]["DecisionReason"] | null) | null;
+            /** @description Resulting combined factor in % (100 = neutral). */
+            factor_pct: number | null;
+            /** @description Signed temperature contribution in % (0 = neutral). */
+            temp_delta_pct: number | null;
+            /** @description Rain multiplier in % (100 = neutral). */
+            rain_factor_pct: number | null;
+            /** @description Temperature the factor used (forecast daily max, falling back to the current reading). */
+            temp_c: number | null;
+            rain_today_mm: number | null;
+            rain_tomorrow_mm: number | null;
+            rain_prob_today_pct: number | null;
+            rain_prob_tomorrow_pct: number | null;
+            /** @description Recent actual-rain credit (water_balance mode). */
+            rain_credit_mm: number | null;
+            /** @enum {string|null} */
+            rain_mode: "forecast" | "water_balance" | null;
+            /** @description True when factor_pct came from the manual adjustment override. */
+            manual_factor: boolean;
+        };
+        PaginatedDecisions: {
+            items: components["schemas"]["DecisionEntry"][];
+            total: number;
+            page: number;
+            per_page: number;
         };
         TempFactorSettings: {
             basis_c: number;
@@ -1689,6 +1748,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeleteHistoryResult"];
+                };
+            };
+        };
+    };
+    getDecisions: {
+        parameters: {
+            query?: {
+                page?: number;
+                per_page?: number;
+                sequence_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedDecisions"];
                 };
             };
         };

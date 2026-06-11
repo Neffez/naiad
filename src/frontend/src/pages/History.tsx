@@ -2,8 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../api/queryKeys'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { type ConfigDoc, deleteHistory, getConfig, getHistory, getHistorySummary, type HistoryEntry } from '../api/client'
+import { type ConfigDoc, type DecisionEntry, deleteHistory, getConfig, getDecisions, getHistory, getHistorySummary, type HistoryEntry } from '../api/client'
 import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
+import { ButtonGroup } from '../components/config/ButtonGroup'
 import { LoadError } from '../components/LoadError'
 import { IClock, IPlay } from '../components/icons'
 import { resolveSeqColor } from '../theme/sequenceColors'
@@ -35,6 +36,7 @@ const COLS = [
 
 export default function History() {
   const { t, i18n } = useTranslation()
+  const [view, setView] = useState<'runs' | 'decisions'>('runs')
   const [page, setPage] = useState(1)
   const [confirm, setConfirm] = useState<null | 'all' | 'old'>(null)
   const [seqFilter, setSeqFilter] = useState('')
@@ -135,6 +137,21 @@ export default function History() {
         </div>
       </div>
 
+      {/* Runs ↔ decision-log toggle. The decision log answers "why didn't it
+          water?" — one entry per automatic start decision with its inputs. */}
+      <div style={{ marginBottom: 16 }}>
+        <ButtonGroup
+          label={t('history.view')}
+          options={[
+            { value: 'runs', active: view === 'runs', label: t('history.runsTab'), onClick: () => setView('runs') },
+            { value: 'decisions', active: view === 'decisions', label: t('history.decisionsTab'), onClick: () => setView('decisions') },
+          ]}
+        />
+      </div>
+
+      {view === 'decisions' && <DecisionsView config={config} />}
+
+      {view === 'runs' && <>
       {/* Filters */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
         <FilterSelect
@@ -204,31 +221,9 @@ export default function History() {
 
       {/* Pagination */}
       {data && data.total > data.per_page && (
-        <div style={{
-          display: 'flex', justifyContent: 'center', alignItems: 'center',
-          gap: 12, padding: '18px 0',
-        }}>
-          <button
-            className="n-btn"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            style={{ height: 36, padding: '0 14px', fontSize: 13 }}
-          >
-            ← {t('history.prev')}
-          </button>
-          <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>
-            {page} / {Math.ceil(data.total / data.per_page)}
-          </span>
-          <button
-            className="n-btn"
-            onClick={() => setPage((p) => p + 1)}
-            disabled={page >= Math.ceil(data.total / data.per_page)}
-            style={{ height: 36, padding: '0 14px', fontSize: 13 }}
-          >
-            {t('history.next')} →
-          </button>
-        </div>
+        <Pager page={page} total={data.total} perPage={data.per_page} onPage={setPage} />
       )}
+      </>}
 
       <ConfirmActionDialog
         open={confirm === 'old'}
@@ -315,6 +310,229 @@ function SummaryBlock({ label, value }: { label: string; value: string }) {
         {value}
       </span>
     </div>
+  )
+}
+
+function Pager({ page, total, perPage, onPage }: {
+  page: number
+  total: number
+  perPage: number
+  onPage: (update: (p: number) => number) => void
+}) {
+  const { t } = useTranslation()
+  const last = Math.ceil(total / perPage)
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'center', alignItems: 'center',
+      gap: 12, padding: '18px 0',
+    }}>
+      <button
+        className="n-btn"
+        onClick={() => onPage((p) => Math.max(1, p - 1))}
+        disabled={page === 1}
+        style={{ height: 36, padding: '0 14px', fontSize: 13 }}
+      >
+        ← {t('history.prev')}
+      </button>
+      <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>
+        {page} / {last}
+      </span>
+      <button
+        className="n-btn"
+        onClick={() => onPage((p) => p + 1)}
+        disabled={page >= last}
+        style={{ height: 36, padding: '0 14px', fontSize: 13 }}
+      >
+        {t('history.next')} →
+      </button>
+    </div>
+  )
+}
+
+const DECISION_COLS = [
+  { key: 'time', labelKey: 'history.time', flex: 1.1 },
+  { key: 'seq', labelKey: 'history.sequence', flex: 1.1 },
+  { key: 'decision', labelKey: 'history.decision', flex: 1.5 },
+  { key: 'factor', labelKey: 'history.factor', flex: 0.6 },
+  { key: 'trigger', labelKey: 'history.trigger', flex: 0.7 },
+] as const
+
+function DecisionsView({ config }: { config: ConfigDoc | undefined }) {
+  const { t } = useTranslation()
+  const [page, setPage] = useState(1)
+  const [seqFilter, setSeqFilter] = useState('')
+
+  const { data, isError } = useQuery({
+    queryKey: queryKeys.decisionsPage(page, seqFilter || undefined),
+    queryFn: () => getDecisions({ page, per_page: 50, sequence_id: seqFilter || undefined }),
+  })
+  const items = data?.items ?? []
+
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+        <FilterSelect
+          value={seqFilter}
+          onChange={(v) => { setSeqFilter(v); setPage(1) }}
+          placeholder={t('history.allSequences')}
+          options={Object.entries(config?.sequences ?? {}).map(([id, s]) => ({ id, label: s.label }))}
+        />
+      </div>
+
+      <div style={{
+        display: 'flex', alignItems: 'center',
+        padding: '12px 18px',
+        borderBottom: '1px solid var(--n-line-bright)',
+      }}>
+        {DECISION_COLS.map((c) => (
+          <span key={c.key} className="n-eyebrow" style={{
+            flex: c.flex, fontSize: 11, letterSpacing: '0.05em',
+          }}>
+            {t(c.labelKey)}
+          </span>
+        ))}
+      </div>
+
+      {items.map((row) => (
+        <DecisionRow key={row.id} row={row} config={config} />
+      ))}
+
+      {items.length === 0 && (
+        isError ? (
+          <div style={{ padding: '24px 0' }}><LoadError /></div>
+        ) : (
+          <div style={{
+            padding: '32px 0', textAlign: 'center',
+            color: 'var(--n-fg-muted)', fontSize: 14,
+          }}>
+            {t('history.decisionsEmpty')}
+          </div>
+        )
+      )}
+
+      {data && data.total > data.per_page && (
+        <Pager page={page} total={data.total} perPage={data.per_page} onPage={setPage} />
+      )}
+    </>
+  )
+}
+
+function DecisionRow({ row, config }: { row: DecisionEntry; config: ConfigDoc | undefined }) {
+  const { t, i18n } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const started = row.decision === 'started'
+  const barColor = resolveSeqColor(config, row.sequence_id) ?? 'var(--n-fg-dim)'
+  const hasInputs = row.factor_pct != null
+  const decisionLabel = started
+    ? t('history.decisionStarted')
+    : row.reason
+      ? t(`history.decisionReason.${row.reason}`, { defaultValue: row.reason })
+      : t('history.decisionSkipped')
+
+  return (
+    <div style={{ borderBottom: '1px solid var(--n-line)' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        style={{
+          display: 'flex', alignItems: 'center', width: '100%',
+          padding: '13px 18px', textAlign: 'left',
+          background: 'none', border: 'none', cursor: 'pointer',
+          font: 'inherit', color: 'inherit',
+        }}
+      >
+        <span className="mono" style={{
+          flex: DECISION_COLS[0].flex, fontSize: 13, color: 'var(--n-fg-soft)',
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span aria-hidden="true" style={{
+            width: 4, height: 22, borderRadius: 2,
+            background: barColor,
+          }} />
+          {fmtDate(row.created_at, i18n.language)}
+        </span>
+        <span style={{ flex: DECISION_COLS[1].flex, fontSize: 13.5, fontWeight: 500 }}>
+          {row.sequence_label}
+        </span>
+        <span style={{ flex: DECISION_COLS[2].flex, fontSize: 12.5 }}>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '4px 10px', borderRadius: 999,
+            border: started ? '1px solid rgba(94,200,216,0.30)' : '1px solid rgba(255,100,100,0.30)',
+            background: started ? 'var(--n-teal-glow)' : 'rgba(255,100,100,0.08)',
+            color: started ? 'var(--n-teal-200)' : 'var(--n-danger)',
+            fontSize: 11.5, fontWeight: 500,
+          }}>
+            {decisionLabel}
+          </span>
+        </span>
+        <span className="mono" style={{ flex: DECISION_COLS[3].flex, fontSize: 13, color: 'var(--n-fg-soft)' }}>
+          {row.factor_pct != null ? `${Math.round(row.factor_pct)} %` : '—'}
+        </span>
+        <span style={{ flex: DECISION_COLS[4].flex, fontSize: 12.5, color: 'var(--n-fg-muted)' }}>
+          {t(`history.triggerSource.${row.triggered_by}`, { defaultValue: row.triggered_by })}
+        </span>
+      </button>
+
+      {open && (
+        <div style={{
+          display: 'flex', gap: 28, flexWrap: 'wrap',
+          padding: '4px 18px 14px 32px',
+          fontSize: 12.5, color: 'var(--n-fg-soft)',
+        }}>
+          {!hasInputs ? (
+            <span style={{ color: 'var(--n-fg-muted)' }}>{t('history.noInputs')}</span>
+          ) : row.manual_factor ? (
+            <DetailItem label={t('history.manualFactor')} value={`${Math.round(row.factor_pct ?? 0)} %`} />
+          ) : (
+            <>
+              {row.temp_c != null && (
+                <DetailItem label={t('history.tempMax')} value={`${row.temp_c.toFixed(1)} °C`} />
+              )}
+              {row.temp_delta_pct != null && (
+                <DetailItem
+                  label={t('history.tempAdjust')}
+                  value={`${row.temp_delta_pct > 0 ? '+' : ''}${Math.round(row.temp_delta_pct)} %`}
+                />
+              )}
+              {row.rain_today_mm != null && (
+                <DetailItem
+                  label={t('history.rainToday')}
+                  value={`${row.rain_today_mm.toFixed(1)} mm · ${Math.round(row.rain_prob_today_pct ?? 0)} %`}
+                />
+              )}
+              {row.rain_tomorrow_mm != null && (
+                <DetailItem
+                  label={t('history.rainTomorrow')}
+                  value={`${row.rain_tomorrow_mm.toFixed(1)} mm · ${Math.round(row.rain_prob_tomorrow_pct ?? 0)} %`}
+                />
+              )}
+              {row.rain_credit_mm != null && (
+                <DetailItem label={t('history.rainCredit')} value={`${row.rain_credit_mm.toFixed(1)} mm`} />
+              )}
+              {row.rain_factor_pct != null && (
+                <DetailItem label={t('history.rainFactor')} value={`${Math.round(row.rain_factor_pct)} %`} />
+              )}
+              {row.rain_mode != null && (
+                <DetailItem
+                  label={t('history.rainMode')}
+                  value={row.rain_mode === 'water_balance' ? t('history.rainModeWaterBalance') : t('history.rainModeForecast')}
+                />
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DetailItem({ label, value }: { label: string; value: string }) {
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2 }}>
+      <span className="n-eyebrow" style={{ fontSize: 10.5 }}>{label}</span>
+      <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg)' }}>{value}</span>
+    </span>
   )
 }
 
