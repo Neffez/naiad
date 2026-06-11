@@ -82,6 +82,7 @@
     "to": "Bis",
     "clearFilters": "Filter zurücksetzen",
     "last7days": "Letzte 7 Tage",
+    "cost": "Wasserkosten",
     "totalRuns": "Läufe gesamt",
     "avgDuration": "Ø Dauer / Lauf",
     "empty": "Noch keine Läufe aufgezeichnet",
@@ -126,6 +127,8 @@
       "master_off": "Master aus",
       "wind": "Wind",
       "season_off": "Außerhalb der Saison",
+      "frost": "Frost-Sperre",
+      "cistern_low": "Zisterne zu niedrig",
       "zero_factor": "Bewässerungsfaktor 0 %",
       "expired": "Zurückgestellter Lauf verfallen"
     }
@@ -337,7 +340,23 @@
     "wind": "Wind",
     "windAbortAfter": "Laufende Sequenzen abbrechen nach",
     "windAbortAfterHelp": "So viele Minuten muss der Windalarm anhalten, bevor eine laufende windgeblockte Sequenz abgebrochen wird — eine kurze Böe stoppt die Bewässerung nicht. Pro Lauf gilt höchstens 10% seiner geplanten Dauer; endet der Alarm vorher, wird der Abbruch verworfen. 0 = sofort abbrechen.",
-    "windAbortAfterUnit": "min"
+    "windAbortAfterUnit": "min",
+    "frost": "Frost-Sperre",
+    "frostEnabled": "Frost-Sperre",
+    "frostEnabledHint": "Geplante Läufe bei Frostgefahr überspringen",
+    "frostHelp": "Liegt das prognostizierte Tagesminimum unter dem Schwellwert, werden automatische Läufe (Zeitplan, Pläne, MQTT) übersprungen — schützt Leitungen und Regner in der Übergangszeit. Manuelle Starts sind nicht betroffen; ein nicht lesbarer Sensor blockiert die Bewässerung nie.",
+    "frostSensor": "Tagesminimum (Prognose)",
+    "frostThreshold": "Schwellwert",
+    "frostSensorMissing": "Wähle einen Sensor für das prognostizierte Tagesminimum — Speichern wird abgelehnt, solange die Sperre ohne Sensor aktiviert ist.",
+    "cistern": "Zisterne",
+    "cisternEnabled": "Zisternen-Wächter",
+    "cisternEnabledHint": "Geplante Läufe bei zu niedrigem Füllstand überspringen",
+    "cisternHelp": "Liegt der Füllstand unter dem Minimum, werden automatische Läufe (Zeitplan, Pläne, MQTT) übersprungen — schützt die Pumpe vor dem Trockenlaufen. Das Minimum gilt in der Einheit des Sensors (z. B. % oder cm). Manuelle Starts sind nicht betroffen; ein nicht lesbarer Sensor blockiert die Bewässerung nie.",
+    "cisternSensor": "Füllstandssensor",
+    "cisternMinLevel": "Mindestfüllstand",
+    "cisternSensorMissing": "Wähle einen Füllstandssensor — Speichern wird abgelehnt, solange der Wächter ohne Sensor aktiviert ist.",
+    "waterPrice": "Wasserpreis",
+    "waterPriceHelp": "Rechnet die erfassten Liter auf Dashboard und Verlauf in Kosten um. 0 blendet die Kostenanzeige aus."
   },
   "schedule": {
     "days": "Wochentage",
@@ -378,7 +397,9 @@
     "durationPlaceholder": "Dauer (min) — leer = Konfig-Standard",
     "hoursPlaceholder": "Stunden",
     "remove": "Entfernen",
-    "zoneTag": "Zone"
+    "zoneTag": "Zone",
+    "weekTitle": "Nächste 7 Tage",
+    "weekNoRuns": "Keine Läufe"
   },
   "login": {
     "title": "Naiad",

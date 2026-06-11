@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { type ConfigDoc } from '../../../api/client'
 import { InfoTip } from '../../../components/InfoTip'
 import { NumberField } from '../../../components/NumberField'
-import { EntityCombobox, Row, Section } from '../../../components/config/primitives'
+import { Banner, Check, EntityCombobox, Row, Section } from '../../../components/config/primitives'
 import { inputStyle } from '../../../components/config/formStyles'
 import { useConfig } from '../ConfigContext'
 
@@ -69,6 +69,88 @@ export default function ConnectionSection() {
             onChange={(v) => patch((d) => { d.wind.abort_after_min = v })}
           />
         </Row>
+      </Section>
+
+      {/* Frost lockout: skip automatic starts when the forecast daily minimum
+          is below the threshold (pipe protection in the shoulder seasons). */}
+      <Section title={t('config.frost')}>
+        <Row label={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+            {t('config.frostEnabled')}
+            <InfoTip text={t('config.frostHelp')} />
+          </span>
+        }>
+          <Check
+            label={t('config.frostEnabledHint')}
+            checked={draft.frost.enabled}
+            onChange={(v) => patch((d) => { d.frost.enabled = v })}
+          />
+        </Row>
+        <Row label={t('config.frostSensor')}>
+          <EntityCombobox
+            value={draft.frost.temperature_min}
+            onChange={(v) => patch((d) => { d.frost.temperature_min = v })}
+            entities={entitiesByDomain['sensor']}
+            domain="sensor"
+            ariaLabel={t('config.frostSensor')}
+          />
+        </Row>
+        <Row label={t('config.frostThreshold')} last>
+          <NumberField
+            value={draft.frost.threshold_c}
+            unit="°C"
+            step={0.5}
+            width={90}
+            aria-label={t('config.frostThreshold')}
+            onChange={(v) => patch((d) => { d.frost.threshold_c = v })}
+          />
+        </Row>
+        {draft.frost.enabled && !draft.frost.temperature_min && (
+          <div style={{ padding: '0 20px 14px' }}>
+            <Banner tone="amber">{t('config.frostSensorMissing')}</Banner>
+          </div>
+        )}
+      </Section>
+
+      {/* Cistern guard: skip automatic starts while the level sensor reads
+          below the minimum (dry-run protection for the pump). */}
+      <Section title={t('config.cistern')}>
+        <Row label={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+            {t('config.cisternEnabled')}
+            <InfoTip text={t('config.cisternHelp')} />
+          </span>
+        }>
+          <Check
+            label={t('config.cisternEnabledHint')}
+            checked={draft.cistern.enabled}
+            onChange={(v) => patch((d) => { d.cistern.enabled = v })}
+          />
+        </Row>
+        <Row label={t('config.cisternSensor')}>
+          <EntityCombobox
+            value={draft.cistern.level_entity}
+            onChange={(v) => patch((d) => { d.cistern.level_entity = v })}
+            entities={entitiesByDomain['sensor']}
+            domain="sensor"
+            ariaLabel={t('config.cisternSensor')}
+          />
+        </Row>
+        <Row label={t('config.cisternMinLevel')} last>
+          <NumberField
+            value={draft.cistern.min_level}
+            min={0}
+            step={1}
+            width={90}
+            aria-label={t('config.cisternMinLevel')}
+            onChange={(v) => patch((d) => { d.cistern.min_level = v })}
+          />
+        </Row>
+        {draft.cistern.enabled && !draft.cistern.level_entity && (
+          <div style={{ padding: '0 20px 14px' }}>
+            <Banner tone="amber">{t('config.cisternSensorMissing')}</Banner>
+          </div>
+        )}
       </Section>
     </div>
   )

@@ -5,8 +5,10 @@ from pydantic import BaseModel, Field, PlainSerializer
 
 from naiad.config import (
     AutoLoginConfig,
+    CisternConfig,
     FactorsConfig,
     ForwardHeaderConfig,
+    FrostConfig,
     NotificationsConfig,
     NotifyTarget,
     SensorsConfig,
@@ -455,10 +457,13 @@ class ConfigResponse(BaseModel):
     auth: AuthConfigResponse
     sensors: SensorsConfig
     wind: WindConfig
+    frost: FrostConfig
+    cistern: CisternConfig
     zones: dict[str, ZoneConfig]
     sequences: dict[str, SequenceConfig]
     factors: FactorsConfig
     notifications: NotificationsConfig
+    water_price_per_m3: float = 0.0
     timezone: str
     sequence_colors_enabled: bool = True
     # True after an update that changed ha.url/token: the live HA socket is not
@@ -472,10 +477,13 @@ class ConfigUpdateRequest(BaseModel):
     auth: AuthConfigInput
     sensors: SensorsConfig
     wind: WindConfig = WindConfig()
+    frost: FrostConfig = FrostConfig()
+    cistern: CisternConfig = CisternConfig()
     zones: dict[str, ZoneConfig]
     sequences: dict[str, SequenceConfig]
     factors: FactorsConfig
     notifications: NotificationsConfig = NotificationsConfig()
+    water_price_per_m3: float = Field(default=0.0, ge=0)
     timezone: str = "Europe/Berlin"
     sequence_colors_enabled: bool = True
 

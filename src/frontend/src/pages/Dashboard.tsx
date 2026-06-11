@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import {
+  getConfig,
   getPreferences,
   getSequences,
   getStatus,
@@ -33,12 +34,13 @@ import { ValveGrid } from '../components/ValveGrid'
 import { WeatherStrip } from '../components/WeatherStrip'
 import { WeekChart } from '../components/WeekChart'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { formatWaterCost } from '../lib/cost'
 import { applyOrder } from '../lib/ordering'
 import { formatSchedule } from '../lib/schedule'
 import { verticalListSortingStrategy } from '@dnd-kit/sortable'
 
 export default function Dashboard() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const qc = useQueryClient()
   const navigate = useNavigate()
 
@@ -61,6 +63,8 @@ export default function Dashboard() {
     queryKey: queryKeys.preferences,
     queryFn: getPreferences,
   })
+  // Only used for the optional cost display (water_price_per_m3).
+  const { data: config } = useQuery({ queryKey: queryKeys.config, queryFn: getConfig })
 
   const masterMut = useMutation({
     mutationFn: (on: boolean) => setMaster(on),
@@ -211,6 +215,11 @@ export default function Dashboard() {
   const masterOn = status?.master_on ?? true
 
   const weekData = buildWeekData(status, t('weekdaysShort', { returnObjects: true }) as string[])
+  const weekCost = formatWaterCost(
+    status?.liters_week ?? 0,
+    config?.water_price_per_m3,
+    i18n.language,
+  )
   const running = sequences.filter((s) => s.status === 'running').length
   const idle = sequences.filter((s) => s.status === 'idle').length
   const zonesRunning = valves.filter((v) => v.state === 'on').length
@@ -369,6 +378,11 @@ export default function Dashboard() {
                   {status?.liters_week.toFixed(0) ?? '—'} L
                 </span>
               </div>
+              {weekCost && (
+                <span className="mono" style={{ fontSize: 13, color: 'var(--n-fg-muted)' }}>
+                  ≈ {weekCost}
+                </span>
+              )}
             </div>
             <WeekChart data={weekData} height={150} label={t('a11y.weeklyUsageChart')} />
           </div>
@@ -436,6 +450,11 @@ export default function Dashboard() {
                 <span className="n-bignum" style={{ fontSize: 26 }}>{status?.liters_week.toFixed(0) ?? '—'} L</span>
                 <span style={{ fontSize: 12, color: 'var(--n-fg-muted)' }}>{t('dashboard.thisWeek')}</span>
               </div>
+              {weekCost && (
+                <span className="mono" style={{ fontSize: 12, color: 'var(--n-fg-muted)' }}>
+                  ≈ {weekCost}
+                </span>
+              )}
             </div>
             <div style={{ textAlign: 'right' }}>
               <span className="mono" style={{ fontSize: 14, color: 'var(--n-teal-200)' }}>

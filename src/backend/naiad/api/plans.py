@@ -2,17 +2,36 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, col, select
 
-from naiad.api.schemas import CreatePlanRequest, PlanResponse
+from naiad.api.schemas import CreatePlanRequest, NextRunResponse, PlanResponse
+from naiad.api.system import upcoming_run_candidates
 from naiad.config import AppConfig
 from naiad.database import get_session
-from naiad.dependencies import get_config, require_auth
+from naiad.dependencies import get_config, get_scheduler, require_auth
 from naiad.domain.models import Plan
 from naiad.timeutil import to_naive_utc
 
 router = APIRouter(prefix="/plans", tags=["plans"])
+
+
+@router.get("/upcoming", response_model=list[NextRunResponse])
+async def upcoming_runs(
+    _: None = Depends(require_auth),
+    config: AppConfig = Depends(get_config),
+    session: Session = Depends(get_session),
+    scheduler: AsyncIOScheduler = Depends(get_scheduler),
+    days: int = Query(default=7, ge=1, le=14),
+) -> list[NextRunResponse]:
+    """All upcoming runs of the next ``days`` days, sorted by fire time.
+
+    Merges one-off plans and recurring cron schedules (user-skipped occurrences
+    excluded) — the data behind the planner's calendar week view.
+    """
+    until = datetime.now(UTC) + timedelta(days=days)
+    return [run for _when, run in upcoming_run_candidates(session, config, scheduler, until)]
 
 
 def _to_response(plan: Plan, config: AppConfig) -> PlanResponse:

@@ -25,6 +25,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "trigger.resume": "resumed",
         "trigger.mqtt": "Home Assistant",
         "skip.wind": "⚠️ {label}: wind — run skipped",
+        "skip.frost": "❄️ {label}: frost risk ({temp} °C) — run skipped",
+        "skip.cistern": "🛢️ {label}: cistern below minimum level — run skipped",
         "skip.zero_factor": "💧 {label}: factor 0 % — run skipped",
         "skip.conflict_sequence": "⚠️ Schedule conflict: {label} skipped — {running} still running",
         "skip.conflict_zone": "⚠️ Schedule conflict: zone {label} skipped — {running} still running",
@@ -62,6 +64,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "trigger.mqtt": "Home Assistant",
         # Skips (deterministic refusals)
         "skip.wind": "⚠️ {label}: Wind — Lauf übersprungen",
+        "skip.frost": "❄️ {label}: Frostgefahr ({temp} °C) — Lauf übersprungen",
+        "skip.cistern": "🛢️ {label}: Zisterne unter Mindestfüllstand — Lauf übersprungen",
         "skip.zero_factor": "💧 {label}: Faktor 0 % — Lauf übersprungen",
         "skip.conflict_sequence": (
             "⚠️ Zeitplan-Konflikt: {label} übersprungen — {running} läuft noch"

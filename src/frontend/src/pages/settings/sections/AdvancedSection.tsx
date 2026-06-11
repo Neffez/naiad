@@ -1,5 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { type ConfigDoc } from '../../../api/client'
+import { InfoTip } from '../../../components/InfoTip'
+import { NumberField } from '../../../components/NumberField'
 import { Banner, Row, Section, StringList } from '../../../components/config/primitives'
 import { inputStyle } from '../../../components/config/formStyles'
 import { useConfig } from '../ConfigContext'
@@ -14,6 +16,22 @@ export default function AdvancedSection() {
         <input style={{ ...inputStyle, width: 220 }} value={draft.timezone}
           aria-label={t('config.timezone')}
           onChange={(e) => patch((d) => { d.timezone = e.target.value })} />
+      </Row>
+      <Row label={
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          {t('config.waterPrice')}
+          <InfoTip text={t('config.waterPriceHelp')} />
+        </span>
+      }>
+        <NumberField
+          value={draft.water_price_per_m3}
+          unit="€/m³"
+          min={0}
+          step={0.01}
+          width={110}
+          aria-label={t('config.waterPrice')}
+          onChange={(v) => patch((d) => { d.water_price_per_m3 = v })}
+        />
       </Row>
       <Row label={t('config.authMode')}>
         <select style={{ ...inputStyle, width: 200 }} value={draft.auth.mode}

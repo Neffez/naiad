@@ -27,6 +27,12 @@ class SensorSnapshot:
     # The day's forecast maximum temperature, when a max-temperature sensor is
     # configured. Preferred over ``temperature_c`` for the temperature factor.
     max_temperature_c: float | None = None
+    # The day's forecast minimum temperature, when the frost lockout is
+    # configured (see FrostConfig). None = no sensor or unreadable.
+    min_temperature_c: float | None = None
+    # Current cistern level, when the cistern guard is configured (see
+    # CisternConfig). Unit follows the sensor. None = no sensor or unreadable.
+    cistern_level: float | None = None
     # Tomorrow's peak forecast (highest seen today). None falls back to the latest
     # tomorrow reading, so callers/tests that omit them keep the old behaviour.
     precipitation_prob_tomorrow_peak: float | None = None

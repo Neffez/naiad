@@ -7,6 +7,7 @@ import { createPlan, deletePlan, getConfig, getPlans, getSequences, getValves, t
 import { IChevDown, IX } from '../components/icons'
 import { LoadError } from '../components/LoadError'
 import { NumberField } from '../components/NumberField'
+import { WeekOverview } from '../components/WeekOverview'
 import { resolveSeqColor } from '../theme/sequenceColors'
 
 type Target = 'sequence' | 'zone'
@@ -319,6 +320,9 @@ export default function Planner() {
           ))
         )}
       </div>
+
+      {/* Calendar week view: every upcoming run of the next 7 days */}
+      <WeekOverview config={config} />
     </div>
   )
 }

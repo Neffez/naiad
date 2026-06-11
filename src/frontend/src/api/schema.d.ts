@@ -319,6 +319,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/plans/upcoming": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * All upcoming runs of the next N days (plans + cron schedules merged)
+         * @description Merges one-off plans and recurring cron schedules, sorted by fire time; user-skipped cron occurrences are excluded. Backs the planner's calendar week view.
+         */
+        get: operations["listUpcomingRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/plans/{plan_id}": {
         parameters: {
             query?: never;
@@ -766,7 +786,7 @@ export interface components {
          * @description Why an automatic start was skipped.
          * @enum {string}
          */
-        DecisionReason: "disabled" | "user_skipped" | "paused" | "master_off" | "wind" | "season_off" | "zero_factor" | "expired";
+        DecisionReason: "disabled" | "user_skipped" | "paused" | "master_off" | "wind" | "season_off" | "frost" | "cistern_low" | "zero_factor" | "expired";
         /** @description One automatic start decision (cron/plan/MQTT) with the factor inputs that produced it. Input fields are null when the decision was made before the sensors were read (e.g. master off). */
         DecisionEntry: {
             id: number;
@@ -989,6 +1009,20 @@ export interface components {
             /** @description Minutes the wind alarm must be sustained before a running wind-blocked sequence is aborted. The effective delay per run is min(abort_after_min, 10% of the run's planned duration); the alarm clearing earlier cancels the abort. 0 aborts immediately. */
             abort_after_min: number;
         };
+        FrostConfig: {
+            enabled: boolean;
+            /** @description Forecast daily-minimum temperature sensor. Required when the lockout is enabled. */
+            temperature_min: string;
+            /** @description Automatic starts are skipped while the forecast daily minimum is below this temperature (°C). */
+            threshold_c: number;
+        };
+        CisternConfig: {
+            enabled: boolean;
+            /** @description Numeric cistern level sensor. Required when the guard is enabled. */
+            level_entity: string;
+            /** @description Automatic starts are skipped while the level is below this value (same unit as the sensor reports, e.g. % or cm). */
+            min_level: number;
+        };
         ZoneConfig: {
             label: string;
             switch: string;
@@ -1049,6 +1083,8 @@ export interface components {
             auth: components["schemas"]["AuthConfig"];
             sensors: components["schemas"]["SensorsConfig"];
             wind: components["schemas"]["WindConfig"];
+            frost: components["schemas"]["FrostConfig"];
+            cistern: components["schemas"]["CisternConfig"];
             zones: {
                 [key: string]: components["schemas"]["ZoneConfig"];
             };
@@ -1057,6 +1093,8 @@ export interface components {
             };
             factors: components["schemas"]["FactorsConfig"];
             notifications: components["schemas"]["NotificationsConfig"];
+            /** @description Water price per cubic meter (e.g. EUR/m³); 0 hides cost display. */
+            water_price_per_m3: number;
             timezone: string;
             sequence_colors_enabled: boolean;
             restart_required: boolean;
@@ -1067,6 +1105,8 @@ export interface components {
             auth: components["schemas"]["AuthConfigInput"];
             sensors: components["schemas"]["SensorsConfig"];
             wind?: components["schemas"]["WindConfig"];
+            frost?: components["schemas"]["FrostConfig"];
+            cistern?: components["schemas"]["CisternConfig"];
             zones: {
                 [key: string]: components["schemas"]["ZoneConfig"];
             };
@@ -1075,6 +1115,8 @@ export interface components {
             };
             factors: components["schemas"]["FactorsConfig"];
             notifications: components["schemas"]["NotificationsConfig"];
+            /** @description Water price per cubic meter (e.g. EUR/m³); 0 hides cost display. */
+            water_price_per_m3?: number;
             timezone: string;
             sequence_colors_enabled: boolean;
             /** @description Accepted for GET→edit→PUT round-trips and ignored by the backend. */
@@ -1672,6 +1714,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listUpcomingRuns: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NextRunSummary"][];
                 };
             };
         };

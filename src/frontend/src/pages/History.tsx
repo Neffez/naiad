@@ -7,6 +7,7 @@ import { ConfirmActionDialog } from '../components/ConfirmActionDialog'
 import { ButtonGroup } from '../components/config/ButtonGroup'
 import { LoadError } from '../components/LoadError'
 import { IClock, IPlay } from '../components/icons'
+import { formatWaterCost } from '../lib/cost'
 import { resolveSeqColor } from '../theme/sequenceColors'
 
 const OLDER_THAN_DAYS = 30
@@ -90,6 +91,8 @@ export default function History() {
   const items = data?.items ?? []
   const totalLiters = summary?.liters ?? 0
   const avgDur = Math.round(summary?.avg_duration_min ?? 0)
+  // Optional cost of the summarized liters; null (hidden) without a configured price.
+  const summaryCost = formatWaterCost(totalLiters, config?.water_price_per_m3, i18n.language)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -103,6 +106,12 @@ export default function History() {
             label={t('history.last7days')}
             value={`${Math.round(totalLiters).toLocaleString(i18n.language)} L`}
           />
+          {summaryCost && (
+            <>
+              <div className="n-vdivider" style={{ height: 44 }} />
+              <SummaryBlock label={t('history.cost')} value={summaryCost} />
+            </>
+          )}
           <div className="n-vdivider" style={{ height: 44 }} />
           <SummaryBlock
             label={t('history.totalRuns')}

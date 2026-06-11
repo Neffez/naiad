@@ -303,7 +303,7 @@ components:
     DecisionReason:
       type: string
       description: Why an automatic start was skipped.
-      enum: [disabled, user_skipped, paused, master_off, wind, season_off, zero_factor, expired]
+      enum: [disabled, user_skipped, paused, master_off, wind, season_off, frost, cistern_low, zero_factor, expired]
 
     DecisionEntry:
       type: object
@@ -627,6 +627,37 @@ components:
             min(abort_after_min, 10% of the run's planned duration); the alarm
             clearing earlier cancels the abort. 0 aborts immediately.
 
+    FrostConfig:
+      type: object
+      required: [enabled, temperature_min, threshold_c]
+      properties:
+        enabled: { type: boolean }
+        temperature_min:
+          type: string
+          description: >-
+            Forecast daily-minimum temperature sensor. Required when the
+            lockout is enabled.
+        threshold_c:
+          type: number
+          description: >-
+            Automatic starts are skipped while the forecast daily minimum is
+            below this temperature (°C).
+
+    CisternConfig:
+      type: object
+      required: [enabled, level_entity, min_level]
+      properties:
+        enabled: { type: boolean }
+        level_entity:
+          type: string
+          description: >-
+            Numeric cistern level sensor. Required when the guard is enabled.
+        min_level:
+          type: number
+          description: >-
+            Automatic starts are skipped while the level is below this value
+            (same unit as the sensor reports, e.g. % or cm).
+
     ZoneConfig:
       type: object
       required: [label, switch, flow_lph, staircase_enabled, staircase_min]
@@ -712,13 +743,15 @@ components:
 
     ConfigDoc:
       type: object
-      required: [ha, mqtt, auth, sensors, wind, zones, sequences, factors, notifications, timezone, sequence_colors_enabled, restart_required]
+      required: [ha, mqtt, auth, sensors, wind, frost, cistern, zones, sequences, factors, notifications, water_price_per_m3, timezone, sequence_colors_enabled, restart_required]
       properties:
         ha: { $ref: '#/components/schemas/HAConfigPublic' }
         mqtt: { $ref: '#/components/schemas/MQTTConfig' }
         auth: { $ref: '#/components/schemas/AuthConfig' }
         sensors: { $ref: '#/components/schemas/SensorsConfig' }
         wind: { $ref: '#/components/schemas/WindConfig' }
+        frost: { $ref: '#/components/schemas/FrostConfig' }
+        cistern: { $ref: '#/components/schemas/CisternConfig' }
         zones:
           type: object
           additionalProperties: { $ref: '#/components/schemas/ZoneConfig' }
@@ -727,6 +760,10 @@ components:
           additionalProperties: { $ref: '#/components/schemas/SequenceConfig' }
         factors: { $ref: '#/components/schemas/FactorsConfig' }
         notifications: { $ref: '#/components/schemas/NotificationsConfig' }
+        water_price_per_m3:
+          type: number
+          minimum: 0
+          description: Water price per cubic meter (e.g. EUR/m³); 0 hides cost display.
         timezone: { type: string }
         sequence_colors_enabled: { type: boolean }
         restart_required: { type: boolean }
@@ -740,6 +777,8 @@ components:
         auth: { $ref: '#/components/schemas/AuthConfigInput' }
         sensors: { $ref: '#/components/schemas/SensorsConfig' }
         wind: { $ref: '#/components/schemas/WindConfig' }
+        frost: { $ref: '#/components/schemas/FrostConfig' }
+        cistern: { $ref: '#/components/schemas/CisternConfig' }
         zones:
           type: object
           additionalProperties: { $ref: '#/components/schemas/ZoneConfig' }
@@ -748,6 +787,10 @@ components:
           additionalProperties: { $ref: '#/components/schemas/SequenceConfig' }
         factors: { $ref: '#/components/schemas/FactorsConfig' }
         notifications: { $ref: '#/components/schemas/NotificationsConfig' }
+        water_price_per_m3:
+          type: number
+          minimum: 0
+          description: Water price per cubic meter (e.g. EUR/m³); 0 hides cost display.
         timezone: { type: string }
         sequence_colors_enabled: { type: boolean }
         restart_required:
@@ -1193,6 +1236,27 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+
+  /plans/upcoming:
+    get:
+      operationId: listUpcomingRuns
+      summary: All upcoming runs of the next N days (plans + cron schedules merged)
+      description: >-
+        Merges one-off plans and recurring cron schedules, sorted by fire time;
+        user-skipped cron occurrences are excluded. Backs the planner's calendar
+        week view.
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 14, default: 7 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/NextRunSummary' }
 
   /plans/{plan_id}:
     delete:

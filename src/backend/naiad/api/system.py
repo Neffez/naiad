@@ -150,24 +150,19 @@ def _next_runs(
     return [run for _, run in candidates[:limit]]
 
 
-def _upcoming_day_runs(
+def upcoming_run_candidates(
     session: Session,
     config: AppConfig,
     scheduler: AsyncIOScheduler,
-) -> list[NextRunResponse]:
-    """Upcoming (not-yet-started) runs: today's remaining runs plus all runs of
-    the next future day that has any (local calendar days).
+    until: datetime,
+) -> list[tuple[datetime, NextRunResponse]]:
+    """All upcoming (not-yet-started) runs up to ``until``, sorted by fire time.
 
-    Returns today's remaining runs (if any) followed by every run of the earliest
-    later day that has scheduled runs — at most two calendar days, or just the next
-    day when nothing remains today. Both one-off plans and recurring cron schedules
-    are merged and user-skipped cron occurrences are excluded. Currently-running
-    runs are *not* included here; they are surfaced live on the sequence/zone cards.
+    Both one-off plans and recurring cron schedules are merged and user-skipped
+    cron occurrences are excluded. Currently-running runs are not included.
+    Shared by the dashboard status (two-day collapse) and the planner week view.
     """
-    tz = ZoneInfo(config.timezone)
     now = datetime.now(UTC)
-    until = now + timedelta(days=8)
-    today = now.astimezone(tz).date()
 
     # User-skipped cron occurrences, keyed by sequence → set of minute-truncated
     # naive-UTC fire times.
@@ -185,6 +180,8 @@ def _upcoming_day_runs(
         if run is None:
             continue
         when = p.scheduled_at if p.scheduled_at.tzinfo else p.scheduled_at.replace(tzinfo=UTC)
+        if when > until:
+            continue
         candidates.append((when, run))
 
     for seq_id, seq_cfg in config.sequences.items():
@@ -208,10 +205,29 @@ def _upcoming_day_runs(
                 )
             )
 
+    candidates.sort(key=lambda c: c[0])
+    return candidates
+
+
+def _upcoming_day_runs(
+    session: Session,
+    config: AppConfig,
+    scheduler: AsyncIOScheduler,
+) -> list[NextRunResponse]:
+    """Upcoming (not-yet-started) runs: today's remaining runs plus all runs of
+    the next future day that has any (local calendar days).
+
+    Returns today's remaining runs (if any) followed by every run of the earliest
+    later day that has scheduled runs — at most two calendar days, or just the next
+    day when nothing remains today.
+    """
+    tz = ZoneInfo(config.timezone)
+    now = datetime.now(UTC)
+    today = now.astimezone(tz).date()
+
+    candidates = upcoming_run_candidates(session, config, scheduler, now + timedelta(days=8))
     if not candidates:
         return []
-
-    candidates.sort(key=lambda c: c[0])
 
     # All candidates fire at or after "now", so each lands on today or a later day.
     today_runs = [run for when, run in candidates if when.astimezone(tz).date() == today]
