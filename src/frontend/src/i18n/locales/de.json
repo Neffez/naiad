@@ -93,7 +93,42 @@
     "deleteAllTitle": "Gesamten Verlauf löschen?",
     "deleteAllMessage": "Der gesamte Bewässerungsverlauf wird unwiderruflich gelöscht. Einstellungen und Pläne bleiben erhalten.",
     "deleteOldTitle": "Verlauf älter als 30 Tage löschen?",
-    "deleteOldMessage": "Alle Verlaufseinträge, die älter als 30 Tage sind, werden unwiderruflich gelöscht. Einstellungen und Pläne bleiben erhalten."
+    "deleteOldMessage": "Alle Verlaufseinträge, die älter als 30 Tage sind, werden unwiderruflich gelöscht. Einstellungen und Pläne bleiben erhalten.",
+    "view": "Ansicht",
+    "runsTab": "Läufe",
+    "decisionsTab": "Entscheidungen",
+    "time": "Zeit",
+    "decision": "Entscheidung",
+    "factor": "Faktor",
+    "decisionStarted": "Gestartet",
+    "decisionSkipped": "Übersprungen",
+    "decisionsEmpty": "Noch keine Entscheidungen aufgezeichnet",
+    "noInputs": "Zu dieser Entscheidung wurden keine Sensordaten aufgezeichnet",
+    "tempMax": "Temperatur (max)",
+    "tempAdjust": "Temperatur-Anpassung",
+    "rainToday": "Regen heute",
+    "rainTomorrow": "Regen morgen",
+    "rainCredit": "Regen-Gutschrift",
+    "rainFactor": "Regenfaktor",
+    "rainMode": "Regenmodus",
+    "rainModeForecast": "Prognose",
+    "rainModeWaterBalance": "Wasserbilanz",
+    "manualFactor": "Manueller Faktor",
+    "triggerSource": {
+      "cron": "Zeitplan",
+      "plan": "Plan",
+      "mqtt": "MQTT"
+    },
+    "decisionReason": {
+      "disabled": "Sequenz deaktiviert",
+      "user_skipped": "Vom Nutzer übersprungen",
+      "paused": "Sequenz pausiert",
+      "master_off": "Master aus",
+      "wind": "Wind",
+      "season_off": "Außerhalb der Saison",
+      "zero_factor": "Bewässerungsfaktor 0 %",
+      "expired": "Zurückgestellter Lauf verfallen"
+    }
   },
   "settings": {
     "title": "Einstellungen",

@@ -21,6 +21,10 @@ export const queryKeys = {
     ['history', page, filters ?? {}] as const,
   // Server-side aggregate for the history summary bar, independent of filters.
   historySummary: (days: number) => ['history', 'summary', days] as const,
+  // Decision log pages share the 'history' prefix so deleting the history
+  // invalidates them too.
+  decisionsPage: (page: number, sequenceId?: string) =>
+    ['history', 'decisions', page, sequenceId ?? ''] as const,
   entities: (domain: string) => ['entities', domain] as const,
   services: (domain: string) => ['services', domain] as const,
 } as const

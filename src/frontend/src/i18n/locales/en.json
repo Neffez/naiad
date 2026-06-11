@@ -93,7 +93,42 @@
     "deleteAllTitle": "Delete entire history?",
     "deleteAllMessage": "The entire watering history will be permanently deleted. Settings and plans are kept.",
     "deleteOldTitle": "Delete history older than 30 days?",
-    "deleteOldMessage": "All history entries older than 30 days will be permanently deleted. Settings and plans are kept."
+    "deleteOldMessage": "All history entries older than 30 days will be permanently deleted. Settings and plans are kept.",
+    "view": "View",
+    "runsTab": "Runs",
+    "decisionsTab": "Decisions",
+    "time": "Time",
+    "decision": "Decision",
+    "factor": "Factor",
+    "decisionStarted": "Started",
+    "decisionSkipped": "Skipped",
+    "decisionsEmpty": "No decisions recorded yet",
+    "noInputs": "No sensor data was recorded for this decision",
+    "tempMax": "Temperature (max)",
+    "tempAdjust": "Temperature adjustment",
+    "rainToday": "Rain today",
+    "rainTomorrow": "Rain tomorrow",
+    "rainCredit": "Rain credit",
+    "rainFactor": "Rain factor",
+    "rainMode": "Rain mode",
+    "rainModeForecast": "Forecast",
+    "rainModeWaterBalance": "Water balance",
+    "manualFactor": "Manual factor",
+    "triggerSource": {
+      "cron": "Schedule",
+      "plan": "Plan",
+      "mqtt": "MQTT"
+    },
+    "decisionReason": {
+      "disabled": "Sequence disabled",
+      "user_skipped": "Skipped by user",
+      "paused": "Sequence paused",
+      "master_off": "Master off",
+      "wind": "Wind",
+      "season_off": "Out of season",
+      "zero_factor": "Watering factor 0 %",
+      "expired": "Deferred run expired"
+    }
   },
   "settings": {
     "title": "Settings",

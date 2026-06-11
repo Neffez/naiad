@@ -7,7 +7,7 @@ hardware, with 6 as a follow-up stage.
 
 ---
 
-## 1. Decision log ("Why didn't it water?")
+## 1. Decision log ("Why didn't it water?") — ✅ implemented 2026-06-11
 
 **Problem:** The factor calculation has grown complex (daily peaks, rain
 confirmation, rain credit, decay, forecast window) but is *ephemeral* — nobody
@@ -28,6 +28,19 @@ each history entry.
 
 **Effort:** small (one table, one hook in `_run_sequence_job`, one UI list).
 **Value:** high — makes the system auditable.
+
+Implemented (2026-06-11): `decision_log` table written by the shared gate path
+(`run_sequence_job` — covers cron, plans and MQTT starts; expired deferred cron
+occurrences are logged too). Every deterministic outcome is recorded as
+`started`/`skipped` + reason (`disabled`, `user_skipped`, `paused`,
+`master_off`, `wind`, `season_off`, `zero_factor`, `expired`) together with the
+factor inputs actually used: max temperature, today/tomorrow rain peaks and
+probabilities, rain credit, effective rain mode, manual-override flag and the
+resulting factor breakdown. Transient busy/conflict outcomes are not logged —
+their retry produces the row. Exposed via `GET /history/decisions` and a
+"Decisions" tab on the history page with expandable per-entry inputs. Rows
+older than a year are pruned automatically; "delete history" clears the
+decision log alongside the runs.
 
 ---
 

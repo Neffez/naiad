@@ -18,8 +18,9 @@ from naiad.config import (
     SequenceConfig,
     target_service_data,
 )
-from naiad.domain.factors import compute_factors, merge_factor_config
+from naiad.domain.factors import FactorResult, compute_factors, merge_factor_config
 from naiad.domain.models import (
+    DecisionLog,
     DeferredCronRun,
     FactorOverride,
     Plan,
@@ -92,6 +93,55 @@ def _consume_skip(session_factory: SessionFactory, sequence_id: str, now: dateti
 
 # Hard cap so a long HA outage cannot grow the queue without bound (oldest first).
 _QUEUE_MAX_ITEMS = 500
+
+# Decision-log rows older than this are pruned on every insert, keeping the table
+# bounded (a handful of rows per day) without a separate cleanup job.
+_DECISION_LOG_RETENTION_DAYS = 365
+
+
+def _log_decision(
+    session_factory: SessionFactory,
+    sequence_id: str,
+    triggered_by: str,
+    decision: str,
+    reason: str | None = None,
+    factors: FactorResult | None = None,
+) -> None:
+    """Persist one decision-log row ("why did/didn't it water?").
+
+    The log is auxiliary: a write failure must never block or break the
+    watering path, so any exception is swallowed after logging it.
+    """
+    try:
+        with session_factory() as session:
+            cutoff = _utcnow_naive() - timedelta(days=_DECISION_LOG_RETENTION_DAYS)
+            for stale in session.exec(
+                select(DecisionLog).where(col(DecisionLog.created_at) < cutoff)
+            ).all():
+                session.delete(stale)
+            entry = DecisionLog(
+                sequence_id=sequence_id,
+                triggered_by=triggered_by,
+                decision=decision,
+                reason=reason,
+                created_at=_utcnow_naive(),
+            )
+            if factors is not None:
+                entry.factor_pct = factors.factor_pct
+                entry.temp_delta_pct = factors.temp_delta_pct
+                entry.rain_factor_pct = factors.rain_factor_pct
+                entry.temp_c = factors.temp_input_c
+                entry.rain_today_mm = factors.rain_today_mm
+                entry.rain_tomorrow_mm = factors.rain_tomorrow_mm
+                entry.rain_prob_today_pct = factors.rain_prob_today_pct
+                entry.rain_prob_tomorrow_pct = factors.rain_prob_tomorrow_pct
+                entry.rain_credit_mm = factors.rain_credit_mm
+                entry.rain_mode = factors.rain_mode
+                entry.manual_factor = factors.manual
+            session.add(entry)
+            session.commit()
+    except Exception:
+        logger.exception("Failed to write decision log for '%s'", sequence_id)
 
 
 def _utcnow_naive() -> datetime:
@@ -390,10 +440,13 @@ async def run_sequence_job(
 
     Shared gate path for every automatic start (cron, plans, MQTT commands):
     paused override, master switch, wind block, season, zero factor, and the
-    runner's own safety locks all apply here.
+    runner's own safety locks all apply here. Every deterministic outcome
+    (started/skipped) is recorded in the decision log; transient busy/conflict
+    outcomes are not — their retry produces the row.
     """
     seq_cfg = config.sequences.get(sequence_id)
     if seq_cfg is None or not seq_cfg.enabled:
+        _log_decision(session_factory, sequence_id, triggered_by, "skipped", "disabled")
         return "skipped"
 
     # A user may skip a single scheduled occurrence; only the matching cron fire
@@ -404,32 +457,38 @@ async def run_sequence_job(
         and _consume_skip(session_factory, sequence_id, datetime.now(UTC))
     ):
         logger.info("Skipped (%s): user skipped this scheduled run", sequence_id)
+        _log_decision(session_factory, sequence_id, triggered_by, "skipped", "user_skipped")
         return "skipped"
 
     with session_factory() as session:
         seq_override = session.get(SequenceOverride, sequence_id)
     if seq_override and seq_override.paused:
         logger.info("Skipped (%s): paused via override", sequence_id)
+        _log_decision(session_factory, sequence_id, triggered_by, "skipped", "paused")
         return "skipped"
 
     if not _master_on(session_factory):
         logger.info("Skipped (%s): master off", sequence_id)
+        _log_decision(session_factory, sequence_id, triggered_by, "skipped", "master_off")
         return "skipped"
 
     snapshot = read_sensor_snapshot(ha, config)
+    # Computed before the wind gate (it has no side effects) so a wind skip is
+    # logged with the factor inputs it would have used.
+    with session_factory() as session:
+        factors = compute_factors(snapshot, config, session)
 
     if seq_cfg.wind_blocks and snapshot.wind_on:
         logger.info("Skipped (%s): wind blocked", sequence_id)
+        _log_decision(session_factory, sequence_id, triggered_by, "skipped", "wind", factors)
         await push_notification(
             ha, config, t("skip.wind", config.language, label=seq_cfg.label), category="skip"
         )
         return "skipped"
 
-    with session_factory() as session:
-        factors = compute_factors(snapshot, config, session)
-
     if factors.season_off:
         logger.info("Skipped (%s): season off", sequence_id)
+        _log_decision(session_factory, sequence_id, triggered_by, "skipped", "season_off", factors)
         return "skipped"
 
     # A computed factor of 0 % (e.g. forecast rain at/above zero_above_mm) means
@@ -438,6 +497,7 @@ async def run_sequence_job(
     # goes through the API and is intentionally not subject to it.
     if round(factors.factor_pct) == 0:
         logger.info("Skipped (%s): watering factor is 0%%", sequence_id)
+        _log_decision(session_factory, sequence_id, triggered_by, "skipped", "zero_factor", factors)
         await push_notification(
             ha, config, t("skip.zero_factor", config.language, label=seq_cfg.label), category="skip"
         )
@@ -483,6 +543,7 @@ async def run_sequence_job(
         return "conflict"
 
     logger.info("Accepted '%s' via %s (factor=%d%%)", sequence_id, triggered_by, label_pct)
+    _log_decision(session_factory, sequence_id, triggered_by, "started", None, factors)
     return "started"
 
 
@@ -596,6 +657,7 @@ async def _retry_deferred_cron_runs(
         if row.expires_at <= now:
             logger.warning("Dropping expired deferred cron occurrence for '%s'", row.sequence_id)
             result = "expired"
+            _log_decision(session_factory, row.sequence_id, "cron", "skipped", "expired")
             # A scheduled run is being silently lost — tell the user, since safety
             # work (HA outage / valve cleanup at boot) blocked it past its TTL.
             seq_cfg = config.sequences.get(row.sequence_id)
