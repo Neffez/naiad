@@ -16,7 +16,7 @@ The published sensor entities (grouped under one "Naiad" device):
 * ``sensor.naiad_last_run_liters``  — liters of the most recent run
 * ``sensor.naiad_last_run_duration``— minutes of the most recent run
 * ``sensor.naiad_last_run``         — timestamp of the most recent run
-* ``sensor.naiad_rain_credit``      — recent actual-rain credit in mm
+* ``sensor.naiad_rain_credit``      — rain credit in mm (ET₀ soil balance in et0 mode)
 * ``sensor.naiad_rain_factor``      — current rain multiplier in percent
 * ``sensor.naiad_adjustment_factor``— current combined watering factor in percent
 
@@ -488,10 +488,14 @@ class StatsPublisher:
             self._publish(self._state_topic("last_run"), _isoformat(totals.last_ended_at))
         metrics = self._weather_metrics()
         if metrics is not None:
-            self._publish(
-                self._state_topic("rain_credit"),
-                _num(metrics.snapshot.actual_rain_credit_mm or 0.0),
-            )
+            # The credit the factor actually used (the soil balance in et0 mode,
+            # the decayed rain credit otherwise). On the factor's early-return
+            # paths (manual override, season off) it is None — fall back to the
+            # snapshot credit so the sensor doesn't drop to 0 spuriously.
+            credit = metrics.factors.rain_credit_mm
+            if credit is None:
+                credit = metrics.snapshot.actual_rain_credit_mm
+            self._publish(self._state_topic("rain_credit"), _num(credit or 0.0))
             self._publish(self._state_topic("rain_factor"), _num(metrics.factors.rain_factor_pct))
             self._publish(self._state_topic("adjustment_factor"), _num(metrics.factors.factor_pct))
 

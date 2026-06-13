@@ -525,7 +525,11 @@ function DecisionRow({ row, config }: { row: DecisionEntry; config: ConfigDoc | 
               {row.rain_mode != null && (
                 <DetailItem
                   label={t('history.rainMode')}
-                  value={row.rain_mode === 'water_balance' ? t('history.rainModeWaterBalance') : t('history.rainModeForecast')}
+                  value={
+                    row.rain_mode === 'water_balance' ? t('history.rainModeWaterBalance')
+                      : row.rain_mode === 'et0' ? t('history.rainModeEt0')
+                      : t('history.rainModeForecast')
+                  }
                 />
               )}
             </>

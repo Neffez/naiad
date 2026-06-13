@@ -34,10 +34,10 @@ _RAIN_OVERRIDE_FIELDS = tuple(db_attr for _, db_attr in RAIN_OVERRIDE_MAP)
 
 
 def _rain_mode(
-    value: str | None, default: Literal["forecast", "water_balance"]
-) -> Literal["forecast", "water_balance"]:
-    if value in ("forecast", "water_balance"):
-        return cast(Literal["forecast", "water_balance"], value)
+    value: str | None, default: Literal["forecast", "water_balance", "et0"]
+) -> Literal["forecast", "water_balance", "et0"]:
+    if value in ("forecast", "water_balance", "et0"):
+        return cast(Literal["forecast", "water_balance", "et0"], value)
     return default
 
 
@@ -45,19 +45,27 @@ def _rain_mode(
 # weak refs, so without this they could be garbage-collected mid-flight).
 _background_tasks: set[asyncio.Task[None]] = set()
 
-# Rain-override columns that feed the cached actual-rain credit. Changing any of
-# them warrants an immediate credit recompute instead of waiting for the next
-# hourly refresh.
-_CREDIT_FIELDS = ("mode", "water_balance_days", "water_balance_decay", "confirm_with_rain_sensor")
+# Rain-override columns that feed the cached actual-rain credit or the cached
+# ET₀ balance. Changing any of them warrants an immediate recompute instead of
+# waiting for the next hourly refresh.
+_CREDIT_FIELDS = (
+    "mode",
+    "water_balance_days",
+    "water_balance_decay",
+    "et0_reservoir_mm",
+    "confirm_with_rain_sensor",
+)
 
 
 def _schedule_rain_credit_refresh(request: Request | None, config: AppConfig) -> None:
-    """Recompute the cached actual-rain credit in the background (best-effort).
+    """Recompute the cached actual-rain credit and ET₀ balance in the background
+    (best-effort).
 
-    The credit is normally refreshed hourly; without this, a changed
-    water_balance_days/decay (or the rain-sensor gate) would keep acting on the
-    stale cached value for up to an hour. ``request`` is None in direct unit-test
-    invocations — then there is no app state (and no HA client) to refresh with.
+    Both are normally refreshed hourly; without this, a changed
+    water_balance_days/decay/reservoir (or the rain-sensor gate) would keep
+    acting on the stale cached value for up to an hour. ``request`` is None in
+    direct unit-test invocations — then there is no app state (and no HA client)
+    to refresh with.
     """
     if request is None:
         return
@@ -65,12 +73,13 @@ def _schedule_rain_credit_refresh(request: Request | None, config: AppConfig) ->
     session_factory = getattr(request.app.state, "session_factory", None)
     if ha is None or session_factory is None:
         return
-    from naiad.scheduler import refresh_recent_rain_credit
+    from naiad.scheduler import refresh_et0_balance, refresh_recent_rain_credit
 
-    task = asyncio.create_task(
-        refresh_recent_rain_credit(config, ha, session_factory),
-        name="settings-rain-credit-refresh",
-    )
+    async def _refresh() -> None:
+        await refresh_recent_rain_credit(config, ha, session_factory)
+        await refresh_et0_balance(config, ha, session_factory)
+
+    task = asyncio.create_task(_refresh(), name="settings-rain-credit-refresh")
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
 
@@ -101,6 +110,7 @@ def _read_settings(config: AppConfig, session: Session) -> AppSettingsResponse:
         forecast_decay=_r(fo.rain_forecast_decay if fo else None, rc.forecast_decay),
         water_balance_days=_r(fo.rain_water_balance_days if fo else None, rc.water_balance_days),
         water_balance_decay=_r(fo.rain_water_balance_decay if fo else None, rc.water_balance_decay),
+        et0_reservoir_mm=_r(fo.rain_et0_reservoir_mm if fo else None, rc.et0_reservoir_mm),
         peak_tomorrow=_r(fo.rain_peak_tomorrow if fo else None, rc.peak_tomorrow),
         confirm_with_rain_sensor=_r(
             fo.rain_confirm_with_sensor if fo else None, rc.confirm_with_rain_sensor
@@ -198,6 +208,8 @@ async def update_settings(
                 fo.rain_water_balance_days = r.water_balance_days
             if r.water_balance_decay is not None:
                 fo.rain_water_balance_decay = r.water_balance_decay
+            if r.et0_reservoir_mm is not None:
+                fo.rain_et0_reservoir_mm = r.et0_reservoir_mm
             if r.peak_tomorrow is not None:
                 fo.rain_peak_tomorrow = r.peak_tomorrow
             if r.confirm_with_rain_sensor is not None:

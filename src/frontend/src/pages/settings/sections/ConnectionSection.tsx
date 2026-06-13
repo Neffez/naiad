@@ -167,4 +167,5 @@ const SENSOR_FIELDS: { key: keyof ConfigDoc['sensors']; domain: string; fallback
   { key: 'precipitation_today', domain: 'sensor', fallback: 'Niederschlag heute', infoKey: 'precipitation_today' },
   { key: 'precipitation_tomorrow', domain: 'sensor', fallback: 'Niederschlag morgen', infoKey: 'precipitation_tomorrow' },
   { key: 'precipitation_actual', domain: 'sensor', fallback: 'Tatsächlicher Niederschlag', infoKey: 'precipitation_actual' },
+  { key: 'et0', domain: 'sensor', fallback: 'Verdunstung (ET₀)', infoKey: 'et0' },
 ]

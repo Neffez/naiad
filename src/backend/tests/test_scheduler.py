@@ -24,6 +24,7 @@ from naiad.scheduler import (
     _run_cron_sequence_job,
     flush_notification_queue,
     push_notification,
+    refresh_et0_balance,
     refresh_rain_confirmed_peak,
     refresh_rain_forecast_max,
     run_sequence_job,
@@ -70,6 +71,9 @@ class FakeHA:
         return None
 
     def get_rain_confirmed_peak(self, entity_id: str) -> float | None:
+        return None
+
+    def get_et0_balance(self) -> float | None:
         return None
 
     @property
@@ -355,6 +359,52 @@ async def test_refresh_rain_confirmed_peak_skips_without_rain_sensor(
     ha = _ConfirmRecordingHA()
     await refresh_rain_confirmed_peak(cfg, ha)  # type: ignore[arg-type]
     assert ha.calls == []
+
+
+class _Et0RecordingHA:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def refresh_et0_balance(self, **kwargs: Any) -> None:
+        self.calls.append(kwargs)
+
+
+async def test_refresh_et0_balance_skipped_outside_et0_mode(minimal_config: AppConfig) -> None:
+    """The extra recorder fetches only happen when the et0 mode is in use."""
+    ha = _Et0RecordingHA()
+    await refresh_et0_balance(minimal_config, ha)  # type: ignore[arg-type]
+    assert ha.calls == []
+
+
+async def test_refresh_et0_balance_builds_local_day_windows(minimal_config: AppConfig) -> None:
+    from zoneinfo import ZoneInfo
+
+    data = minimal_config.model_dump()
+    data["factors"]["rain"]["mode"] = "et0"
+    data["sensors"]["precipitation_actual"] = "sensor.actual_rain"
+    data["sensors"]["et0"] = "sensor.et0"
+    cfg = AppConfig.model_validate(data)
+
+    ha = _Et0RecordingHA()
+    await refresh_et0_balance(cfg, ha)  # type: ignore[arg-type]
+
+    assert len(ha.calls) == 1
+    call = ha.calls[0]
+    assert call["rain_entity"] == "sensor.actual_rain"
+    assert call["et0_entity"] == "sensor.et0"
+    assert call["temperature_entity"] == "sensor.temperature"
+    assert call["reservoir_mm"] == cfg.factors.rain.et0_reservoir_mm
+    # confirm_with_rain_sensor is off by default → no gating entity.
+    assert call["confirm_rain_entity"] is None
+
+    bounds = call["day_bounds"]
+    assert len(bounds) == cfg.factors.rain.water_balance_days
+    assert len(call["days_of_year"]) == len(bounds)
+    # Consecutive local-day windows; the last one is today's partial day.
+    for (_s1, e1), (s2, _e2) in zip(bounds, bounds[1:], strict=False):
+        assert e1 == s2
+    today = datetime.now(ZoneInfo(cfg.timezone)).date()
+    assert call["days_of_year"][-1] == today.timetuple().tm_yday
 
 
 def test_consume_skip_prunes_stale(engine) -> None:

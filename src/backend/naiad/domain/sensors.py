@@ -96,5 +96,8 @@ def read_sensor_snapshot(ha: HAClient, config: AppConfig) -> SensorSnapshot:
             if sensors.precipitation_actual
             else None
         ),
+        # Only the et0 rain mode refreshes this cache; outside that mode (or
+        # before the first refresh) it stays None and the factor ignores it.
+        et0_balance_mm=ha.get_et0_balance(),
         unavailable=unavailable,
     )

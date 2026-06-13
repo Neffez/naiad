@@ -47,7 +47,7 @@ class DecisionLog(SQLModel, table=True):
     rain_prob_today_pct: float | None = None
     rain_prob_tomorrow_pct: float | None = None
     rain_credit_mm: float | None = None
-    rain_mode: str | None = None  # forecast | water_balance
+    rain_mode: str | None = None  # forecast | water_balance | et0
     # True when factor_pct came from the manual adjustment override.
     manual_factor: bool = False
 
@@ -220,6 +220,7 @@ class FactorOverride(SQLModel, table=True):
     rain_forecast_decay: float | None = None
     rain_water_balance_days: int | None = None
     rain_water_balance_decay: float | None = None
+    rain_et0_reservoir_mm: float | None = None
     rain_peak_tomorrow: bool | None = None
     rain_confirm_with_sensor: bool | None = None
     # Manual adjustment override. When manual_mode is True the automatic

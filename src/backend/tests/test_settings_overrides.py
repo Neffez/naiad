@@ -201,6 +201,46 @@ async def test_rain_peak_tomorrow_round_trips(minimal_config: AppConfig) -> None
         assert fo.rain_peak_tomorrow is True
 
 
+# ── ET₀ rain mode override ────────────────────────────────────────────────────
+
+
+async def test_et0_mode_and_reservoir_round_trip(minimal_config: AppConfig) -> None:
+    """PATCHing the et0 mode and reservoir persists both and reads back merged."""
+    from naiad.api.schemas import (
+        FactorSettingsInput,
+        RainFactorSettingsInput,
+        UpdateSettingsRequest,
+    )
+    from naiad.api.settings import update_settings
+    from naiad.domain.models import FactorOverride
+
+    eng = _engine()
+    with Session(eng) as s:
+        body = UpdateSettingsRequest(
+            factors=FactorSettingsInput(
+                rain=RainFactorSettingsInput(mode="et0", et0_reservoir_mm=30.0)
+            )
+        )
+        result = await update_settings(body=body, _=None, config=minimal_config, session=s)
+    assert result.factors.rain.mode == "et0"
+    assert result.factors.rain.et0_reservoir_mm == pytest.approx(30.0)
+
+    with Session(eng) as s:
+        fo = s.get(FactorOverride, 1)
+        assert fo is not None
+        assert fo.rain_mode == "et0"
+        assert fo.rain_et0_reservoir_mm == pytest.approx(30.0)
+
+
+async def test_et0_reservoir_defaults_to_yaml(minimal_config: AppConfig) -> None:
+    from naiad.api.settings import get_settings
+
+    eng = _engine()
+    with Session(eng) as s:
+        result = await get_settings(_=None, config=minimal_config, session=s)
+    assert result.factors.rain.et0_reservoir_mm == pytest.approx(25.0)
+
+
 # ── Factor override reset ─────────────────────────────────────────────────────
 
 

@@ -167,6 +167,11 @@ class SensorsConfig(BaseModel):
     # the water-balance rain mode. Works with daily-reset or total-increasing mm
     # sensors as long as state changes are numeric.
     precipitation_actual: str = ""
+    # Optional daily reference evapotranspiration (ET₀) sensor in mm/day (e.g.
+    # from the HA "Smart Irrigation" integration). Used by the et0 rain mode;
+    # when empty, ET₀ is computed internally (Hargreaves) from the temperature
+    # sensor's daily min/max history and the Home Assistant home latitude.
+    et0: str = ""
 
 
 # ── Frost ─────────────────────────────────────────────────────────────────────
@@ -448,7 +453,7 @@ class TempFactorConfig(BaseModel):
 
 
 class RainFactorConfig(BaseModel):
-    mode: Literal["forecast", "water_balance"] = "forecast"
+    mode: Literal["forecast", "water_balance", "et0"] = "forecast"
     # Forecast window in days: 1 = today only, 2 = today + tomorrow. Only two
     # days of forecast sensors exist, so values above 2 behave like 2.
     forecast_days: int = Field(default=2, ge=1)
@@ -458,6 +463,10 @@ class RainFactorConfig(BaseModel):
     forecast_decay: float = Field(default=0.5, ge=0.0, le=1.0)
     water_balance_days: int = Field(default=4, ge=1, le=14)
     water_balance_decay: float = Field(default=0.65, ge=0.0, le=1.0)
+    # et0 mode: soil reservoir capacity in mm of plant-available water (field
+    # capacity of the root zone). Rain fills the ET₀ balance up to this cap;
+    # daily ET₀ drains it. Typical lawn on loam: 20-30 mm.
+    et0_reservoir_mm: float = Field(default=25.0, gt=0)
     # When True the rain factor also uses the day's *peak* forecast for tomorrow
     # (the highest value seen since local midnight), not just the latest reading —
     # mirroring how today is handled. Today always uses the peak; tomorrow's

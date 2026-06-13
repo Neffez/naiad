@@ -106,6 +106,75 @@ def test_water_balance_credit_can_skip_run(minimal_config: AppConfig, factor_eng
     assert result.factor_pct == pytest.approx(0.0)
 
 
+def test_et0_balance_ignored_in_forecast_mode(minimal_config: AppConfig) -> None:
+    result = compute_factors(_snap(et0_balance_mm=25.0), minimal_config)
+    assert result.rain_factor_pct == pytest.approx(100.0)
+    assert result.factor_pct == pytest.approx(100.0)
+
+
+def test_et0_balance_reduces_factor(minimal_config: AppConfig, factor_engine) -> None:
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_mode="et0"))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(_snap(et0_balance_mm=10.0), minimal_config, session)
+
+    # Same mapping as water-balance mode, fed by the soil balance instead.
+    assert result.rain_factor_pct == pytest.approx(100.0 * (1.0 - 5.0 / 15.0), rel=1e-3)
+    assert result.rain_credit_mm == pytest.approx(10.0)
+    assert result.rain_mode == "et0"
+
+
+def test_et0_balance_can_skip_run(minimal_config: AppConfig, factor_engine) -> None:
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_mode="et0"))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(_snap(et0_balance_mm=25.0), minimal_config, session)
+
+    assert result.rain_factor_pct == pytest.approx(0.0)
+    assert result.factor_pct == pytest.approx(0.0)
+
+
+def test_et0_mode_ignores_decayed_rain_credit(minimal_config: AppConfig, factor_engine) -> None:
+    """In et0 mode only the soil balance counts — the water-balance credit (and a
+    missing/never-computed balance) must not suppress watering."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_mode="et0"))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(
+            _snap(actual_rain_credit_mm=25.0, et0_balance_mm=None), minimal_config, session
+        )
+
+    assert result.rain_factor_pct == pytest.approx(100.0)
+    assert result.rain_credit_mm is None
+
+
+def test_et0_mode_forecast_still_applies(minimal_config: AppConfig, factor_engine) -> None:
+    """A dry soil balance does not override a heavy forecast — the larger of the
+    two suppresses, exactly as in water-balance mode."""
+    with Session(factor_engine) as session:
+        session.add(FactorOverride(id=1, rain_mode="et0"))
+        session.commit()
+
+    with Session(factor_engine) as session:
+        result = compute_factors(
+            _snap(
+                precipitation_prob_today=90.0,
+                precipitation_today_mm=25.0,
+                et0_balance_mm=0.0,
+            ),
+            minimal_config,
+            session,
+        )
+
+    assert result.rain_factor_pct == pytest.approx(0.0)
+
+
 def test_season_off_returns_zero_factor(minimal_config: AppConfig) -> None:
     result = compute_factors(_snap(season_on=False), minimal_config)
     assert result.season_off is True

@@ -153,7 +153,7 @@ liter statistics (measured instead of computed liters).
 
 ---
 
-## 6. The big innovation: a true ET₀ water balance
+## 6. The big innovation: a true ET₀ water balance — 🟡 stage 1 implemented 2026-06-13
 
 The water-balance mode is halfway there: it knows the rain *income*, but the
 *expenses* are only the linear temperature factor. A true balance computes
@@ -173,6 +173,26 @@ That is the level of Hydrawise/OpenSprinkler and would elevate Naiad from a
 **Important:** tackle this only after item 1 (decision log) — without an audit
 trail, a soil balance cannot be debugged (see the review experience with
 `peak_tomorrow`).
+
+Stage 1 implemented (2026-06-13) as a third rain mode `et0` next to `forecast`
+and `water_balance`: the water-balance factor mapping stays, but the decayed
+rain credit is replaced by a physical soil water balance. Per local day the
+balance gains the day's actual rain (positive deltas of
+`sensors.precipitation_actual`, optionally rain-sensor-gated) and loses the
+day's ET₀ — from an optional daily `sensors.et0` entity (e.g. Smart
+Irrigation), else computed internally via Hargreaves (FAO-56, validated against
+the FAO reference examples) from the temperature sensor's daily min/max and the
+HA home latitude (fetched automatically via `get_config`). The balance is
+clamped to a configurable soil reservoir (`et0_reservoir_mm`, field capacity of
+the root zone); days without any ET₀ data fall back to the
+`water_balance_decay` heuristic; today only adds rain (its evaporation has
+mostly not happened yet at decision time — the forecast side covers the day
+ahead). Refreshed hourly/on rain transitions/on settings changes like the rain
+credit; surfaced in the decision log (`rain_mode: et0`, `rain_credit_mm` =
+balance), the MQTT `rain_credit` sensor and the settings UI (mode toggle +
+reservoir). Stages 2 (per-zone reservoirs from soil type / root depth) and 3
+(runtime derived from the balance deficit instead of scaling the configured
+basis) remain open.
 
 ---
 

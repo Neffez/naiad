@@ -80,7 +80,7 @@ export default function WateringSection() {
         <FactorRow label={t('settings.rainMode')} info={t('settings.help.rainMode')}>
           <ButtonGroup
             label={t('settings.rainMode')}
-            options={(['forecast', 'water_balance'] as const).map((val) => ({
+            options={(['forecast', 'water_balance', 'et0'] as const).map((val) => ({
               value: val, active: rain.mode === val, label: t(`settings.rainMode_${val}`),
               onClick: () => mut.mutate({ factors: { rain: { mode: val } } }),
             }))}
@@ -115,6 +115,9 @@ export default function WateringSection() {
         </FactorRow>
         <FactorRow label={t('settings.waterBalanceDecay')} info={t('settings.help.waterBalanceDecay')}>
           <NumberField value={rain.water_balance_decay} width={60} step={0.05} aria-label={t('settings.waterBalanceDecay')} onChange={(v) => mut.mutate({ factors: { rain: { water_balance_decay: v } } })} />
+        </FactorRow>
+        <FactorRow label={t('settings.et0Reservoir')} info={t('settings.help.et0Reservoir')}>
+          <NumberField value={rain.et0_reservoir_mm} unit="mm" width={60} step={1} aria-label={t('settings.et0Reservoir')} onChange={(v) => mut.mutate({ factors: { rain: { et0_reservoir_mm: v } } })} />
         </FactorRow>
         <FactorRow label={t('settings.peakTomorrow')} info={t('settings.help.peakTomorrow')}>
           <ButtonGroup

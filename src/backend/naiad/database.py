@@ -85,6 +85,7 @@ def _add_missing_columns(engine: Engine) -> None:
             "rain_mode": "VARCHAR",
             "rain_water_balance_days": "INTEGER",
             "rain_water_balance_decay": "FLOAT",
+            "rain_et0_reservoir_mm": "FLOAT",
             "rain_peak_tomorrow": "BOOLEAN",
             "rain_confirm_with_sensor": "BOOLEAN",
         },
