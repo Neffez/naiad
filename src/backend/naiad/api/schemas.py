@@ -260,7 +260,7 @@ class DecisionEntryResponse(BaseModel):
     rain_prob_today_pct: float | None
     rain_prob_tomorrow_pct: float | None
     rain_credit_mm: float | None
-    rain_mode: str | None  # forecast | water_balance
+    rain_mode: str | None  # forecast | water_balance | et0
     manual_factor: bool
 
 
@@ -309,7 +309,7 @@ class TempFactorSettingsInput(BaseModel):
 
 
 class RainFactorSettingsInput(BaseModel):
-    mode: Literal["forecast", "water_balance"] | None = None
+    mode: Literal["forecast", "water_balance", "et0"] | None = None
     forecast_days: int | None = None
     threshold_prob: int | None = None
     reduce_above_mm: float | None = None
@@ -317,6 +317,7 @@ class RainFactorSettingsInput(BaseModel):
     forecast_decay: float | None = None
     water_balance_days: int | None = None
     water_balance_decay: float | None = None
+    et0_reservoir_mm: float | None = None
     peak_tomorrow: bool | None = None
     confirm_with_rain_sensor: bool | None = None
 
@@ -351,7 +352,7 @@ class TempFactorSettingsResponse(BaseModel):
 
 
 class RainFactorSettingsResponse(BaseModel):
-    mode: Literal["forecast", "water_balance"]
+    mode: Literal["forecast", "water_balance", "et0"]
     forecast_days: int
     threshold_prob: int
     reduce_above_mm: float
@@ -359,6 +360,7 @@ class RainFactorSettingsResponse(BaseModel):
     forecast_decay: float
     water_balance_days: int
     water_balance_decay: float
+    et0_reservoir_mm: float
     peak_tomorrow: bool
     confirm_with_rain_sensor: bool
 

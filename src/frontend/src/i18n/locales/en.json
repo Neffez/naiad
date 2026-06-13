@@ -114,6 +114,7 @@
     "rainMode": "Rain mode",
     "rainModeForecast": "Forecast",
     "rainModeWaterBalance": "Water balance",
+    "rainModeEt0": "ET₀ balance",
     "manualFactor": "Manual factor",
     "triggerSource": {
       "cron": "Schedule",
@@ -160,11 +161,13 @@
     "rainMode": "Rain mode",
     "rainMode_forecast": "Forecast",
     "rainMode_water_balance": "Water balance",
+    "rainMode_et0": "ET₀ balance",
     "forecastDays": "Forecast window",
     "forecastDays_today": "Today only",
     "forecastDays_both": "Today + tomorrow",
     "waterBalanceDays": "Balance window",
     "waterBalanceDecay": "Rain carryover",
+    "et0Reservoir": "Soil reservoir",
     "peakTomorrow": "Peak forecast",
     "peakTomorrow_today": "Today only",
     "peakTomorrow_both": "Today + tomorrow",
@@ -180,9 +183,10 @@
       "reduceAbove": "Forecast rainfall (mm) above which watering starts to be reduced.",
       "zeroAbove": "Forecast rainfall (mm) at or above which watering is skipped entirely.",
       "forecastDecay": "Weighting (0–1) of tomorrow's rain relative to today's. 1 = counts fully, 0 = ignored.",
-      "rainMode": "Forecast uses today/tomorrow prediction only. Water balance also uses recent actual rain from the configured actual precipitation sensor. Forecast and actual rain are not added together — the larger of the two counts.",
+      "rainMode": "Forecast uses today/tomorrow prediction only. Water balance also uses recent actual rain from the configured actual precipitation sensor. ET₀ balance refines the water balance: instead of a fixed daily carryover, recent rain is drained by the daily evapotranspiration (ET₀ sensor, or computed from temperature and latitude) and capped at the soil reservoir. In all modes the larger of forecast and retained rain counts.",
       "waterBalanceDays": "How many recent days of actual rain are retained as watering credit.",
-      "waterBalanceDecay": "Daily carryover for actual rain. 1 = rain keeps full weight, 0 = only the latest sample matters.",
+      "waterBalanceDecay": "Daily carryover for actual rain. 1 = rain keeps full weight, 0 = only the latest sample matters. In ET₀ mode this is only the fallback for days without ET₀ data.",
+      "et0Reservoir": "ET₀ balance mode: how much plant-available water the root zone can hold (field capacity, mm). Rain fills the balance up to this cap; daily ET₀ drains it. Typical lawn on loam: 20-30 mm.",
       "peakTomorrow": "Use the highest forecast value seen today for the rain adjustment instead of just the latest reading. Today is always treated this way; \"Today + tomorrow\" extends it to tomorrow's forecast too (more conservative, but more sensitive to fluctuating forecasts).",
       "confirmRainSensor": "When on, today's forecast peak only reduces watering up to the level that coincided with the rain sensor actually detecting rain. In water-balance mode it also counts actual-rain deltas only while the rain sensor was on. Use this when the precipitation source comes from a forecast integration.",
       "forecastDays": "Which forecast days reduce watering: today only, or today and tomorrow (tomorrow weighted by the forecast weighting)."
@@ -254,7 +258,8 @@
       "precipitation_prob_tomorrow": "Rain probability tomorrow",
       "precipitation_today": "Precipitation today",
       "precipitation_tomorrow": "Precipitation tomorrow",
-      "precipitation_actual": "Actual precipitation"
+      "precipitation_actual": "Actual precipitation",
+      "et0": "Evapotranspiration (ET₀)"
     },
     "sensorHelp": {
       "rain": "Required. Binary sensor detecting rain. When \"on\", a running watering is aborted immediately.",
@@ -266,7 +271,8 @@
       "precipitation_prob_tomorrow": "Optional. Rain probability tomorrow (0–100 %). Feeds into the rain factor.",
       "precipitation_today": "Optional. Expected precipitation today in mm. Together with the threshold determines the reduction.",
       "precipitation_tomorrow": "Optional. Expected precipitation tomorrow in mm. Weighted by the forecast decay factor.",
-      "precipitation_actual": "Optional. Actual precipitation amount in mm. In water-balance mode Naiad reads recent positive deltas from Home Assistant history and keeps them as rain credit. If this comes from a forecast integration, enable rain-sensor confirmation."
+      "precipitation_actual": "Optional. Actual precipitation amount in mm. In water-balance mode Naiad reads recent positive deltas from Home Assistant history and keeps them as rain credit. If this comes from a forecast integration, enable rain-sensor confirmation.",
+      "et0": "Optional. Daily reference evapotranspiration (ET₀) in mm/day, e.g. from the Smart Irrigation integration. Used by the ET₀ balance rain mode; when empty, Naiad computes ET₀ itself (Hargreaves) from the temperature history and the Home Assistant latitude."
     },
     "zones": "Zones",
     "addZone": "Add zone",

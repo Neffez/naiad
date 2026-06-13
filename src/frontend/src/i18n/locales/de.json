@@ -114,6 +114,7 @@
     "rainMode": "Regenmodus",
     "rainModeForecast": "Prognose",
     "rainModeWaterBalance": "Wasserbilanz",
+    "rainModeEt0": "ET₀-Bilanz",
     "manualFactor": "Manueller Faktor",
     "triggerSource": {
       "cron": "Zeitplan",
@@ -160,11 +161,13 @@
     "rainMode": "Regen-Modus",
     "rainMode_forecast": "Prognose",
     "rainMode_water_balance": "Wasserbilanz",
+    "rainMode_et0": "ET₀-Bilanz",
     "forecastDays": "Prognosefenster",
     "forecastDays_today": "Nur heute",
     "forecastDays_both": "Heute + morgen",
     "waterBalanceDays": "Bilanzfenster",
     "waterBalanceDecay": "Regen-Nachlauf",
+    "et0Reservoir": "Bodenspeicher",
     "peakTomorrow": "Höchstwert-Prognose",
     "peakTomorrow_today": "Nur heute",
     "peakTomorrow_both": "Heute + morgen",
@@ -180,9 +183,10 @@
       "reduceAbove": "Prognostizierte Regenmenge (mm), ab der die Bewässerung reduziert wird.",
       "zeroAbove": "Prognostizierte Regenmenge (mm), ab der die Bewässerung ganz entfällt.",
       "forecastDecay": "Gewichtung (0–1) des morgigen Regens gegenüber dem heutigen. 1 = zählt voll, 0 = wird ignoriert.",
-      "rainMode": "Prognose nutzt nur heute/morgen. Wasserbilanz nutzt zusätzlich kürzlich tatsächlich gefallenen Regen aus dem konfigurierten Niederschlagssensor. Prognose und tatsächlicher Regen werden nicht addiert — es zählt der größere der beiden Werte.",
+      "rainMode": "Prognose nutzt nur heute/morgen. Wasserbilanz nutzt zusätzlich kürzlich tatsächlich gefallenen Regen aus dem konfigurierten Niederschlagssensor. ET₀-Bilanz verfeinert die Wasserbilanz: Statt eines festen täglichen Nachlaufs wird der jüngste Regen durch die tägliche Verdunstung (ET₀-Sensor oder berechnet aus Temperatur und Breitengrad) abgebaut und auf den Bodenspeicher begrenzt. In allen Modi zählt der größere Wert aus Prognose und gespeichertem Regen.",
       "waterBalanceDays": "Wie viele zurückliegende Tage tatsächlicher Regen als Guthaben behalten wird.",
-      "waterBalanceDecay": "Täglicher Nachlauf für tatsächlichen Regen. 1 = Regen bleibt voll wirksam, 0 = nur der jüngste Wert zählt.",
+      "waterBalanceDecay": "Täglicher Nachlauf für tatsächlichen Regen. 1 = Regen bleibt voll wirksam, 0 = nur der jüngste Wert zählt. Im ET₀-Modus nur der Rückfall für Tage ohne ET₀-Daten.",
+      "et0Reservoir": "ET₀-Bilanz-Modus: Wie viel pflanzenverfügbares Wasser die Wurzelzone halten kann (Feldkapazität, mm). Regen füllt die Bilanz bis zu dieser Grenze; die tägliche ET₀ baut sie ab. Typischer Rasen auf Lehm: 20-30 mm.",
       "peakTomorrow": "Für die Regenanpassung den höchsten heute gesehenen Vorhersagewert verwenden statt nur den aktuellen. „Heute“ wird immer so behandelt; mit „Heute + morgen“ gilt das auch für die morgige Prognose (vorsichtiger, aber empfindlicher gegenüber schwankenden Vorhersagen).",
       "confirmRainSensor": "Wenn an, reduziert die heutige Höchstwert-Prognose die Bewässerung nur bis zu dem Wert, der mit tatsächlich vom Regensensor erkanntem Regen zusammenfiel. Im Wasserbilanz-Modus zählen auch Niederschlags-Deltas nur, während der Regensensor an war. Nutze das, wenn die Niederschlagsquelle aus einer Forecast-Integration kommt.",
       "forecastDays": "Welche Prognosetage die Bewässerung reduzieren: nur heute oder heute und morgen (morgen gewichtet über die Prognose-Gewichtung)."
@@ -254,7 +258,8 @@
       "precipitation_prob_tomorrow": "Regenwahrscheinlichkeit morgen",
       "precipitation_today": "Niederschlag heute",
       "precipitation_tomorrow": "Niederschlag morgen",
-      "precipitation_actual": "Tatsächlicher Niederschlag"
+      "precipitation_actual": "Tatsächlicher Niederschlag",
+      "et0": "Verdunstung (ET₀)"
     },
     "sensorHelp": {
       "rain": "Notwendig. Binärsensor, der Regen erkennt. Bei „an“ wird ein laufender Lauf sofort abgebrochen.",
@@ -266,7 +271,8 @@
       "precipitation_prob_tomorrow": "Optional. Regenwahrscheinlichkeit morgen (0–100 %). Fließt in den Regen-Faktor ein.",
       "precipitation_today": "Optional. Erwarteter Niederschlag heute in mm. Bestimmt zusammen mit der Schwelle die Reduktion.",
       "precipitation_tomorrow": "Optional. Erwarteter Niederschlag morgen in mm. Wird mit dem Prognose-Gewichtungsfaktor verrechnet.",
-      "precipitation_actual": "Optional. Tatsächliche Niederschlagsmenge in mm. Im Wasserbilanz-Modus liest Naiad positive Änderungen aus der Home-Assistant-Historie und behält sie als Regen-Guthaben. Wenn die Quelle aus einer Forecast-Integration kommt, aktiviere die Regensensor-Bestätigung."
+      "precipitation_actual": "Optional. Tatsächliche Niederschlagsmenge in mm. Im Wasserbilanz-Modus liest Naiad positive Änderungen aus der Home-Assistant-Historie und behält sie als Regen-Guthaben. Wenn die Quelle aus einer Forecast-Integration kommt, aktiviere die Regensensor-Bestätigung.",
+      "et0": "Optional. Tägliche Referenz-Verdunstung (ET₀) in mm/Tag, z. B. aus der Smart-Irrigation-Integration. Wird vom ET₀-Bilanz-Regenmodus genutzt; wenn leer, berechnet Naiad die ET₀ selbst (Hargreaves) aus der Temperatur-Historie und dem Breitengrad aus Home Assistant."
     },
     "zones": "Zonen",
     "addZone": "Zone hinzufügen",

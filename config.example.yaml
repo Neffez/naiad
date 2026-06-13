@@ -92,6 +92,11 @@ sensors:
   # comes from a forecast/weather integration rather than a physical rain gauge,
   # enable rain.confirm_with_rain_sensor so only rain confirmed by sensors.rain counts.
   # precipitation_actual: sensor.precipitation_actual
+  # Optional daily reference evapotranspiration (ET₀) in mm/day, e.g. from the
+  # HA "Smart Irrigation" integration. Used by rain.mode=et0; when unset, Naiad
+  # computes ET₀ internally (Hargreaves) from the temperature sensor's daily
+  # min/max history and the Home Assistant home latitude.
+  # et0: sensor.smart_irrigation_evapotranspiration
 
 # Optional frost lockout: while the forecast daily minimum temperature is below
 # the threshold, automatic runs (schedule, plans, MQTT) are skipped — protects
@@ -155,14 +160,18 @@ factors:
     min_pct: 80
     max_pct: 150
   rain:
-    mode: forecast            # forecast | water_balance
+    mode: forecast            # forecast | water_balance | et0
     forecast_days: 2
     threshold_prob: 70        # % — below this, rain factor = 1.0
     reduce_above_mm: 5.0      # mm — linear reduction starts here
     zero_above_mm: 20.0       # mm — factor = 0.0 at or above this
     forecast_decay: 0.5       # tomorrow's values multiplied by this
-    water_balance_days: 4     # water_balance: recent actual-rain window
+    water_balance_days: 4     # water_balance/et0: recent actual-rain window
     water_balance_decay: 0.65 # water_balance: daily carryover of actual rain
+                              # (et0: per-day fallback when no ET₀ data exists)
+    et0_reservoir_mm: 25.0    # et0: soil reservoir in mm of plant-available water
+                              # (field capacity of the root zone). Rain fills the
+                              # ET₀ balance up to this cap; daily ET₀ drains it.
     peak_tomorrow: false      # true = also use tomorrow's daily peak forecast,
                               # not just the latest reading (today always uses the peak)
     confirm_with_rain_sensor: false  # true = today's peak only counts up to the level

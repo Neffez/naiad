@@ -335,11 +335,11 @@ components:
         rain_tomorrow_mm:     { type: number, nullable: true }
         rain_prob_today_pct:  { type: number, nullable: true }
         rain_prob_tomorrow_pct: { type: number, nullable: true }
-        rain_credit_mm:  { type: number, nullable: true, description: "Recent actual-rain credit (water_balance mode)." }
+        rain_credit_mm:  { type: number, nullable: true, description: "The rain credit the factor used: the decayed actual-rain credit (water_balance mode) or the ET₀ soil balance (et0 mode)." }
         rain_mode:
           type: string
           nullable: true
-          enum: [forecast, water_balance, null]
+          enum: [forecast, water_balance, et0, null]
         manual_factor:   { type: boolean, description: "True when factor_pct came from the manual adjustment override." }
 
     PaginatedDecisions:
@@ -366,18 +366,19 @@ components:
 
     RainFactorSettings:
       type: object
-      required: [mode, forecast_days, threshold_prob, reduce_above_mm, zero_above_mm, forecast_decay, water_balance_days, water_balance_decay, peak_tomorrow, confirm_with_rain_sensor]
+      required: [mode, forecast_days, threshold_prob, reduce_above_mm, zero_above_mm, forecast_decay, water_balance_days, water_balance_decay, et0_reservoir_mm, peak_tomorrow, confirm_with_rain_sensor]
       properties:
         mode:
           type: string
-          enum: [forecast, water_balance]
+          enum: [forecast, water_balance, et0]
         forecast_days:     { type: integer, description: "Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2)." }
         threshold_prob:    { type: integer }
         reduce_above_mm:   { type: number }
         zero_above_mm:     { type: number }
         forecast_decay:    { type: number }
         water_balance_days: { type: integer, description: "Recent actual-rain history window for water_balance mode." }
-        water_balance_decay: { type: number, description: "Daily carryover for actual rain in water_balance mode." }
+        water_balance_decay: { type: number, description: "Daily carryover for actual rain in water_balance mode (and the per-day fallback in et0 mode when no ET₀ data is available)." }
+        et0_reservoir_mm: { type: number, description: "et0 mode: soil reservoir capacity in mm of plant-available water. Rain fills the ET₀ balance up to this cap; daily ET₀ drains it." }
         peak_tomorrow:     { type: boolean, description: "When true the rain factor also uses tomorrow's daily peak forecast, not just the latest reading. Today always uses the peak." }
         confirm_with_rain_sensor: { type: boolean, description: "When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain. In water_balance mode, actual-rain deltas also only count while the rain sensor was on." }
 
@@ -402,14 +403,15 @@ components:
       properties:
         mode:
           type: string
-          enum: [forecast, water_balance]
+          enum: [forecast, water_balance, et0]
         forecast_days:     { type: integer, description: "Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2)." }
         threshold_prob:    { type: integer }
         reduce_above_mm:   { type: number }
         zero_above_mm:     { type: number }
         forecast_decay:    { type: number }
         water_balance_days: { type: integer, description: "Recent actual-rain history window for water_balance mode." }
-        water_balance_decay: { type: number, description: "Daily carryover for actual rain in water_balance mode." }
+        water_balance_decay: { type: number, description: "Daily carryover for actual rain in water_balance mode (and the per-day fallback in et0 mode when no ET₀ data is available)." }
+        et0_reservoir_mm: { type: number, description: "et0 mode: soil reservoir capacity in mm of plant-available water. Rain fills the ET₀ balance up to this cap; daily ET₀ drains it." }
         peak_tomorrow:     { type: boolean, description: "When true the rain factor also uses tomorrow's daily peak forecast, not just the latest reading. Today always uses the peak." }
         confirm_with_rain_sensor: { type: boolean, description: "When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain. In water_balance mode, actual-rain deltas also only count while the rain sensor was on." }
 
@@ -601,7 +603,7 @@ components:
 
     SensorsConfig:
       type: object
-      required: [rain, wind, season, temperature, temperature_max, precipitation_prob_today, precipitation_prob_tomorrow, precipitation_today, precipitation_tomorrow, precipitation_actual]
+      required: [rain, wind, season, temperature, temperature_max, precipitation_prob_today, precipitation_prob_tomorrow, precipitation_today, precipitation_tomorrow, precipitation_actual, et0]
       properties:
         rain: { type: string }
         wind: { type: string }
@@ -613,6 +615,7 @@ components:
         precipitation_today: { type: string }
         precipitation_tomorrow: { type: string }
         precipitation_actual: { type: string }
+        et0: { type: string, description: "Optional daily reference evapotranspiration (ET₀) sensor in mm/day. Used by the et0 rain mode; when empty, ET₀ is computed internally (Hargreaves) from the temperature sensor's history and the HA latitude." }
 
     WindConfig:
       type: object
@@ -712,11 +715,11 @@ components:
 
     RainFactorConfig:
       type: object
-      required: [mode, forecast_days, threshold_prob, reduce_above_mm, zero_above_mm, forecast_decay, water_balance_days, water_balance_decay, peak_tomorrow, confirm_with_rain_sensor]
+      required: [mode, forecast_days, threshold_prob, reduce_above_mm, zero_above_mm, forecast_decay, water_balance_days, water_balance_decay, et0_reservoir_mm, peak_tomorrow, confirm_with_rain_sensor]
       properties:
         mode:
           type: string
-          enum: [forecast, water_balance]
+          enum: [forecast, water_balance, et0]
         forecast_days: { type: integer, minimum: 1, description: "Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2)." }
         threshold_prob: { type: integer, minimum: 0, maximum: 100 }
         reduce_above_mm: { type: number }
@@ -724,6 +727,7 @@ components:
         forecast_decay: { type: number, minimum: 0, maximum: 1 }
         water_balance_days: { type: integer, minimum: 1, maximum: 14 }
         water_balance_decay: { type: number, minimum: 0, maximum: 1 }
+        et0_reservoir_mm: { type: number, exclusiveMinimum: 0, description: "et0 mode: soil reservoir capacity in mm of plant-available water." }
         peak_tomorrow: { type: boolean }
         confirm_with_rain_sensor: { type: boolean }
 

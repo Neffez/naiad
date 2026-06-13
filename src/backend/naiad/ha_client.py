@@ -59,6 +59,12 @@ class HAClient:
         # (read_sensor_snapshot) confirm today's forecast peak against actual rain.
         self._rain_confirmed_peak_cache: dict[str, float | None] = {}
         self._recent_rain_credit_cache: dict[str, float | None] = {}
+        # Soil water balance for the et0 rain mode (one global value, mm). None =
+        # never computed; refreshed out-of-band like the rain credit.
+        self._et0_balance_mm: float | None = None
+        # The HA home latitude (from the server's get_config), needed for the
+        # internal Hargreaves ET₀ calculation. Refreshed on every (re)connect.
+        self._latitude: float | None = None
         self._state_callbacks: list[StateCallback] = []
         self._connected = asyncio.Event()
         self._loop_task: asyncio.Task[None] | None = None
@@ -164,6 +170,9 @@ class HAClient:
 
                 # Load full state cache in background (best-effort)
                 self._spawn(self._load_state_cache(ws), name="ha-state-cache")
+                # Cache the HA home latitude for the internal ET₀ calculation
+                # (best-effort; et0 mode falls back to its decay heuristic).
+                self._spawn(self._load_ha_latitude(ws), name="ha-latitude")
 
                 await msg_task  # runs until connection drops
             finally:
@@ -189,6 +198,19 @@ class HAClient:
         except Exception:
             logger.warning(
                 "Could not bulk-load state cache — states will populate incrementally from events",
+                exc_info=True,
+            )
+
+    async def _load_ha_latitude(self, ws: ClientConnection) -> None:
+        """Best-effort fetch of the HA home latitude (server ``get_config``)."""
+        try:
+            result: dict[str, Any] = await self._send_command(ws, {"type": "get_config"})
+            latitude = (result or {}).get("latitude")
+            self._latitude = float(latitude) if latitude is not None else None
+            logger.info("HA home latitude: %s", self._latitude)
+        except Exception:
+            logger.warning(
+                "Could not fetch HA latitude — internal ET₀ calculation unavailable",
                 exc_info=True,
             )
 
@@ -443,6 +465,145 @@ class HAClient:
                 break
             state = raw
         return state
+
+    @property
+    def latitude(self) -> float | None:
+        """The HA home latitude, or None until fetched (see ``_load_ha_latitude``)."""
+        return self._latitude
+
+    def get_et0_balance(self) -> float | None:
+        """Soil water balance in mm for the et0 rain mode (see ``refresh_et0_balance``)."""
+        return self._et0_balance_mm
+
+    @staticmethod
+    def _daily_rain_mm(
+        samples: list[tuple[float, str]],
+        day_bounds: list[tuple[float, float]],
+        gate_samples: list[tuple[float, str]] | None,
+    ) -> list[float]:
+        """Rain per local day from a cumulative/daily-reset precipitation sensor.
+
+        Positive deltas count as rain (negative ones are resets, like
+        ``refresh_recent_rain_credit``); each delta is attributed to the day
+        containing its sample timestamp. The last window is closed on the right
+        so the appended live reading (timestamped exactly at the window end)
+        still counts toward today. When ``gate_samples`` is given, deltas only
+        count while that binary rain sensor was on.
+        """
+        rain = [0.0] * len(day_bounds)
+        for (_prev_ts, prev_raw), (cur_ts, cur_raw) in zip(samples, samples[1:], strict=False):
+            try:
+                delta = float(cur_raw) - float(prev_raw)
+            except (TypeError, ValueError):
+                continue
+            if delta <= 0:
+                continue
+            if gate_samples is not None and HAClient._state_at(gate_samples, cur_ts, "off") != "on":
+                continue
+            for idx, (start, end) in enumerate(day_bounds):
+                last = idx == len(day_bounds) - 1
+                if start <= cur_ts and (cur_ts < end or (last and cur_ts <= end)):
+                    rain[idx] += delta
+                    break
+        return rain
+
+    @staticmethod
+    def _daily_numeric(
+        samples: list[tuple[float, str]], day_bounds: list[tuple[float, float]]
+    ) -> list[list[float]]:
+        """Numeric sample values bucketed per day (non-numeric states skipped)."""
+        values: list[list[float]] = [[] for _ in day_bounds]
+        for ts, raw in samples:
+            try:
+                val = float(raw)
+            except (TypeError, ValueError):
+                continue
+            for idx, (start, end) in enumerate(day_bounds):
+                if start <= ts < end:
+                    values[idx].append(val)
+                    break
+        return values
+
+    async def refresh_et0_balance(
+        self,
+        *,
+        day_bounds: list[tuple[datetime, datetime]],
+        days_of_year: list[int],
+        rain_entity: str | None,
+        temperature_entity: str | None,
+        et0_entity: str | None,
+        reservoir_mm: float,
+        fallback_decay: float,
+        confirm_rain_entity: str | None = None,
+    ) -> None:
+        """Refresh the soil water balance for the et0 rain mode.
+
+        ``day_bounds`` are UTC ``[start, end)`` windows of consecutive *local*
+        days, oldest first; the last entry is today up to now. Per full day the
+        balance gains the day's actual rain (positive sensor deltas, optionally
+        gated on ``confirm_rain_entity``) and loses the day's ET₀: the value of
+        ``et0_entity`` (its daily maximum) when configured, else the internal
+        Hargreaves calculation from the temperature sensor's daily min/max and
+        the HA latitude. A day with neither falls back to the multiplicative
+        ``fallback_decay`` (the water-balance heuristic). Today only adds rain —
+        its evaporation has mostly not happened yet at decision time, and the
+        forecast side of the factor covers the day ahead. Best-effort: a failed
+        refresh leaves the previous cached balance untouched.
+        """
+        from naiad.domain.et0 import (
+            BalanceDay,
+            extraterrestrial_radiation_mm,
+            hargreaves_et0_mm,
+            soil_balance_mm,
+        )
+
+        if not day_bounds:
+            return
+        try:
+            start, end = day_bounds[0][0], day_bounds[-1][1]
+            bounds_epoch = [(s.timestamp(), e.timestamp()) for s, e in day_bounds]
+
+            rain_samples: list[tuple[float, str]] = []
+            if rain_entity:
+                rain_samples = await self.fetch_history(rain_entity, start, end)
+                current = self.get_state_value(rain_entity)
+                if current is not None:
+                    rain_samples.append((end.timestamp(), str(current)))
+                    rain_samples.sort(key=lambda s: s[0])
+            gate_samples = (
+                await self.fetch_history(confirm_rain_entity, start, end)
+                if confirm_rain_entity
+                else None
+            )
+            et0_samples = await self.fetch_history(et0_entity, start, end) if et0_entity else []
+            temp_samples = (
+                await self.fetch_history(temperature_entity, start, end)
+                if temperature_entity and not et0_entity
+                else []
+            )
+
+            daily_rain = self._daily_rain_mm(rain_samples, bounds_epoch, gate_samples)
+            daily_et0_values = self._daily_numeric(et0_samples, bounds_epoch)
+            daily_temps = self._daily_numeric(temp_samples, bounds_epoch)
+
+            days: list[BalanceDay] = []
+            last = len(bounds_epoch) - 1
+            for idx in range(len(bounds_epoch)):
+                if idx == last:
+                    et0_mm: float | None = 0.0
+                elif daily_et0_values[idx]:
+                    et0_mm = max(daily_et0_values[idx])
+                elif daily_temps[idx] and self._latitude is not None:
+                    ra_mm = extraterrestrial_radiation_mm(self._latitude, days_of_year[idx])
+                    et0_mm = hargreaves_et0_mm(min(daily_temps[idx]), max(daily_temps[idx]), ra_mm)
+                else:
+                    et0_mm = None
+                days.append(BalanceDay(rain_mm=daily_rain[idx], et0_mm=et0_mm))
+
+            self._et0_balance_mm = round(soil_balance_mm(days, reservoir_mm, fallback_decay), 2)
+            logger.debug("Refreshed ET₀ balance: %s mm", self._et0_balance_mm)
+        except Exception:
+            logger.warning("Could not refresh ET₀ balance", exc_info=True)
 
     async def refresh_rain_confirmed_peak(
         self, forecast_entities: list[str], rain_entity: str, start: datetime, end: datetime

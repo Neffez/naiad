@@ -373,6 +373,7 @@ async def refresh_rain_forecast_max(
             await ha.refresh_daily_max(entity_id, start_utc, now_utc)
     await refresh_rain_confirmed_peak(config, ha)
     await refresh_recent_rain_credit(config, ha, session_factory)
+    await refresh_et0_balance(config, ha, session_factory)
 
 
 async def refresh_recent_rain_credit(
@@ -399,6 +400,47 @@ async def refresh_recent_rain_credit(
         now.astimezone(UTC),
         rain_cfg.water_balance_decay,
         config.sensors.rain if rain_cfg.confirm_with_rain_sensor else None,
+    )
+
+
+async def refresh_et0_balance(
+    config: AppConfig, ha: HAClient, session_factory: SessionFactory | None = None
+) -> None:
+    """Refresh the ET₀ soil water balance used by the et0 rain mode.
+
+    Builds the local-day windows (the ``water_balance_days`` most recent days,
+    today's partial day last) and delegates the history math to
+    ``HAClient.refresh_et0_balance``. A no-op unless the effective rain mode is
+    ``et0`` so the extra recorder fetches only happen when the mode is in use.
+    """
+    rain_cfg = config.factors.rain
+    if session_factory is not None:
+        with session_factory() as session:
+            _temp_cfg, rain_cfg = merge_factor_config(config, session.get(FactorOverride, 1))
+    if rain_cfg.mode != "et0":
+        return
+    tz = ZoneInfo(config.timezone)
+    now = datetime.now(tz)
+    day_bounds: list[tuple[datetime, datetime]] = []
+    days_of_year: list[int] = []
+    for offset in range(rain_cfg.water_balance_days - 1, 0, -1):
+        day = now.date() - timedelta(days=offset)
+        start = datetime.combine(day, time.min, tzinfo=tz)
+        end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=tz)
+        day_bounds.append((start.astimezone(UTC), end.astimezone(UTC)))
+        days_of_year.append(day.timetuple().tm_yday)
+    today_start = datetime.combine(now.date(), time.min, tzinfo=tz)
+    day_bounds.append((today_start.astimezone(UTC), now.astimezone(UTC)))
+    days_of_year.append(now.date().timetuple().tm_yday)
+    await ha.refresh_et0_balance(
+        day_bounds=day_bounds,
+        days_of_year=days_of_year,
+        rain_entity=config.sensors.precipitation_actual or None,
+        temperature_entity=config.sensors.temperature or None,
+        et0_entity=config.sensors.et0 or None,
+        reservoir_mm=rain_cfg.et0_reservoir_mm,
+        fallback_decay=rain_cfg.water_balance_decay,
+        confirm_rain_entity=(config.sensors.rain if rain_cfg.confirm_with_rain_sensor else None),
     )
 
 
@@ -1154,6 +1196,7 @@ def setup_scheduler(
         if entity_id == config.sensors.rain:
             await refresh_rain_confirmed_peak(config, ha)
             await refresh_recent_rain_credit(config, ha, session_factory)
+            await refresh_et0_balance(config, ha, session_factory)
             if on_weather_metrics_refreshed is not None:
                 result = on_weather_metrics_refreshed()
                 if result is not None:

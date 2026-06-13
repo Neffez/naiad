@@ -811,10 +811,10 @@ export interface components {
             rain_tomorrow_mm: number | null;
             rain_prob_today_pct: number | null;
             rain_prob_tomorrow_pct: number | null;
-            /** @description Recent actual-rain credit (water_balance mode). */
+            /** @description The rain credit the factor used: the decayed actual-rain credit (water_balance mode) or the ET₀ soil balance (et0 mode). */
             rain_credit_mm: number | null;
             /** @enum {string|null} */
-            rain_mode: "forecast" | "water_balance" | null;
+            rain_mode: "forecast" | "water_balance" | "et0" | null;
             /** @description True when factor_pct came from the manual adjustment override. */
             manual_factor: boolean;
         };
@@ -832,7 +832,7 @@ export interface components {
         };
         RainFactorSettings: {
             /** @enum {string} */
-            mode: "forecast" | "water_balance";
+            mode: "forecast" | "water_balance" | "et0";
             /** @description Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2). */
             forecast_days: number;
             threshold_prob: number;
@@ -841,8 +841,10 @@ export interface components {
             forecast_decay: number;
             /** @description Recent actual-rain history window for water_balance mode. */
             water_balance_days: number;
-            /** @description Daily carryover for actual rain in water_balance mode. */
+            /** @description Daily carryover for actual rain in water_balance mode (and the per-day fallback in et0 mode when no ET₀ data is available). */
             water_balance_decay: number;
+            /** @description et0 mode: soil reservoir capacity in mm of plant-available water. Rain fills the ET₀ balance up to this cap; daily ET₀ drains it. */
+            et0_reservoir_mm: number;
             /** @description When true the rain factor also uses tomorrow's daily peak forecast, not just the latest reading. Today always uses the peak. */
             peak_tomorrow: boolean;
             /** @description When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain. In water_balance mode, actual-rain deltas also only count while the rain sensor was on. */
@@ -861,7 +863,7 @@ export interface components {
         };
         RainFactorSettingsUpdate: {
             /** @enum {string} */
-            mode?: "forecast" | "water_balance";
+            mode?: "forecast" | "water_balance" | "et0";
             /** @description Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2). */
             forecast_days?: number;
             threshold_prob?: number;
@@ -870,8 +872,10 @@ export interface components {
             forecast_decay?: number;
             /** @description Recent actual-rain history window for water_balance mode. */
             water_balance_days?: number;
-            /** @description Daily carryover for actual rain in water_balance mode. */
+            /** @description Daily carryover for actual rain in water_balance mode (and the per-day fallback in et0 mode when no ET₀ data is available). */
             water_balance_decay?: number;
+            /** @description et0 mode: soil reservoir capacity in mm of plant-available water. Rain fills the ET₀ balance up to this cap; daily ET₀ drains it. */
+            et0_reservoir_mm?: number;
             /** @description When true the rain factor also uses tomorrow's daily peak forecast, not just the latest reading. Today always uses the peak. */
             peak_tomorrow?: boolean;
             /** @description When true today's forecast peak only applies up to the level that coincided with the binary rain sensor actually detecting rain. In water_balance mode, actual-rain deltas also only count while the rain sensor was on. */
@@ -1004,6 +1008,8 @@ export interface components {
             precipitation_today: string;
             precipitation_tomorrow: string;
             precipitation_actual: string;
+            /** @description Optional daily reference evapotranspiration (ET₀) sensor in mm/day. Used by the et0 rain mode; when empty, ET₀ is computed internally (Hargreaves) from the temperature sensor's history and the HA latitude. */
+            et0: string;
         };
         WindConfig: {
             /** @description Minutes the wind alarm must be sustained before a running wind-blocked sequence is aborted. The effective delay per run is min(abort_after_min, 10% of the run's planned duration); the alarm clearing earlier cancels the abort. 0 aborts immediately. */
@@ -1057,7 +1063,7 @@ export interface components {
         };
         RainFactorConfig: {
             /** @enum {string} */
-            mode: "forecast" | "water_balance";
+            mode: "forecast" | "water_balance" | "et0";
             /** @description Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2). */
             forecast_days: number;
             threshold_prob: number;
@@ -1066,6 +1072,8 @@ export interface components {
             forecast_decay: number;
             water_balance_days: number;
             water_balance_decay: number;
+            /** @description et0 mode: soil reservoir capacity in mm of plant-available water. */
+            et0_reservoir_mm: number;
             peak_tomorrow: boolean;
             confirm_with_rain_sensor: boolean;
         };

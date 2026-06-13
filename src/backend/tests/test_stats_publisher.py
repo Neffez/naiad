@@ -59,6 +59,9 @@ class FakeHA:
     def get_recent_rain_credit(self, entity_id: str) -> float | None:
         return 10.0 if entity_id == "sensor.actual_rain" else None
 
+    def get_et0_balance(self) -> float | None:
+        return None
+
 
 def _add_run(
     engine,

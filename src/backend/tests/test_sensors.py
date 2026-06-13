@@ -22,6 +22,9 @@ class FakeHA:
     def get_rain_confirmed_peak(self, entity_id: str) -> float | None:
         return self._confirmed_peak.get(entity_id)
 
+    def get_et0_balance(self) -> float | None:
+        return None
+
 
 def _base_states() -> dict[str, str]:
     return {

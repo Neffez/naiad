@@ -52,6 +52,11 @@ class SensorSnapshot:
     # from HA recorder history by the scheduler/HA client so factor calculation
     # stays synchronous at cron fire time.
     actual_rain_credit_mm: float | None = None
+    # Plant-available water left from recent rain after daily ET₀ losses, used by
+    # the et0 rain mode instead of the decayed rain credit. Precomputed like the
+    # rain credit (see ``HAClient.refresh_et0_balance``). None = not computed
+    # (mode off, or HA history unavailable) — the et0 mode then applies no credit.
+    et0_balance_mm: float | None = None
     unavailable: list[str] = field(default_factory=list)
 
 
@@ -213,6 +218,7 @@ RAIN_OVERRIDE_MAP: tuple[tuple[str, str], ...] = (
     ("forecast_decay", "rain_forecast_decay"),
     ("water_balance_days", "rain_water_balance_days"),
     ("water_balance_decay", "rain_water_balance_decay"),
+    ("et0_reservoir_mm", "rain_et0_reservoir_mm"),
     ("peak_tomorrow", "rain_peak_tomorrow"),
     ("confirm_with_rain_sensor", "rain_confirm_with_sensor"),
 )
@@ -299,13 +305,20 @@ def compute_factors(
         eff_rain.confirm_with_rain_sensor,
         eff_rain.forecast_days,
     )
-    if eff_rain.mode == "water_balance":
+    # et0 mode is the water-balance factor with a physically derived credit: the
+    # soil balance (rain − daily ET₀, clamped to the reservoir) replaces the
+    # heuristically decayed rain credit. The forecast handling is identical.
+    if eff_rain.mode == "et0":
+        credit_mm = snapshot.et0_balance_mm
+    else:
+        credit_mm = snapshot.actual_rain_credit_mm
+    if eff_rain.mode in ("water_balance", "et0"):
         rain_factor, rain_prob, rain_mm = _compute_water_balance_rain_factor(
             prob_today,
             prob_tomorrow,
             mm_today,
             mm_tomorrow,
-            snapshot.actual_rain_credit_mm or 0.0,
+            credit_mm or 0.0,
             eff_rain,
         )
     else:
@@ -343,6 +356,6 @@ def compute_factors(
         rain_tomorrow_mm=round(mm_tomorrow, 1),
         rain_prob_today_pct=round(prob_today, 1),
         rain_prob_tomorrow_pct=round(prob_tomorrow, 1),
-        rain_credit_mm=snapshot.actual_rain_credit_mm,
+        rain_credit_mm=credit_mm,
         rain_mode=eff_rain.mode,
     )

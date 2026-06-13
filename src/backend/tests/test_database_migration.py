@@ -83,3 +83,19 @@ def test_adds_rain_peak_tomorrow_to_legacy_factor_overrides() -> None:
     assert "rain_peak_tomorrow" not in _columns(engine, "factor_overrides")
     _add_missing_columns(engine)
     assert "rain_peak_tomorrow" in _columns(engine, "factor_overrides")
+
+
+def test_adds_et0_reservoir_to_legacy_factor_overrides() -> None:
+    """A factor_overrides table created before the et0 rain mode gains the column."""
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE factor_overrides ("
+                "id INTEGER PRIMARY KEY, rain_forecast_decay FLOAT, updated_at DATETIME)"
+            )
+        )
+
+    assert "rain_et0_reservoir_mm" not in _columns(engine, "factor_overrides")
+    _add_missing_columns(engine)
+    assert "rain_et0_reservoir_mm" in _columns(engine, "factor_overrides")
