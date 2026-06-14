@@ -153,7 +153,7 @@ liter statistics (measured instead of computed liters).
 
 ---
 
-## 6. The big innovation: a true ET₀ water balance — 🟡 stages 1–2 implemented 2026-06-14
+## 6. The big innovation: a true ET₀ water balance — ✅ stages 1–3 implemented 2026-06-14
 
 The water-balance mode is halfway there: it knows the rain *income*, but the
 *expenses* are only the linear temperature factor. A true balance computes
@@ -209,9 +209,21 @@ MQTT `rain_credit` sensor and the settings UI (mode toggle + per-zone soil
 panel). Soil parameters are optional with neutral defaults, so existing
 installations are unaffected until they opt in.
 
-Stage 3 (per-zone *runtime* derived from each zone's balance deficit, rather
-than scaling the configured basis by one sequence-level factor — which requires
-reworking the runner's per-sequence duration model) remains open.
+Stage 3 implemented (2026-06-14): in `et0_zonal` mode each zone now runs only
+long enough to refill *its own* balance deficit, instead of all zones sharing
+one factor-scaled duration. The runtime is `deficit_mm / application_rate`,
+where the application rate is `flow_lph / area_m2` (1 L/m² = 1 mm), clamped to
+the sequence's configured min/max range. This is confined to the normal start
+and pause/resume path in `SequenceRunner._run_zones`; the safety-critical
+override paths (standalone single-zone runs and crash recovery, which carry an
+explicit duration) are untouched, and a zone without a usable application rate
+falls back to the factor-scaled duration. The sequence-level skip gate still
+uses the aggregate (driest-zone) factor, so a sequence whose driest zone is
+already saturated is skipped wholesale as before.
+
+Possible future refinement: skip an individual *saturated* zone within a
+sequence (today its runtime is clamped up to the range minimum rather than to
+zero), which would need per-zone skipping in the runner's zone loop.
 
 ---
 

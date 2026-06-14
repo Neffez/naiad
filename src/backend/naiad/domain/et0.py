@@ -129,3 +129,29 @@ def reservoir_from_soil(soil_type: str, root_depth_mm: float, depletion_fraction
     total_available = awf * max(0.0, root_depth_mm)
     usable = total_available * max(0.0, min(1.0, depletion_fraction))
     return max(1.0, usable)
+
+
+def application_rate_mm_per_min(flow_lph: float, area_m2: float) -> float | None:
+    """A zone's sprinkler application (precipitation) rate in mm/min.
+
+    ``flow_lph / area_m2`` is the rate in mm/h (1 L/m² = 1 mm), divided by 60 for
+    mm/min. Returns None when either input is non-positive — the runtime cannot
+    then be derived from a water depth and the caller keeps the factor duration.
+    """
+    if flow_lph <= 0 or area_m2 <= 0:
+        return None
+    return flow_lph / area_m2 / 60.0
+
+
+def deficit_runtime_min(reservoir_mm: float, balance_mm: float, rate_mm_per_min: float) -> float:
+    """Minutes of watering to refill the soil reservoir to field capacity.
+
+    The deficit ``reservoir_mm − balance_mm`` (never negative) is the water depth
+    to replace; dividing by the zone's application rate gives the runtime. A
+    non-positive rate yields 0 (the caller falls back to the factor duration).
+    The caller clamps the result to the sequence's configured min/max range.
+    """
+    if rate_mm_per_min <= 0:
+        return 0.0
+    deficit = max(0.0, reservoir_mm - balance_mm)
+    return deficit / rate_mm_per_min

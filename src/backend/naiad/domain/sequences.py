@@ -665,6 +665,37 @@ class SequenceRunner:
 
         return basis, watchdog
 
+    def _zonal_durations(self, seq: SequenceConfig) -> dict[str, float] | None:
+        """Per-zone deficit-based runtimes for the et0_zonal rain mode (stage 3).
+
+        Returns minutes per zone needed to refill its persisted soil-water
+        deficit at the zone's application rate (``flow_lph``/``area_m2``), clamped
+        to the sequence's configured min/max range. None unless the effective rain
+        mode is ``et0_zonal``; zones without a usable application rate or a
+        computed balance are omitted, so they fall back to the factor duration.
+        """
+        from naiad.domain.et0 import application_rate_mm_per_min, deficit_runtime_min
+        from naiad.domain.factors import merge_factor_config
+        from naiad.domain.models import FactorOverride, ZoneWaterBalance
+
+        with self._session_factory() as session:
+            _temp_cfg, rain_cfg = merge_factor_config(self._config, session.get(FactorOverride, 1))
+            if rain_cfg.mode != "et0_zonal":
+                return None
+            lo, hi = seq.range
+            durations: dict[str, float] = {}
+            for zone_id in seq.zones:
+                zone_cfg = self._config.zones.get(zone_id)
+                row = session.get(ZoneWaterBalance, zone_id)
+                if zone_cfg is None or row is None:
+                    continue
+                rate = application_rate_mm_per_min(zone_cfg.flow_lph, zone_cfg.area_m2)
+                if rate is None:
+                    continue
+                runtime = deficit_runtime_min(row.reservoir_mm, row.balance_mm, rate)
+                durations[zone_id] = max(float(lo), min(float(hi), runtime))
+        return durations or None
+
     async def _safe_turn_off(
         self, zone_cfg: Any, zone_id: str | None = None, attempts: int = 3, backoff_s: float = 1.0
     ) -> bool:
@@ -986,6 +1017,12 @@ class SequenceRunner:
         triggered_by = run.triggered_by
         effective_basis, effective_watchdog = self._effective_seq_params(seq, sequence_id)
 
+        # Per-zone durations for the et0_zonal mode (stage 3): each zone runs only
+        # long enough to refill its own soil deficit. None for every other path —
+        # then the single factor-scaled duration applies to all zones. Skipped on
+        # the override path (standalone zone runs and crash recovery, which carry
+        # an explicit duration), so those safety-critical flows are unchanged.
+        zonal_durations: dict[str, float] | None = None
         if override_min is not None:
             duration_min = override_min
             # An explicit per-zone duration is intentional: keep the watchdog a
@@ -997,6 +1034,7 @@ class SequenceRunner:
             lo, hi = seq.range
             basis = effective_basis * factor_pct / 100.0
             duration_min = max(float(lo), min(float(hi), basis))
+            zonal_durations = self._zonal_durations(seq)
 
         announced = False
         for i, zone_id in enumerate(seq.zones):
@@ -1004,10 +1042,13 @@ class SequenceRunner:
                 continue
 
             zone_cfg = self._config.zones[zone_id]
+            # The factor-scaled duration is the default; in et0_zonal mode a zone
+            # with a known application rate uses its own deficit-based runtime.
+            planned = duration_min
+            if zonal_durations is not None and zone_id in zonal_durations:
+                planned = zonal_durations[zone_id]
             zone_duration = (
-                start_remaining
-                if (i == start_index and start_remaining is not None)
-                else duration_min
+                start_remaining if (i == start_index and start_remaining is not None) else planned
             )
             start_remaining = None  # only applies to first resumed zone
 
