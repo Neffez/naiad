@@ -2,6 +2,8 @@ import pytest
 
 from naiad.domain.et0 import (
     BalanceDay,
+    application_rate_mm_per_min,
+    deficit_runtime_min,
     extraterrestrial_radiation_mm,
     hargreaves_et0_mm,
     reservoir_from_soil,
@@ -110,3 +112,32 @@ def test_reservoir_unknown_soil_falls_back_to_loam() -> None:
 def test_reservoir_has_positive_floor() -> None:
     """A degenerate config never yields a zero-capacity reservoir."""
     assert reservoir_from_soil("sand", 0.0, 0.5) == pytest.approx(1.0)
+
+
+# ── Deficit-based runtime (stage 3) ─────────────────────────────────────────
+
+
+def test_application_rate_mm_per_min() -> None:
+    """600 L/h over 40 m² = 15 mm/h = 0.25 mm/min."""
+    assert application_rate_mm_per_min(600.0, 40.0) == pytest.approx(0.25)
+
+
+def test_application_rate_none_without_flow_or_area() -> None:
+    assert application_rate_mm_per_min(0.0, 40.0) is None
+    assert application_rate_mm_per_min(600.0, 0.0) is None
+
+
+def test_deficit_runtime_refills_to_field_capacity() -> None:
+    """A 5 mm deficit at 0.25 mm/min needs 20 minutes."""
+    assert deficit_runtime_min(
+        reservoir_mm=25.0, balance_mm=20.0, rate_mm_per_min=0.25
+    ) == pytest.approx(20.0)
+
+
+def test_deficit_runtime_zero_when_saturated() -> None:
+    """A zone already at or above field capacity needs no watering."""
+    assert deficit_runtime_min(reservoir_mm=25.0, balance_mm=30.0, rate_mm_per_min=0.25) == 0.0
+
+
+def test_deficit_runtime_zero_rate_is_zero() -> None:
+    assert deficit_runtime_min(reservoir_mm=25.0, balance_mm=0.0, rate_mm_per_min=0.0) == 0.0
