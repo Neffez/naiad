@@ -499,6 +499,20 @@ def test_refresh_et0_zonal_balance_no_zones_is_noop() -> None:
     assert client.get_et0_zonal_aggregate() is None
 
 
+def test_get_et0_zonal_aggregate_scopes_to_given_zones() -> None:
+    """A sequence's aggregate is the driest of ITS zones, not the global driest —
+    an unrelated dry zone must not leak into another sequence's credit."""
+    client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+    client._zone_balance_mm = {"lawn": 24.0, "bed": 0.5, "hedge": 18.0}
+    # Whole-install indicator: the driest zone anywhere.
+    assert client.get_et0_zonal_aggregate() == pytest.approx(0.5)
+    # Per-sequence: only the lawn sequence's zones — the dry bed is excluded.
+    assert client.get_et0_zonal_aggregate(["lawn", "hedge"]) == pytest.approx(18.0)
+    # Unknown zones are skipped; no known zone → None.
+    assert client.get_et0_zonal_aggregate(["lawn"]) == pytest.approx(24.0)
+    assert client.get_et0_zonal_aggregate(["ghost"]) is None
+
+
 def test_max_forecast_during_rain_correlates_peak_timing() -> None:
     """The confirmed peak is the forecast value while rain was on, not the day's max.
 

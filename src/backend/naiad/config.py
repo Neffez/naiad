@@ -289,11 +289,13 @@ class ZoneConfig(BaseModel):
             raise ValueError("staircase_min must be > 0 when staircase_enabled is true")
         return self
 
-    def et0_reservoir_mm(self) -> float:
+    def soil_reservoir_mm(self) -> float:
         """Plant-available soil reservoir (mm) for the et0_zonal balance.
 
         Uses the explicit ``reservoir_mm`` override when set (> 0), otherwise
-        derives it from soil type, root depth and the allowed depletion.
+        derives it from soil type, root depth and the allowed depletion. Named
+        distinctly from ``RainFactorConfig.et0_reservoir_mm`` (the global et0
+        reservoir field) to avoid confusing the two at call sites.
         """
         from naiad.domain.et0 import reservoir_from_soil
 

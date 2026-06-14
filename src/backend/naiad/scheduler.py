@@ -459,32 +459,34 @@ def _et0_day_windows(
     return day_bounds, days_of_year
 
 
-def _daily_irrigation_mm(
+def _daily_irrigation_by_zone(
     session: Session,
-    zone_id: str,
-    area_m2: float,
+    area_by_zone: dict[str, float],
     day_bounds: list[tuple[datetime, datetime]],
-) -> list[float]:
-    """Water applied by Naiad to one zone per day, in mm (reconstructed history).
+) -> dict[str, list[float]]:
+    """Water Naiad applied per zone per day, in mm (reconstructed from history).
 
-    Sums the logged liters of completed ``RunHistory`` rows whose ``ended_at``
-    falls in each day window and converts to mm via the zone area (1 L/m² =
-    1 mm). Zero everywhere when the zone has no area configured (no feedback) or
-    no tracked liters — the balance then runs on rain and ET₀ alone.
+    One query over all tracked zones: sums the logged liters of completed
+    ``RunHistory`` rows whose ``ended_at`` falls in each day window and converts
+    to mm via the zone area (1 L/m² = 1 mm). Manual single-zone runs count too —
+    they write ``RunHistory`` with the same ``zone_id`` — so on-demand watering
+    refills the zone's balance like a scheduled run. Zones with no tracked liters
+    stay at zero (the balance then runs on rain and ET₀ alone).
     """
-    out = [0.0] * len(day_bounds)
-    if area_m2 <= 0 or not day_bounds:
+    out = {zone_id: [0.0] * len(day_bounds) for zone_id in area_by_zone}
+    if not area_by_zone or not day_bounds:
         return out
     window_start = day_bounds[0][0].replace(tzinfo=None)
     rows = session.exec(
         select(RunHistory).where(
-            RunHistory.zone_id == zone_id,
+            col(RunHistory.zone_id).in_(list(area_by_zone)),
             col(RunHistory.ended_at).is_not(None),
             col(RunHistory.ended_at) >= window_start,
         )
     ).all()
     for row in rows:
-        if row.ended_at is None or row.liters is None:
+        area = area_by_zone.get(row.zone_id)
+        if row.ended_at is None or row.liters is None or not area:
             continue
         # ended_at is stored as naive UTC (SQLite round-trips naive values), so
         # pin it to UTC before comparing against the tz-aware day windows —
@@ -495,7 +497,7 @@ def _daily_irrigation_mm(
             if start.timestamp() <= ended and (
                 ended < end.timestamp() or (last and ended <= end.timestamp())
             ):
-                out[idx] += row.liters / area_m2
+                out[row.zone_id][idx] += row.liters / area
                 break
     return out
 
@@ -523,20 +525,24 @@ async def refresh_et0_zonal_balance(
         return
     day_bounds, days_of_year = _et0_day_windows(config, rain_cfg.water_balance_days)
 
-    zones: list[ZoneBalanceInput] = []
-    for zone_id, zone_cfg in config.zones.items():
-        irrigation = [0.0] * len(day_bounds)
-        if session_factory is not None and zone_cfg.area_m2 > 0:
-            with session_factory() as session:
-                irrigation = _daily_irrigation_mm(session, zone_id, zone_cfg.area_m2, day_bounds)
-        zones.append(
-            ZoneBalanceInput(
-                zone_id=zone_id,
-                reservoir_mm=zone_cfg.et0_reservoir_mm(),
-                crop_coefficient=zone_cfg.crop_coefficient,
-                irrigation_mm=irrigation,
-            )
+    # Reconstruct every tracked zone's recent irrigation in a single query
+    # (only zones with an area can convert liters into mm).
+    irrigation_by_zone: dict[str, list[float]] = {}
+    area_by_zone = {zid: z.area_m2 for zid, z in config.zones.items() if z.area_m2 > 0}
+    if session_factory is not None and area_by_zone:
+        with session_factory() as session:
+            irrigation_by_zone = _daily_irrigation_by_zone(session, area_by_zone, day_bounds)
+
+    empty = [0.0] * len(day_bounds)
+    zones: list[ZoneBalanceInput] = [
+        ZoneBalanceInput(
+            zone_id=zone_id,
+            reservoir_mm=zone_cfg.soil_reservoir_mm(),
+            crop_coefficient=zone_cfg.crop_coefficient,
+            irrigation_mm=irrigation_by_zone.get(zone_id, empty),
         )
+        for zone_id, zone_cfg in config.zones.items()
+    ]
 
     await ha.refresh_et0_zonal_balance(
         day_bounds=day_bounds,
@@ -640,7 +646,9 @@ async def run_sequence_job(
         _log_decision(session_factory, sequence_id, triggered_by, "skipped", "master_off")
         return "skipped"
 
-    snapshot = read_sensor_snapshot(ha, config)
+    # Scope the et0_zonal credit to this sequence's own zones so an unrelated dry
+    # zone elsewhere can't keep this sequence from skipping when its zones are wet.
+    snapshot = read_sensor_snapshot(ha, config, seq_cfg.zones)
     # Computed before the wind gate (it has no side effects) so a wind skip is
     # logged with the factor inputs it would have used.
     with session_factory() as session:

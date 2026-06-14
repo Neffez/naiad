@@ -485,13 +485,20 @@ class HAClient:
         """The et0_zonal soil balance (mm) for one zone, or None until computed."""
         return self._zone_balance_mm.get(zone_id)
 
-    def get_et0_zonal_aggregate(self) -> float | None:
-        """Sequence-level credit (mm) for the et0_zonal mode: the most-depleted
-        zone's balance, so the driest zone drives the adjustment. None until
-        computed."""
-        if not self._zone_balance_mm:
-            return None
-        return min(self._zone_balance_mm.values())
+    def get_et0_zonal_aggregate(self, zone_ids: list[str] | None = None) -> float | None:
+        """Aggregate et0_zonal credit (mm): the most-depleted zone's balance, so
+        the driest zone drives the adjustment.
+
+        ``zone_ids`` restricts the aggregate to a single sequence's zones (the
+        correct scope for that sequence's skip gate); None aggregates over every
+        zone (a whole-install indicator for status/MQTT). Returns None until any
+        of the requested zones has a computed balance.
+        """
+        if zone_ids is None:
+            values = list(self._zone_balance_mm.values())
+        else:
+            values = [self._zone_balance_mm[z] for z in zone_ids if z in self._zone_balance_mm]
+        return min(values) if values else None
 
     @staticmethod
     def _daily_rain_mm(
