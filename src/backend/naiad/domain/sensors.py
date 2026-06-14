@@ -3,7 +3,15 @@ from naiad.domain.factors import SensorSnapshot
 from naiad.ha_client import HAClient
 
 
-def read_sensor_snapshot(ha: HAClient, config: AppConfig) -> SensorSnapshot:
+def read_sensor_snapshot(
+    ha: HAClient, config: AppConfig, zone_ids: list[str] | None = None
+) -> SensorSnapshot:
+    """Read the current sensor snapshot for the factor calculation.
+
+    ``zone_ids`` scopes the et0_zonal credit to one sequence's zones (its driest
+    zone drives that sequence's skip gate); None aggregates over every zone (the
+    whole-install indicator used by status/MQTT displays).
+    """
     sensors = config.sensors
     unavailable: list[str] = []
 
@@ -99,8 +107,9 @@ def read_sensor_snapshot(ha: HAClient, config: AppConfig) -> SensorSnapshot:
         # Only the et0 rain mode refreshes this cache; outside that mode (or
         # before the first refresh) it stays None and the factor ignores it.
         et0_balance_mm=ha.get_et0_balance(),
-        # The et0_zonal credit: the most-depleted zone's balance. Only the
-        # et0_zonal mode refreshes it; None otherwise (factor ignores it).
-        et0_zonal_balance_mm=ha.get_et0_zonal_aggregate(),
+        # The et0_zonal credit: the driest zone's balance within ``zone_ids``
+        # (the sequence's zones), or every zone when None. Only the et0_zonal
+        # mode refreshes it; None otherwise (factor ignores it).
+        et0_zonal_balance_mm=ha.get_et0_zonal_aggregate(zone_ids),
         unavailable=unavailable,
     )

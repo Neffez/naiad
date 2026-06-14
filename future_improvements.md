@@ -202,8 +202,10 @@ ETc = Kc·ET₀), and the zone's **own irrigation** becomes an income term:
 completed `RunHistory` liters are converted to applied mm via the zone
 `area_m2` (1 L/m² = 1 mm) and fill the balance alongside rain. The factor keeps
 using one sequence-level credit (the factor path is not yet per-zone — that is
-stage 3): the most-depleted zone's balance drives the adjustment, so the driest
-zone is never under-watered. Refreshed on the same hourly/rain-transition/
+stage 3): the most-depleted zone *of that sequence* drives the adjustment
+(`read_sensor_snapshot` is scoped to the sequence's zones), so the driest zone
+is never under-watered and an unrelated dry zone elsewhere cannot keep a wet
+sequence from skipping. Refreshed on the same hourly/rain-transition/
 settings cadence; surfaced in the decision log (`rain_mode: et0_zonal`), the
 MQTT `rain_credit` sensor and the settings UI (mode toggle + per-zone soil
 panel). Soil parameters are optional with neutral defaults, so existing

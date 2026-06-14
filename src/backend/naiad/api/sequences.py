@@ -197,7 +197,8 @@ async def get_sequence(
 ) -> SequenceStateResponse:
     if sequence_id not in config.sequences:
         raise HTTPException(404, f"Sequence '{sequence_id}' not found")
-    factors = compute_factors(read_sensor_snapshot(ha, config), config, session)
+    snapshot = read_sensor_snapshot(ha, config, config.sequences[sequence_id].zones)
+    factors = compute_factors(snapshot, config, session)
     return _build_state(sequence_id, runner, session, config, ha, scheduler, factors)
 
 
@@ -244,7 +245,7 @@ async def start_sequence(
     if not read_master_on(session):
         raise _reject(422, "Master switch is off")
 
-    snapshot = read_sensor_snapshot(ha, config)
+    snapshot = read_sensor_snapshot(ha, config, seq_cfg.zones)
     if seq_cfg.wind_blocks and snapshot.wind_on:
         raise _reject(422, "Wind sensor active — sequence is wind-blocked")
 

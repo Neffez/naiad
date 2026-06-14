@@ -673,14 +673,22 @@ class SequenceRunner:
         to the sequence's configured min/max range. None unless the effective rain
         mode is ``et0_zonal``; zones without a usable application rate or a
         computed balance are omitted, so they fall back to the factor duration.
+
+        A manual factor override also returns None: it is a deliberate "water at
+        X%" instruction that scales the basis duration, and it must win over the
+        automatic per-zone deficit runtime (otherwise the override is silently
+        dropped for every zone with an application rate).
         """
         from naiad.domain.et0 import application_rate_mm_per_min, deficit_runtime_min
         from naiad.domain.factors import merge_factor_config
         from naiad.domain.models import FactorOverride, ZoneWaterBalance
 
         with self._session_factory() as session:
-            _temp_cfg, rain_cfg = merge_factor_config(self._config, session.get(FactorOverride, 1))
+            override = session.get(FactorOverride, 1)
+            _temp_cfg, rain_cfg = merge_factor_config(self._config, override)
             if rain_cfg.mode != "et0_zonal":
+                return None
+            if override is not None and override.manual_mode and override.manual_pct is not None:
                 return None
             lo, hi = seq.range
             durations: dict[str, float] = {}

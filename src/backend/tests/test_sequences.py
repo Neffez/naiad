@@ -1367,3 +1367,20 @@ def test_zonal_durations_none_outside_mode(minimal_config: AppConfig, driver, en
     config = AppConfig.model_validate(data)
     runner = SequenceRunner(config, driver, lambda: Session(engine))
     assert runner._zonal_durations(config.sequences["seq_1"]) is None
+
+
+def test_zonal_durations_skipped_under_manual_override(
+    minimal_config: AppConfig, driver, engine
+) -> None:
+    """A manual factor override must win: zonal per-zone runtimes are dropped so
+    the manual-scaled basis duration applies instead."""
+    from naiad.domain.models import FactorOverride
+
+    config = _zonal_config(minimal_config)
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    with Session(engine) as session:
+        session.add(ZoneWaterBalance(zone_id="zone_a", balance_mm=20.0, reservoir_mm=25.0))
+        session.add(FactorOverride(id=1, manual_mode=True, manual_pct=120))
+        session.commit()
+
+    assert runner._zonal_durations(config.sequences["seq_1"]) is None
