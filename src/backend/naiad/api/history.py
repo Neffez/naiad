@@ -14,7 +14,7 @@ from naiad.api.schemas import (
 from naiad.config import AppConfig
 from naiad.database import get_session
 from naiad.dependencies import get_config, require_auth
-from naiad.domain.models import DecisionLog, RunHistory
+from naiad.domain.models import DecisionLog, RunHistory, ZoneWaterBalance
 from naiad.domain.sequences import zone_id_of_run
 from naiad.timeutil import local_date_to_utc, local_day_start_utc, now_utc_naive
 
@@ -187,6 +187,13 @@ async def delete_history(
 
     result = session.exec(statement)
     session.exec(decisions)
+    # A full clear removes the runs the et0_zonal balance was reconstructed from,
+    # so drop the cached per-zone balances too — they would otherwise overstate
+    # each zone's deficit until the next refresh rebuilds them from now-empty
+    # irrigation history. A partial prune (older_than_days) leaves the recent
+    # window that feeds the balance intact, so it is left alone.
+    if older_than_days is None:
+        session.exec(delete(ZoneWaterBalance))
     session.commit()
     return DeleteHistoryResponse(deleted=result.rowcount)
 

@@ -10,6 +10,8 @@ import websockets
 import websockets.exceptions
 from websockets.asyncio.client import ClientConnection
 
+from naiad.domain.et0 import day_index
+
 if TYPE_CHECKING:
     from naiad.domain.et0 import ZoneBalanceInput
 
@@ -525,11 +527,9 @@ class HAClient:
                 continue
             if gate_samples is not None and HAClient._state_at(gate_samples, cur_ts, "off") != "on":
                 continue
-            for idx, (start, end) in enumerate(day_bounds):
-                last = idx == len(day_bounds) - 1
-                if start <= cur_ts and (cur_ts < end or (last and cur_ts <= end)):
-                    rain[idx] += delta
-                    break
+            idx = day_index(cur_ts, day_bounds)
+            if idx is not None:
+                rain[idx] += delta
         return rain
 
     @staticmethod

@@ -3,12 +3,26 @@ import pytest
 from naiad.domain.et0 import (
     BalanceDay,
     application_rate_mm_per_min,
+    day_index,
     deficit_runtime_min,
     extraterrestrial_radiation_mm,
     hargreaves_et0_mm,
     reservoir_from_soil,
     soil_balance_mm,
 )
+
+
+def test_day_index_buckets_and_closes_last_window_on_right() -> None:
+    bounds = [(0.0, 10.0), (10.0, 20.0), (20.0, 30.0)]
+    assert day_index(5.0, bounds) == 0
+    assert day_index(10.0, bounds) == 1  # interior boundary → later window
+    assert day_index(29.9, bounds) == 2
+    # Exactly at the final window end still counts (live reading at "now").
+    assert day_index(30.0, bounds) == 2
+    # Outside every window.
+    assert day_index(-1.0, bounds) is None
+    assert day_index(40.0, bounds) is None
+
 
 # 1 MJ m⁻² day⁻¹ ≈ 0.408 mm/day (FAO-56 eq. 20), used to compare against the
 # FAO reference values which are stated in MJ.
