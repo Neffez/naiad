@@ -64,22 +64,68 @@ class BalanceDay:
     # history): the balance falls back to the multiplicative decay heuristic of
     # water-balance mode for that day instead of subtracting nothing.
     et0_mm: float | None
+    # Water applied by Naiad's own irrigation on this day, in mm (liters / zone
+    # area). Fills the reservoir exactly like rain. Only the per-zone et0_zonal
+    # mode supplies this; for the global et0 mode it stays 0.
+    irrigation_mm: float = 0.0
 
 
 def soil_balance_mm(days: list[BalanceDay], reservoir_mm: float, fallback_decay: float) -> float:
     """Plant-available water (mm) left from recent rain after ET₀ losses.
 
-    Day-by-day running balance, oldest day first: rain fills the reservoir
-    (surplus beyond ``reservoir_mm`` — field capacity — runs off) and ET₀ drains
-    it (never below 0). The window starts empty, so the result is a *recent
-    rain* credit, conservative in the same direction as water-balance mode's
-    decayed credit; it plugs into the same factor mapping.
+    Day-by-day running balance, oldest day first: rain (and any irrigation)
+    fills the reservoir (surplus beyond ``reservoir_mm`` — field capacity — runs
+    off) and ET₀ drains it (never below 0). The window starts empty, so the
+    result is a *recent water* credit, conservative in the same direction as
+    water-balance mode's decayed credit; it plugs into the same factor mapping.
     """
     balance = 0.0
     for day in days:
-        balance = min(reservoir_mm, balance + max(0.0, day.rain_mm))
+        income = max(0.0, day.rain_mm) + max(0.0, day.irrigation_mm)
+        balance = min(reservoir_mm, balance + income)
         if day.et0_mm is not None:
             balance = max(0.0, balance - day.et0_mm)
         else:
             balance *= fallback_decay
     return balance
+
+
+# Plant-available water capacity per soil type, in mm of water per mm of root
+# depth (i.e. dimensionless: (field capacity − wilting point) volumetric water
+# content). Standard agronomic mid-range values (FAO-56 table 19): sandy soils
+# hold little, clays hold the most.
+_AVAILABLE_WATER_FRACTION: dict[str, float] = {
+    "sand": 0.10,
+    "loam": 0.15,
+    "clay": 0.18,
+}
+
+
+@dataclass
+class ZoneBalanceInput:
+    """Per-zone inputs to the et0_zonal balance refresh.
+
+    ``irrigation_mm`` is aligned to the same day windows as the global rain/ET₀
+    history (oldest first); ``crop_coefficient`` scales reference ET₀ into the
+    zone's actual ETc; ``reservoir_mm`` is the zone's field-capacity cap.
+    """
+
+    zone_id: str
+    reservoir_mm: float
+    crop_coefficient: float
+    irrigation_mm: list[float]
+
+
+def reservoir_from_soil(soil_type: str, root_depth_mm: float, depletion_fraction: float) -> float:
+    """Plant-available soil reservoir (mm) the et0_zonal mode drains and refills.
+
+    The total available water in the root zone is ``AWF[soil] × root_depth_mm``;
+    only the management-allowed depletion (``depletion_fraction``, the fraction
+    that may be used before stress) is treated as the usable reservoir. Unknown
+    soil types fall back to loam. The result is clamped to a small positive
+    floor so a degenerate config never yields a zero-capacity reservoir.
+    """
+    awf = _AVAILABLE_WATER_FRACTION.get(soil_type, _AVAILABLE_WATER_FRACTION["loam"])
+    total_available = awf * max(0.0, root_depth_mm)
+    usable = total_available * max(0.0, min(1.0, depletion_fraction))
+    return max(1.0, usable)

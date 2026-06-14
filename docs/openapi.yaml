@@ -339,7 +339,7 @@ components:
         rain_mode:
           type: string
           nullable: true
-          enum: [forecast, water_balance, et0, null]
+          enum: [forecast, water_balance, et0, et0_zonal, null]
         manual_factor:   { type: boolean, description: "True when factor_pct came from the manual adjustment override." }
 
     PaginatedDecisions:
@@ -370,7 +370,7 @@ components:
       properties:
         mode:
           type: string
-          enum: [forecast, water_balance, et0]
+          enum: [forecast, water_balance, et0, et0_zonal]
         forecast_days:     { type: integer, description: "Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2)." }
         threshold_prob:    { type: integer }
         reduce_above_mm:   { type: number }
@@ -403,7 +403,7 @@ components:
       properties:
         mode:
           type: string
-          enum: [forecast, water_balance, et0]
+          enum: [forecast, water_balance, et0, et0_zonal]
         forecast_days:     { type: integer, description: "Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2)." }
         threshold_prob:    { type: integer }
         reduce_above_mm:   { type: number }
@@ -670,6 +670,12 @@ components:
         flow_lph: { type: number, minimum: 0, description: "Liters per hour, used to derive recorded liters from run duration. 0 = no liter tracking for this zone." }
         staircase_enabled: { type: boolean }
         staircase_min: { type: number }
+        soil_type: { type: string, enum: [sand, loam, clay], description: "et0_zonal mode: soil type, sets the plant-available water capacity used to derive the reservoir." }
+        root_depth_mm: { type: number, exclusiveMinimum: 0, description: "et0_zonal mode: root-zone depth in mm; with soil type and depletion it derives the reservoir." }
+        depletion_fraction: { type: number, minimum: 0.1, maximum: 0.9, description: "et0_zonal mode: fraction of available water usable before stress (management-allowed depletion)." }
+        crop_coefficient: { type: number, exclusiveMinimum: 0, description: "et0_zonal mode: crop coefficient Kc scaling reference ET₀ into the zone's actual ETc." }
+        area_m2: { type: number, minimum: 0, description: "et0_zonal mode: zone area in m², converting logged liters into applied mm (1 L/m² = 1 mm). 0 disables irrigation feedback." }
+        reservoir_mm: { type: number, minimum: 0, description: "et0_zonal mode: explicit soil reservoir in mm; when > 0 it overrides the soil-type/root-depth derivation." }
 
     SequenceColorKey:
       type: string
@@ -719,7 +725,7 @@ components:
       properties:
         mode:
           type: string
-          enum: [forecast, water_balance, et0]
+          enum: [forecast, water_balance, et0, et0_zonal]
         forecast_days: { type: integer, minimum: 1, description: "Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2)." }
         threshold_prob: { type: integer, minimum: 0, maximum: 100 }
         reduce_above_mm: { type: number }

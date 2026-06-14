@@ -34,10 +34,10 @@ _RAIN_OVERRIDE_FIELDS = tuple(db_attr for _, db_attr in RAIN_OVERRIDE_MAP)
 
 
 def _rain_mode(
-    value: str | None, default: Literal["forecast", "water_balance", "et0"]
-) -> Literal["forecast", "water_balance", "et0"]:
-    if value in ("forecast", "water_balance", "et0"):
-        return cast(Literal["forecast", "water_balance", "et0"], value)
+    value: str | None, default: Literal["forecast", "water_balance", "et0", "et0_zonal"]
+) -> Literal["forecast", "water_balance", "et0", "et0_zonal"]:
+    if value in ("forecast", "water_balance", "et0", "et0_zonal"):
+        return cast(Literal["forecast", "water_balance", "et0", "et0_zonal"], value)
     return default
 
 
@@ -73,11 +73,16 @@ def _schedule_rain_credit_refresh(request: Request | None, config: AppConfig) ->
     session_factory = getattr(request.app.state, "session_factory", None)
     if ha is None or session_factory is None:
         return
-    from naiad.scheduler import refresh_et0_balance, refresh_recent_rain_credit
+    from naiad.scheduler import (
+        refresh_et0_balance,
+        refresh_et0_zonal_balance,
+        refresh_recent_rain_credit,
+    )
 
     async def _refresh() -> None:
         await refresh_recent_rain_credit(config, ha, session_factory)
         await refresh_et0_balance(config, ha, session_factory)
+        await refresh_et0_zonal_balance(config, ha, session_factory)
 
     task = asyncio.create_task(_refresh(), name="settings-rain-credit-refresh")
     _background_tasks.add(task)

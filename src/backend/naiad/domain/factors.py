@@ -57,6 +57,10 @@ class SensorSnapshot:
     # rain credit (see ``HAClient.refresh_et0_balance``). None = not computed
     # (mode off, or HA history unavailable) — the et0 mode then applies no credit.
     et0_balance_mm: float | None = None
+    # Sequence-level credit for the et0_zonal mode: the most-depleted zone's soil
+    # balance (see ``HAClient.get_et0_zonal_aggregate``). None = not computed
+    # (mode off, no zones, or HA history unavailable) — the mode applies no credit.
+    et0_zonal_balance_mm: float | None = None
     unavailable: list[str] = field(default_factory=list)
 
 
@@ -305,14 +309,17 @@ def compute_factors(
         eff_rain.confirm_with_rain_sensor,
         eff_rain.forecast_days,
     )
-    # et0 mode is the water-balance factor with a physically derived credit: the
-    # soil balance (rain − daily ET₀, clamped to the reservoir) replaces the
-    # heuristically decayed rain credit. The forecast handling is identical.
+    # et0 / et0_zonal modes are the water-balance factor with a physically
+    # derived credit: the soil balance (rain − daily ET₀, clamped to the
+    # reservoir) replaces the heuristically decayed rain credit. et0_zonal uses
+    # the most-depleted zone's balance. The forecast handling is identical.
     if eff_rain.mode == "et0":
         credit_mm = snapshot.et0_balance_mm
+    elif eff_rain.mode == "et0_zonal":
+        credit_mm = snapshot.et0_zonal_balance_mm
     else:
         credit_mm = snapshot.actual_rain_credit_mm
-    if eff_rain.mode in ("water_balance", "et0"):
+    if eff_rain.mode in ("water_balance", "et0", "et0_zonal"):
         rain_factor, rain_prob, rain_mm = _compute_water_balance_rain_factor(
             prob_today,
             prob_tomorrow,

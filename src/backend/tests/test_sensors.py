@@ -25,6 +25,9 @@ class FakeHA:
     def get_et0_balance(self) -> float | None:
         return None
 
+    def get_et0_zonal_aggregate(self) -> float | None:
+        return None
+
 
 def _base_states() -> dict[str, str]:
     return {

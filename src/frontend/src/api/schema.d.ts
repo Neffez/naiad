@@ -814,7 +814,7 @@ export interface components {
             /** @description The rain credit the factor used: the decayed actual-rain credit (water_balance mode) or the ET₀ soil balance (et0 mode). */
             rain_credit_mm: number | null;
             /** @enum {string|null} */
-            rain_mode: "forecast" | "water_balance" | "et0" | null;
+            rain_mode: "forecast" | "water_balance" | "et0" | "et0_zonal" | null;
             /** @description True when factor_pct came from the manual adjustment override. */
             manual_factor: boolean;
         };
@@ -832,7 +832,7 @@ export interface components {
         };
         RainFactorSettings: {
             /** @enum {string} */
-            mode: "forecast" | "water_balance" | "et0";
+            mode: "forecast" | "water_balance" | "et0" | "et0_zonal";
             /** @description Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2). */
             forecast_days: number;
             threshold_prob: number;
@@ -863,7 +863,7 @@ export interface components {
         };
         RainFactorSettingsUpdate: {
             /** @enum {string} */
-            mode?: "forecast" | "water_balance" | "et0";
+            mode?: "forecast" | "water_balance" | "et0" | "et0_zonal";
             /** @description Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2). */
             forecast_days?: number;
             threshold_prob?: number;
@@ -1036,6 +1036,21 @@ export interface components {
             flow_lph: number;
             staircase_enabled: boolean;
             staircase_min: number;
+            /**
+             * @description et0_zonal mode: soil type, sets the plant-available water capacity used to derive the reservoir.
+             * @enum {string}
+             */
+            soil_type?: "sand" | "loam" | "clay";
+            /** @description et0_zonal mode: root-zone depth in mm; with soil type and depletion it derives the reservoir. */
+            root_depth_mm?: number;
+            /** @description et0_zonal mode: fraction of available water usable before stress (management-allowed depletion). */
+            depletion_fraction?: number;
+            /** @description et0_zonal mode: crop coefficient Kc scaling reference ET₀ into the zone's actual ETc. */
+            crop_coefficient?: number;
+            /** @description et0_zonal mode: zone area in m², converting logged liters into applied mm (1 L/m² = 1 mm). 0 disables irrigation feedback. */
+            area_m2?: number;
+            /** @description et0_zonal mode: explicit soil reservoir in mm; when > 0 it overrides the soil-type/root-depth derivation. */
+            reservoir_mm?: number;
         };
         /** @enum {string} */
         SequenceColorKey: "green" | "sand" | "purple" | "slate" | "blue" | "rose";
@@ -1063,7 +1078,7 @@ export interface components {
         };
         RainFactorConfig: {
             /** @enum {string} */
-            mode: "forecast" | "water_balance" | "et0";
+            mode: "forecast" | "water_balance" | "et0" | "et0_zonal";
             /** @description Forecast window in days: 1 = today only, 2 = today + tomorrow (values above 2 behave like 2). */
             forecast_days: number;
             threshold_prob: number;

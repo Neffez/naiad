@@ -80,7 +80,7 @@ export default function WateringSection() {
         <FactorRow label={t('settings.rainMode')} info={t('settings.help.rainMode')}>
           <ButtonGroup
             label={t('settings.rainMode')}
-            options={(['forecast', 'water_balance', 'et0'] as const).map((val) => ({
+            options={(['forecast', 'water_balance', 'et0', 'et0_zonal'] as const).map((val) => ({
               value: val, active: rain.mode === val, label: t(`settings.rainMode_${val}`),
               onClick: () => mut.mutate({ factors: { rain: { mode: val } } }),
             }))}

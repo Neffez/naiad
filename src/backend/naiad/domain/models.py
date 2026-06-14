@@ -202,6 +202,23 @@ class SequenceOverride(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class ZoneWaterBalance(SQLModel, table=True):
+    """Persisted per-zone soil water balance for the et0_zonal rain mode.
+
+    One row per zone, keyed by ``zone_id``. ``balance_mm`` is the plant-available
+    water currently retained in the zone's root zone; it is recomputed on every
+    refresh from the recent rain/irrigation/ET₀ history, so the row is a cache —
+    losing it only forces a recompute, not a data-integrity problem.
+    """
+
+    __tablename__ = "zone_water_balance"
+
+    zone_id: str = Field(primary_key=True)
+    balance_mm: float
+    reservoir_mm: float
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class FactorOverride(SQLModel, table=True):
     """Factor parameter overrides — singleton (id always = 1). NULL = use YAML default."""
 
