@@ -76,6 +76,9 @@ class FakeHA:
     def get_et0_balance(self) -> float | None:
         return None
 
+    def get_et0_zonal_aggregate(self, zone_ids: list[str] | None = None) -> float | None:
+        return None
+
     @property
     def is_connected(self) -> bool:
         return True
@@ -364,9 +367,19 @@ async def test_refresh_rain_confirmed_peak_skips_without_rain_sensor(
 class _Et0RecordingHA:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.zonal_calls: list[dict[str, Any]] = []
+        self._zone_balances: dict[str, float] = {}
 
     async def refresh_et0_balance(self, **kwargs: Any) -> None:
         self.calls.append(kwargs)
+
+    async def refresh_et0_zonal_balance(self, **kwargs: Any) -> None:
+        self.zonal_calls.append(kwargs)
+        # Echo a deterministic balance back so the persistence path has data.
+        self._zone_balances = {z.zone_id: 5.0 for z in kwargs["zones"]}
+
+    def get_zone_balance(self, zone_id: str) -> float | None:
+        return self._zone_balances.get(zone_id)
 
 
 async def test_refresh_et0_balance_skipped_outside_et0_mode(minimal_config: AppConfig) -> None:
@@ -405,6 +418,84 @@ async def test_refresh_et0_balance_builds_local_day_windows(minimal_config: AppC
         assert e1 == s2
     today = datetime.now(ZoneInfo(cfg.timezone)).date()
     assert call["days_of_year"][-1] == today.timetuple().tm_yday
+
+
+async def test_refresh_et0_zonal_balance_skipped_outside_mode(
+    minimal_config: AppConfig,
+) -> None:
+    from naiad.scheduler import refresh_et0_zonal_balance
+
+    ha = _Et0RecordingHA()
+    await refresh_et0_zonal_balance(minimal_config, ha)  # type: ignore[arg-type]
+    assert ha.zonal_calls == []
+
+
+async def test_refresh_et0_zonal_balance_builds_zone_inputs(
+    minimal_config: AppConfig, engine
+) -> None:
+    from naiad.domain.models import ZoneWaterBalance
+    from naiad.scheduler import refresh_et0_zonal_balance
+
+    data = minimal_config.model_dump()
+    data["factors"]["rain"]["mode"] = "et0_zonal"
+    data["sensors"]["precipitation_actual"] = "sensor.actual_rain"
+    data["zones"]["zone_a"]["soil_type"] = "clay"
+    data["zones"]["zone_a"]["crop_coefficient"] = 0.8
+    cfg = AppConfig.model_validate(data)
+    sf = lambda: Session(engine)  # noqa: E731
+
+    ha = _Et0RecordingHA()
+    await refresh_et0_zonal_balance(cfg, ha, sf)  # type: ignore[arg-type]
+
+    assert len(ha.zonal_calls) == 1
+    zones = {z.zone_id: z for z in ha.zonal_calls[0]["zones"]}
+    assert set(zones) == {"zone_a", "zone_b"}
+    assert zones["zone_a"].crop_coefficient == 0.8
+    # Clay reservoir derived from soil type/root depth is larger than loam's.
+    assert zones["zone_a"].reservoir_mm > zones["zone_b"].reservoir_mm
+    # The echoed balances are persisted for inspection.
+    with Session(engine) as session:
+        assert session.get(ZoneWaterBalance, "zone_a").balance_mm == pytest.approx(5.0)
+
+
+async def test_refresh_et0_zonal_reconstructs_irrigation_from_history(
+    minimal_config: AppConfig, engine
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from naiad.domain.models import RunHistory
+    from naiad.scheduler import refresh_et0_zonal_balance
+
+    data = minimal_config.model_dump()
+    data["factors"]["rain"]["mode"] = "et0_zonal"
+    data["zones"]["zone_a"]["area_m2"] = 20.0  # 200 L → 10 mm
+    cfg = AppConfig.model_validate(data)
+    sf = lambda: Session(engine)  # noqa: E731
+
+    # A completed run yesterday on zone_a delivering 200 liters.
+    yesterday = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=20)
+    with Session(engine) as session:
+        session.add(
+            RunHistory(
+                zone_id="zone_a",
+                sequence_id="seq_a",
+                started_at=yesterday,
+                ended_at=yesterday + timedelta(minutes=24),
+                duration_min=24.0,
+                liters=200.0,
+                triggered_by="cron",
+            )
+        )
+        session.commit()
+
+    ha = _Et0RecordingHA()
+    await refresh_et0_zonal_balance(cfg, ha, sf)  # type: ignore[arg-type]
+
+    zones = {z.zone_id: z for z in ha.zonal_calls[0]["zones"]}
+    # 200 L / 20 m² = 10 mm applied on yesterday's window (second-to-last day).
+    assert sum(zones["zone_a"].irrigation_mm) == pytest.approx(10.0)
+    # zone_b has no area configured → no irrigation feedback.
+    assert sum(zones["zone_b"].irrigation_mm) == pytest.approx(0.0)
 
 
 def test_consume_skip_prunes_stale(engine) -> None:

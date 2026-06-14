@@ -1,7 +1,7 @@
 from sqlalchemy import inspect, text
 from sqlmodel import create_engine
 
-from naiad.database import _add_missing_columns
+from naiad.database import _add_missing_columns, create_tables
 
 
 def _columns(engine, table: str) -> set[str]:
@@ -99,3 +99,15 @@ def test_adds_et0_reservoir_to_legacy_factor_overrides() -> None:
     assert "rain_et0_reservoir_mm" not in _columns(engine, "factor_overrides")
     _add_missing_columns(engine)
     assert "rain_et0_reservoir_mm" in _columns(engine, "factor_overrides")
+
+
+def test_zone_water_balance_table_created(monkeypatch, tmp_path) -> None:
+    """The et0_zonal per-zone balance is a brand-new table that create_all adds
+    automatically (no _add_missing_columns entry needed)."""
+    import naiad.database as database
+
+    monkeypatch.setattr(database, "_engine", None)
+    monkeypatch.setenv("NAIAD_DATA_DIR", str(tmp_path))
+    create_tables()
+    assert inspect(database.get_engine()).has_table("zone_water_balance")
+    monkeypatch.setattr(database, "_engine", None)

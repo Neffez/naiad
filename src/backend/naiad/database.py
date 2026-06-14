@@ -6,8 +6,11 @@ from typing import Any
 from sqlalchemy import Engine, event
 from sqlmodel import Session, SQLModel, create_engine
 
-_DATA_DIR = Path(os.environ.get("NAIAD_DATA_DIR", "/data"))
 _engine: Engine | None = None
+
+
+def _get_data_dir() -> Path:
+    return Path(os.environ.get("NAIAD_DATA_DIR", "/data"))
 
 
 def _set_sqlite_pragmas(dbapi_connection: Any, _connection_record: Any) -> None:
@@ -27,8 +30,9 @@ def _set_sqlite_pragmas(dbapi_connection: Any, _connection_record: Any) -> None:
 def get_engine() -> Engine:
     global _engine
     if _engine is None:
-        _DATA_DIR.mkdir(parents=True, exist_ok=True)
-        db_path = _DATA_DIR / "naiad.db"
+        data_dir = _get_data_dir()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        db_path = data_dir / "naiad.db"
         _engine = create_engine(f"sqlite:///{db_path}", echo=False)
         event.listen(_engine, "connect", _set_sqlite_pragmas)
     return _engine

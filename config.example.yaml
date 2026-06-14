@@ -130,6 +130,16 @@ zones:
     # timer remains a hardware safety net against a stuck-open valve.
     # staircase_enabled: true
     # staircase_min: 20
+    # Optional: soil-water parameters for the et0_zonal rain mode. Each zone keeps
+    # its own ET₀ balance from its soil type, root depth and crop coefficient; the
+    # area converts logged liters into applied mm so watering refills the balance.
+    # All optional — omitted, the zone uses a neutral loam default and no feedback.
+    # soil_type: loam          # sand | loam | clay
+    # root_depth_mm: 150       # root-zone depth; lawn ~150, beds ~300
+    # depletion_fraction: 0.5  # usable fraction of available water before stress
+    # crop_coefficient: 1.0    # Kc: lawn ~1.0, beds ~0.7
+    # area_m2: 40              # zone area; enables liters→mm irrigation feedback
+    # reservoir_mm: 0          # > 0 overrides the soil-type/root-depth derivation
 
 sequences:
   example:
@@ -160,7 +170,9 @@ factors:
     min_pct: 80
     max_pct: 150
   rain:
-    mode: forecast            # forecast | water_balance | et0
+    mode: forecast            # forecast | water_balance | et0 | et0_zonal
+                              # (et0_zonal: per-zone ET₀ balance — see the soil
+                              # parameters under each zone above)
     forecast_days: 2
     threshold_prob: 70        # % — below this, rain factor = 1.0
     reduce_above_mm: 5.0      # mm — linear reduction starts here

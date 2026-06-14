@@ -7,7 +7,7 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from naiad.config import AppConfig
-from naiad.domain.models import RunHistory, SequenceOverride
+from naiad.domain.models import RunHistory, SequenceOverride, ZoneWaterBalance
 from naiad.domain.resume import (
     load_active_runs,
     load_pending_closes,
@@ -1308,3 +1308,135 @@ async def test_explicit_override_raises_watchdog(
     assert len(history) == 1
     assert history[0].aborted is False
     assert history[0].abort_reason is None
+
+
+def _zonal_config(minimal_config: AppConfig) -> AppConfig:
+    """et0_zonal config: zone_a 500 L/h over 50 m² (→ 0.1667 mm/min), reservoir
+    25 mm (explicit override), range 5–60."""
+    data = minimal_config.model_dump()
+    data["factors"]["rain"]["mode"] = "et0_zonal"
+    data["zones"]["zone_a"]["area_m2"] = 50.0
+    data["zones"]["zone_a"]["reservoir_mm"] = 25.0
+    data["sequences"]["seq_1"]["range"] = [5, 60]
+    return AppConfig.model_validate(data)
+
+
+def test_zonal_durations_deficit_based(minimal_config: AppConfig, driver, engine) -> None:
+    """Each zone runs only long enough to refill its own deficit at its rate."""
+    config = _zonal_config(minimal_config)
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    with Session(engine) as session:
+        # deficit 25 − 20 = 5 mm; 5 / 0.16667 mm/min = 30 min (inside the range)
+        session.add(ZoneWaterBalance(zone_id="zone_a", balance_mm=20.0, reservoir_mm=25.0))
+        session.commit()
+
+    durations = runner._zonal_durations(config.sequences["seq_1"])
+    assert durations == {"zone_a": pytest.approx(30.0)}
+
+
+def test_zonal_durations_clamped_to_range(minimal_config: AppConfig, driver, engine) -> None:
+    """A large deficit is capped at the sequence's configured maximum."""
+    config = _zonal_config(minimal_config)
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    with Session(engine) as session:
+        # deficit 25 mm → 150 min raw, clamped to the range max of 60
+        session.add(ZoneWaterBalance(zone_id="zone_a", balance_mm=0.0, reservoir_mm=25.0))
+        session.commit()
+
+    durations = runner._zonal_durations(config.sequences["seq_1"])
+    assert durations == {"zone_a": pytest.approx(60.0)}
+
+
+def test_zonal_durations_omits_zone_without_area(minimal_config: AppConfig, driver, engine) -> None:
+    """Without an application rate a zone is omitted → falls back to the factor
+    duration; an all-omitted sequence yields None."""
+    data = minimal_config.model_dump()
+    data["factors"]["rain"]["mode"] = "et0_zonal"  # zone_a has no area_m2
+    config = AppConfig.model_validate(data)
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    with Session(engine) as session:
+        session.add(ZoneWaterBalance(zone_id="zone_a", balance_mm=20.0, reservoir_mm=25.0))
+        session.commit()
+
+    assert runner._zonal_durations(config.sequences["seq_1"]) is None
+
+
+def test_zonal_durations_none_outside_mode(minimal_config: AppConfig, driver, engine) -> None:
+    """Other rain modes keep the uniform factor-scaled duration (no per-zone map)."""
+    config = _zonal_config(minimal_config)
+    data = config.model_dump()
+    data["factors"]["rain"]["mode"] = "water_balance"
+    config = AppConfig.model_validate(data)
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    assert runner._zonal_durations(config.sequences["seq_1"]) is None
+
+
+def test_zonal_durations_skipped_under_manual_override(
+    minimal_config: AppConfig, driver, engine
+) -> None:
+    """A manual factor override must win: zonal per-zone runtimes are dropped so
+    the manual-scaled basis duration applies instead."""
+    from naiad.domain.models import FactorOverride
+
+    config = _zonal_config(minimal_config)
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    with Session(engine) as session:
+        session.add(ZoneWaterBalance(zone_id="zone_a", balance_mm=20.0, reservoir_mm=25.0))
+        session.add(FactorOverride(id=1, manual_mode=True, manual_pct=120))
+        session.commit()
+
+    assert runner._zonal_durations(config.sequences["seq_1"]) is None
+
+
+def test_zonal_durations_saturated_zone_marked_for_skip(
+    minimal_config: AppConfig, driver, engine
+) -> None:
+    """A zone at/above field capacity maps to 0.0 (skip), not the range floor."""
+    config = _zonal_config(minimal_config)
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    with Session(engine) as session:
+        # balance >= reservoir (25) → no deficit → skip sentinel 0.0
+        session.add(ZoneWaterBalance(zone_id="zone_a", balance_mm=25.0, reservoir_mm=25.0))
+        session.commit()
+
+    assert runner._zonal_durations(config.sequences["seq_1"]) == {"zone_a": 0.0}
+
+
+def test_zonal_durations_use_config_reservoir_not_stale_row(
+    minimal_config: AppConfig, driver, engine
+) -> None:
+    """The reservoir comes from current config, so a stale persisted reservoir_mm
+    does not drive the deficit runtime."""
+    config = _zonal_config(minimal_config)  # zone_a reservoir override = 25 mm
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    with Session(engine) as session:
+        # Stale row claims a 100 mm reservoir; config says 25. balance 20 →
+        # deficit must be 25-20=5 (→ 30 min), not 100-20=80.
+        session.add(ZoneWaterBalance(zone_id="zone_a", balance_mm=20.0, reservoir_mm=100.0))
+        session.commit()
+
+    assert runner._zonal_durations(config.sequences["seq_1"]) == {"zone_a": pytest.approx(30.0)}
+
+
+async def test_zonal_saturated_zone_is_skipped_in_run(
+    minimal_config: AppConfig, driver, engine
+) -> None:
+    """A saturated zone's valve is never opened during the run."""
+    data = _zonal_config(minimal_config).model_dump()
+    # Two zones in one sequence: zone_a dry (waters), zone_b saturated (skipped).
+    data["zones"]["zone_b"]["area_m2"] = 30.0
+    data["zones"]["zone_b"]["reservoir_mm"] = 20.0
+    data["sequences"]["seq_1"]["zones"] = ["zone_a", "zone_b"]
+    data["sequences"]["seq_1"]["range"] = [0.0, 0.02]  # fast, but > 0
+    config = AppConfig.model_validate(data)
+    runner = SequenceRunner(config, driver, lambda: Session(engine))
+    with Session(engine) as session:
+        session.add(ZoneWaterBalance(zone_id="zone_a", balance_mm=0.0, reservoir_mm=25.0))
+        session.add(ZoneWaterBalance(zone_id="zone_b", balance_mm=20.0, reservoir_mm=20.0))
+        session.commit()
+
+    await runner.start("seq_1")
+    await asyncio.wait_for(_task(runner, "seq_1"), timeout=2.0)
+
+    assert "switch.zone_a" in driver.on_calls  # dry zone watered
+    assert "switch.zone_b" not in driver.on_calls  # saturated zone skipped

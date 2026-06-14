@@ -420,6 +420,99 @@ def test_refresh_et0_balance_swallows_errors_and_keeps_cache() -> None:
     assert client.get_et0_balance() == pytest.approx(7.5)
 
 
+def test_refresh_et0_zonal_balance_per_zone_with_irrigation_and_kc() -> None:
+    """Each zone drains by Kc·ET₀ and gains its own irrigation; the aggregate is
+    the most-depleted zone's balance."""
+    from datetime import UTC, datetime, timedelta
+
+    from naiad.domain.et0 import ZoneBalanceInput
+
+    client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+    client._connected.set()
+    client._ws = object()  # type: ignore[assignment]
+    now = datetime(2026, 6, 3, 12, tzinfo=UTC)
+    day1 = now - timedelta(days=1)  # one full day, then today
+
+    histories: dict[str, dict[str, list[dict[str, Any]]]] = {
+        "sensor.actual_rain": {
+            "sensor.actual_rain": [
+                {"s": "0", "lu": day1.timestamp()},
+                {"s": "10", "lu": (day1 + timedelta(hours=1)).timestamp()},
+            ]
+        },
+        "sensor.et0": {
+            "sensor.et0": [
+                {"s": "4", "lu": day1.timestamp()},  # reference ET₀ = 4 mm
+                {"s": "5", "lu": now.timestamp()},  # today ignored
+            ]
+        },
+    }
+
+    async def fake_send(ws: Any, msg: dict[str, Any], timeout: float = 10.0) -> Any:
+        return histories[msg["entity_ids"][0]]
+
+    client._state_cache["sensor.actual_rain"] = {"state": "10"}
+    client._send_command = fake_send  # type: ignore[assignment]
+    zones = [
+        # lawn: Kc 1.0, no irrigation → day1: 10 − 4·1.0 = 6
+        ZoneBalanceInput(
+            zone_id="lawn", reservoir_mm=25.0, crop_coefficient=1.0, irrigation_mm=[0.0, 0.0]
+        ),
+        # bed: Kc 0.5 (drains less) plus 3 mm irrigation on day1 → 10 + 3 − 2 = 11
+        ZoneBalanceInput(
+            zone_id="bed", reservoir_mm=25.0, crop_coefficient=0.5, irrigation_mm=[3.0, 0.0]
+        ),
+    ]
+    asyncio.run(
+        client.refresh_et0_zonal_balance(
+            day_bounds=_day_bounds(now, 2),
+            days_of_year=[153, 154],
+            rain_entity="sensor.actual_rain",
+            temperature_entity="sensor.temperature",
+            et0_entity="sensor.et0",
+            zones=zones,
+            fallback_decay=0.65,
+        )
+    )
+    assert client.get_zone_balance("lawn") == pytest.approx(6.0)
+    assert client.get_zone_balance("bed") == pytest.approx(11.0)
+    # Aggregate = the driest (most-depleted) zone.
+    assert client.get_et0_zonal_aggregate() == pytest.approx(6.0)
+
+
+def test_refresh_et0_zonal_balance_no_zones_is_noop() -> None:
+    from datetime import UTC, datetime
+
+    client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+    now = datetime(2026, 6, 3, 12, tzinfo=UTC)
+    asyncio.run(
+        client.refresh_et0_zonal_balance(
+            day_bounds=_day_bounds(now, 2),
+            days_of_year=[153, 154],
+            rain_entity="sensor.actual_rain",
+            temperature_entity=None,
+            et0_entity=None,
+            zones=[],
+            fallback_decay=0.65,
+        )
+    )
+    assert client.get_et0_zonal_aggregate() is None
+
+
+def test_get_et0_zonal_aggregate_scopes_to_given_zones() -> None:
+    """A sequence's aggregate is the driest of ITS zones, not the global driest —
+    an unrelated dry zone must not leak into another sequence's credit."""
+    client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+    client._zone_balance_mm = {"lawn": 24.0, "bed": 0.5, "hedge": 18.0}
+    # Whole-install indicator: the driest zone anywhere.
+    assert client.get_et0_zonal_aggregate() == pytest.approx(0.5)
+    # Per-sequence: only the lawn sequence's zones — the dry bed is excluded.
+    assert client.get_et0_zonal_aggregate(["lawn", "hedge"]) == pytest.approx(18.0)
+    # Unknown zones are skipped; no known zone → None.
+    assert client.get_et0_zonal_aggregate(["lawn"]) == pytest.approx(24.0)
+    assert client.get_et0_zonal_aggregate(["ghost"]) is None
+
+
 def test_max_forecast_during_rain_correlates_peak_timing() -> None:
     """The confirmed peak is the forecast value while rain was on, not the day's max.
 

@@ -64,22 +64,110 @@ class BalanceDay:
     # history): the balance falls back to the multiplicative decay heuristic of
     # water-balance mode for that day instead of subtracting nothing.
     et0_mm: float | None
+    # Water applied by Naiad's own irrigation on this day, in mm (liters / zone
+    # area). Fills the reservoir exactly like rain. Only the per-zone et0_zonal
+    # mode supplies this; for the global et0 mode it stays 0.
+    irrigation_mm: float = 0.0
+
+
+def day_index(ts: float, day_bounds: list[tuple[float, float]]) -> int | None:
+    """Index of the day window (epoch ``[start, end)``) containing ``ts``.
+
+    The last window is closed on the right so a sample timestamped exactly at the
+    window end (e.g. an appended live reading at "now", or a run that ends at the
+    current instant) still counts toward today. Returns None when ``ts`` falls
+    outside every window. Shared by the rain and irrigation day-bucketing so the
+    two never attribute the same instant to different days.
+    """
+    last = len(day_bounds) - 1
+    for idx, (start, end) in enumerate(day_bounds):
+        if start <= ts and (ts < end or (idx == last and ts <= end)):
+            return idx
+    return None
 
 
 def soil_balance_mm(days: list[BalanceDay], reservoir_mm: float, fallback_decay: float) -> float:
     """Plant-available water (mm) left from recent rain after ET₀ losses.
 
-    Day-by-day running balance, oldest day first: rain fills the reservoir
-    (surplus beyond ``reservoir_mm`` — field capacity — runs off) and ET₀ drains
-    it (never below 0). The window starts empty, so the result is a *recent
-    rain* credit, conservative in the same direction as water-balance mode's
-    decayed credit; it plugs into the same factor mapping.
+    Day-by-day running balance, oldest day first: rain (and any irrigation)
+    fills the reservoir (surplus beyond ``reservoir_mm`` — field capacity — runs
+    off) and ET₀ drains it (never below 0). The window starts empty, so the
+    result is a *recent water* credit, conservative in the same direction as
+    water-balance mode's decayed credit; it plugs into the same factor mapping.
     """
     balance = 0.0
     for day in days:
-        balance = min(reservoir_mm, balance + max(0.0, day.rain_mm))
+        income = max(0.0, day.rain_mm) + max(0.0, day.irrigation_mm)
+        balance = min(reservoir_mm, balance + income)
         if day.et0_mm is not None:
             balance = max(0.0, balance - day.et0_mm)
         else:
             balance *= fallback_decay
     return balance
+
+
+# Plant-available water capacity per soil type, in mm of water per mm of root
+# depth (i.e. dimensionless: (field capacity − wilting point) volumetric water
+# content). Standard agronomic mid-range values (FAO-56 table 19): sandy soils
+# hold little, clays hold the most.
+_AVAILABLE_WATER_FRACTION: dict[str, float] = {
+    "sand": 0.10,
+    "loam": 0.15,
+    "clay": 0.18,
+}
+
+
+@dataclass
+class ZoneBalanceInput:
+    """Per-zone inputs to the et0_zonal balance refresh.
+
+    ``irrigation_mm`` is aligned to the same day windows as the global rain/ET₀
+    history (oldest first); ``crop_coefficient`` scales reference ET₀ into the
+    zone's actual ETc; ``reservoir_mm`` is the zone's field-capacity cap.
+    """
+
+    zone_id: str
+    reservoir_mm: float
+    crop_coefficient: float
+    irrigation_mm: list[float]
+
+
+def reservoir_from_soil(soil_type: str, root_depth_mm: float, depletion_fraction: float) -> float:
+    """Plant-available soil reservoir (mm) the et0_zonal mode drains and refills.
+
+    The total available water in the root zone is ``AWF[soil] × root_depth_mm``;
+    only the management-allowed depletion (``depletion_fraction``, the fraction
+    that may be used before stress) is treated as the usable reservoir. Unknown
+    soil types fall back to loam. The result is clamped to a small positive
+    floor so a degenerate config never yields a zero-capacity reservoir.
+    """
+    awf = _AVAILABLE_WATER_FRACTION.get(soil_type, _AVAILABLE_WATER_FRACTION["loam"])
+    total_available = awf * max(0.0, root_depth_mm)
+    usable = total_available * max(0.0, min(1.0, depletion_fraction))
+    return max(1.0, usable)
+
+
+def application_rate_mm_per_min(flow_lph: float, area_m2: float) -> float | None:
+    """A zone's sprinkler application (precipitation) rate in mm/min.
+
+    ``flow_lph / area_m2`` is the rate in mm/h (1 L/m² = 1 mm), divided by 60 for
+    mm/min. Returns None when either input is non-positive — the runtime cannot
+    then be derived from a water depth and the caller keeps the factor duration.
+    """
+    if flow_lph <= 0 or area_m2 <= 0:
+        return None
+    return flow_lph / area_m2 / 60.0
+
+
+def deficit_runtime_min(reservoir_mm: float, balance_mm: float, rate_mm_per_min: float) -> float:
+    """Minutes of watering to refill the soil reservoir to field capacity.
+
+    The deficit ``reservoir_mm − balance_mm`` (never negative) is the water depth
+    to replace; dividing by the zone's application rate gives the runtime. A
+    non-positive rate yields 0 (the caller falls back to the factor duration).
+    The caller clamps the result to the sequence's configured min/max range.
+    """
+    if rate_mm_per_min <= 0:
+        return 0.0
+    deficit = max(0.0, reservoir_mm - balance_mm)
+    return deficit / rate_mm_per_min

@@ -4,11 +4,16 @@ import json
 import logging
 from collections.abc import Callable, Coroutine
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import websockets
 import websockets.exceptions
 from websockets.asyncio.client import ClientConnection
+
+from naiad.domain.et0 import day_index
+
+if TYPE_CHECKING:
+    from naiad.domain.et0 import ZoneBalanceInput
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +67,9 @@ class HAClient:
         # Soil water balance for the et0 rain mode (one global value, mm). None =
         # never computed; refreshed out-of-band like the rain credit.
         self._et0_balance_mm: float | None = None
+        # Per-zone soil water balances for the et0_zonal rain mode (zone_id → mm).
+        # Empty = never computed; refreshed out-of-band like the global balance.
+        self._zone_balance_mm: dict[str, float] = {}
         # The HA home latitude (from the server's get_config), needed for the
         # internal Hargreaves ET₀ calculation. Refreshed on every (re)connect.
         self._latitude: float | None = None
@@ -475,6 +483,25 @@ class HAClient:
         """Soil water balance in mm for the et0 rain mode (see ``refresh_et0_balance``)."""
         return self._et0_balance_mm
 
+    def get_zone_balance(self, zone_id: str) -> float | None:
+        """The et0_zonal soil balance (mm) for one zone, or None until computed."""
+        return self._zone_balance_mm.get(zone_id)
+
+    def get_et0_zonal_aggregate(self, zone_ids: list[str] | None = None) -> float | None:
+        """Aggregate et0_zonal credit (mm): the most-depleted zone's balance, so
+        the driest zone drives the adjustment.
+
+        ``zone_ids`` restricts the aggregate to a single sequence's zones (the
+        correct scope for that sequence's skip gate); None aggregates over every
+        zone (a whole-install indicator for status/MQTT). Returns None until any
+        of the requested zones has a computed balance.
+        """
+        if zone_ids is None:
+            values = list(self._zone_balance_mm.values())
+        else:
+            values = [self._zone_balance_mm[z] for z in zone_ids if z in self._zone_balance_mm]
+        return min(values) if values else None
+
     @staticmethod
     def _daily_rain_mm(
         samples: list[tuple[float, str]],
@@ -500,11 +527,9 @@ class HAClient:
                 continue
             if gate_samples is not None and HAClient._state_at(gate_samples, cur_ts, "off") != "on":
                 continue
-            for idx, (start, end) in enumerate(day_bounds):
-                last = idx == len(day_bounds) - 1
-                if start <= cur_ts and (cur_ts < end or (last and cur_ts <= end)):
-                    rain[idx] += delta
-                    break
+            idx = day_index(cur_ts, day_bounds)
+            if idx is not None:
+                rain[idx] += delta
         return rain
 
     @staticmethod
@@ -550,60 +575,149 @@ class HAClient:
         forecast side of the factor covers the day ahead. Best-effort: a failed
         refresh leaves the previous cached balance untouched.
         """
-        from naiad.domain.et0 import (
-            BalanceDay,
-            extraterrestrial_radiation_mm,
-            hargreaves_et0_mm,
-            soil_balance_mm,
-        )
+        from naiad.domain.et0 import BalanceDay, soil_balance_mm
 
         if not day_bounds:
             return
         try:
-            start, end = day_bounds[0][0], day_bounds[-1][1]
-            bounds_epoch = [(s.timestamp(), e.timestamp()) for s, e in day_bounds]
-
-            rain_samples: list[tuple[float, str]] = []
-            if rain_entity:
-                rain_samples = await self.fetch_history(rain_entity, start, end)
-                current = self.get_state_value(rain_entity)
-                if current is not None:
-                    rain_samples.append((end.timestamp(), str(current)))
-                    rain_samples.sort(key=lambda s: s[0])
-            gate_samples = (
-                await self.fetch_history(confirm_rain_entity, start, end)
-                if confirm_rain_entity
-                else None
+            daily_rain, daily_et0_ref = await self._daily_rain_and_reference_et0(
+                day_bounds=day_bounds,
+                days_of_year=days_of_year,
+                rain_entity=rain_entity,
+                temperature_entity=temperature_entity,
+                et0_entity=et0_entity,
+                confirm_rain_entity=confirm_rain_entity,
             )
-            et0_samples = await self.fetch_history(et0_entity, start, end) if et0_entity else []
-            temp_samples = (
-                await self.fetch_history(temperature_entity, start, end)
-                if temperature_entity and not et0_entity
-                else []
-            )
-
-            daily_rain = self._daily_rain_mm(rain_samples, bounds_epoch, gate_samples)
-            daily_et0_values = self._daily_numeric(et0_samples, bounds_epoch)
-            daily_temps = self._daily_numeric(temp_samples, bounds_epoch)
-
             days: list[BalanceDay] = []
-            last = len(bounds_epoch) - 1
-            for idx in range(len(bounds_epoch)):
-                if idx == last:
-                    et0_mm: float | None = 0.0
-                elif daily_et0_values[idx]:
-                    et0_mm = max(daily_et0_values[idx])
-                elif daily_temps[idx] and self._latitude is not None:
-                    ra_mm = extraterrestrial_radiation_mm(self._latitude, days_of_year[idx])
-                    et0_mm = hargreaves_et0_mm(min(daily_temps[idx]), max(daily_temps[idx]), ra_mm)
-                else:
-                    et0_mm = None
+            last = len(daily_rain) - 1
+            for idx in range(len(daily_rain)):
+                # Today only adds rain — its evaporation has mostly not happened
+                # yet, and the forecast side of the factor covers the day ahead.
+                et0_mm = 0.0 if idx == last else daily_et0_ref[idx]
                 days.append(BalanceDay(rain_mm=daily_rain[idx], et0_mm=et0_mm))
 
             self._et0_balance_mm = round(soil_balance_mm(days, reservoir_mm, fallback_decay), 2)
             logger.debug("Refreshed ET₀ balance: %s mm", self._et0_balance_mm)
         except Exception:
             logger.warning("Could not refresh ET₀ balance", exc_info=True)
+
+    async def _daily_rain_and_reference_et0(
+        self,
+        *,
+        day_bounds: list[tuple[datetime, datetime]],
+        days_of_year: list[int],
+        rain_entity: str | None,
+        temperature_entity: str | None,
+        et0_entity: str | None,
+        confirm_rain_entity: str | None,
+    ) -> tuple[list[float], list[float | None]]:
+        """Shared history math for both et0 balance refreshes.
+
+        Returns (daily rain mm, daily *reference* ET₀ mm) aligned to
+        ``day_bounds`` (oldest first). The reference ET₀ is the ``et0_entity``
+        daily maximum when configured, else the internal Hargreaves value from
+        the temperature sensor's daily min/max and the HA latitude, else None
+        (unknown — the balance then falls back to its decay heuristic for that
+        day). The per-zone caller still scales it by each zone's crop coefficient.
+        """
+        from naiad.domain.et0 import extraterrestrial_radiation_mm, hargreaves_et0_mm
+
+        start, end = day_bounds[0][0], day_bounds[-1][1]
+        bounds_epoch = [(s.timestamp(), e.timestamp()) for s, e in day_bounds]
+
+        rain_samples: list[tuple[float, str]] = []
+        if rain_entity:
+            rain_samples = await self.fetch_history(rain_entity, start, end)
+            current = self.get_state_value(rain_entity)
+            if current is not None:
+                rain_samples.append((end.timestamp(), str(current)))
+                rain_samples.sort(key=lambda s: s[0])
+        gate_samples = (
+            await self.fetch_history(confirm_rain_entity, start, end)
+            if confirm_rain_entity
+            else None
+        )
+        et0_samples = await self.fetch_history(et0_entity, start, end) if et0_entity else []
+        temp_samples = (
+            await self.fetch_history(temperature_entity, start, end)
+            if temperature_entity and not et0_entity
+            else []
+        )
+
+        daily_rain = self._daily_rain_mm(rain_samples, bounds_epoch, gate_samples)
+        daily_et0_values = self._daily_numeric(et0_samples, bounds_epoch)
+        daily_temps = self._daily_numeric(temp_samples, bounds_epoch)
+
+        daily_et0_ref: list[float | None] = []
+        for idx in range(len(bounds_epoch)):
+            if daily_et0_values[idx]:
+                daily_et0_ref.append(max(daily_et0_values[idx]))
+            elif daily_temps[idx] and self._latitude is not None:
+                ra_mm = extraterrestrial_radiation_mm(self._latitude, days_of_year[idx])
+                daily_et0_ref.append(
+                    hargreaves_et0_mm(min(daily_temps[idx]), max(daily_temps[idx]), ra_mm)
+                )
+            else:
+                daily_et0_ref.append(None)
+        return daily_rain, daily_et0_ref
+
+    async def refresh_et0_zonal_balance(
+        self,
+        *,
+        day_bounds: list[tuple[datetime, datetime]],
+        days_of_year: list[int],
+        rain_entity: str | None,
+        temperature_entity: str | None,
+        et0_entity: str | None,
+        zones: list["ZoneBalanceInput"],
+        fallback_decay: float,
+        confirm_rain_entity: str | None = None,
+    ) -> None:
+        """Refresh per-zone soil water balances for the et0_zonal rain mode.
+
+        Shares the rain/ET₀ history with ``refresh_et0_balance`` (fetched once),
+        but per zone the reference ET₀ is scaled by the crop coefficient
+        (ETc = Kc·ET₀), the zone's own irrigation is added as income, and the
+        balance is clamped to the zone's reservoir. Today only adds rain and
+        irrigation (see ``refresh_et0_balance``). Best-effort: a failed refresh
+        leaves the previous cached balances untouched.
+        """
+        from naiad.domain.et0 import BalanceDay, soil_balance_mm
+
+        if not day_bounds or not zones:
+            return
+        try:
+            daily_rain, daily_et0_ref = await self._daily_rain_and_reference_et0(
+                day_bounds=day_bounds,
+                days_of_year=days_of_year,
+                rain_entity=rain_entity,
+                temperature_entity=temperature_entity,
+                et0_entity=et0_entity,
+                confirm_rain_entity=confirm_rain_entity,
+            )
+            last = len(daily_rain) - 1
+            new_balances: dict[str, float] = {}
+            for zone in zones:
+                days: list[BalanceDay] = []
+                for idx in range(len(daily_rain)):
+                    ref = daily_et0_ref[idx]
+                    if idx == last:
+                        etc_mm: float | None = 0.0
+                    elif ref is not None:
+                        etc_mm = ref * zone.crop_coefficient
+                    else:
+                        etc_mm = None
+                    irrigation = zone.irrigation_mm[idx] if idx < len(zone.irrigation_mm) else 0.0
+                    days.append(
+                        BalanceDay(rain_mm=daily_rain[idx], et0_mm=etc_mm, irrigation_mm=irrigation)
+                    )
+                new_balances[zone.zone_id] = round(
+                    soil_balance_mm(days, zone.reservoir_mm, fallback_decay), 2
+                )
+            self._zone_balance_mm = new_balances
+            logger.debug("Refreshed zonal ET₀ balances: %s", self._zone_balance_mm)
+        except Exception:
+            logger.warning("Could not refresh zonal ET₀ balance", exc_info=True)
 
     async def refresh_rain_confirmed_peak(
         self, forecast_entities: list[str], rain_entity: str, start: datetime, end: datetime

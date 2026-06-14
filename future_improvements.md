@@ -153,7 +153,7 @@ liter statistics (measured instead of computed liters).
 
 ---
 
-## 6. The big innovation: a true ET₀ water balance — 🟡 stage 1 implemented 2026-06-13
+## 6. The big innovation: a true ET₀ water balance — ✅ stages 1–3 implemented 2026-06-14
 
 The water-balance mode is halfway there: it knows the rain *income*, but the
 *expenses* are only the linear temperature factor. A true balance computes
@@ -190,9 +190,52 @@ mostly not happened yet at decision time — the forecast side covers the day
 ahead). Refreshed hourly/on rain transitions/on settings changes like the rain
 credit; surfaced in the decision log (`rain_mode: et0`, `rain_credit_mm` =
 balance), the MQTT `rain_credit` sensor and the settings UI (mode toggle +
-reservoir). Stages 2 (per-zone reservoirs from soil type / root depth) and 3
-(runtime derived from the balance deficit instead of scaling the configured
-basis) remain open.
+reservoir).
+
+Stage 2 implemented (2026-06-14) as a fourth rain mode `et0_zonal`: the same
+physical balance, but kept **per zone** and persisted to a `zone_water_balance`
+table. Each zone's reservoir is derived from its configured soil type
+(sand/loam/clay → plant-available water fraction) and root depth (with a
+management-allowed depletion fraction), or set explicitly via `reservoir_mm`.
+Reference ET₀ is scaled by a per-zone crop coefficient (`crop_coefficient`,
+ETc = Kc·ET₀), and the zone's **own irrigation** becomes an income term:
+completed `RunHistory` liters are converted to applied mm via the zone
+`area_m2` (1 L/m² = 1 mm) and fill the balance alongside rain. The factor keeps
+using one sequence-level credit (the factor path is not yet per-zone — that is
+stage 3): the most-depleted zone *of that sequence* drives the adjustment
+(`read_sensor_snapshot` is scoped to the sequence's zones), so the driest zone
+is never under-watered and an unrelated dry zone elsewhere cannot keep a wet
+sequence from skipping. Refreshed on the same hourly/rain-transition/
+settings cadence; surfaced in the decision log (`rain_mode: et0_zonal`), the
+MQTT `rain_credit` sensor and the settings UI (mode toggle + per-zone soil
+panel). Soil parameters are optional with neutral defaults, so existing
+installations are unaffected until they opt in.
+
+Stage 3 implemented (2026-06-14): in `et0_zonal` mode each zone now runs only
+long enough to refill *its own* balance deficit, instead of all zones sharing
+one factor-scaled duration. The runtime is `deficit_mm / application_rate`,
+where the application rate is `flow_lph / area_m2` (1 L/m² = 1 mm), clamped to
+the sequence's configured min/max range. This is confined to the normal start
+and pause/resume path in `SequenceRunner._run_zones`; the safety-critical
+override paths (standalone single-zone runs and crash recovery, which carry an
+explicit duration) — except that crash recovery of a real sequence now also
+re-derives per-zone deficit runtimes for the zones after the resumed one (the
+resumed zone keeps its persisted remaining); a zone without a usable application
+rate falls back to the factor-scaled duration. A fully-saturated zone (no
+deficit) is **skipped entirely** rather than watered for the range minimum, and
+an individual manual factor override takes precedence over the per-zone runtime.
+The reservoir used for the deficit comes from the current config, so a soil/area
+change takes effect immediately rather than waiting for the next balance
+refresh. The sequence-level skip gate is scoped to each sequence's own zones
+(see stage 2), so a sequence is skipped wholesale only when *its* driest zone is
+saturated.
+
+Code-review follow-ups addressed (2026-06-14): per-sequence (not global) credit
+aggregation; manual-override precedence; per-zone skip of saturated zones;
+config-fresh reservoir; clearing the cached balances on a full history delete;
+recovery re-deriving zonal runtimes; a single batched irrigation query; a shared
+day-bucketing helper; and renaming the zone reservoir method to avoid colliding
+with the global field.
 
 ---
 

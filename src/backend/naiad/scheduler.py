@@ -18,6 +18,7 @@ from naiad.config import (
     SequenceConfig,
     target_service_data,
 )
+from naiad.domain.et0 import day_index
 from naiad.domain.factors import FactorResult, compute_factors, merge_factor_config
 from naiad.domain.models import (
     DecisionLog,
@@ -25,6 +26,7 @@ from naiad.domain.models import (
     FactorOverride,
     Plan,
     QueuedNotification,
+    RunHistory,
     SequenceOverride,
     SkippedRun,
 )
@@ -374,6 +376,7 @@ async def refresh_rain_forecast_max(
     await refresh_rain_confirmed_peak(config, ha)
     await refresh_recent_rain_credit(config, ha, session_factory)
     await refresh_et0_balance(config, ha, session_factory)
+    await refresh_et0_zonal_balance(config, ha, session_factory)
 
 
 async def refresh_recent_rain_credit(
@@ -419,19 +422,7 @@ async def refresh_et0_balance(
             _temp_cfg, rain_cfg = merge_factor_config(config, session.get(FactorOverride, 1))
     if rain_cfg.mode != "et0":
         return
-    tz = ZoneInfo(config.timezone)
-    now = datetime.now(tz)
-    day_bounds: list[tuple[datetime, datetime]] = []
-    days_of_year: list[int] = []
-    for offset in range(rain_cfg.water_balance_days - 1, 0, -1):
-        day = now.date() - timedelta(days=offset)
-        start = datetime.combine(day, time.min, tzinfo=tz)
-        end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=tz)
-        day_bounds.append((start.astimezone(UTC), end.astimezone(UTC)))
-        days_of_year.append(day.timetuple().tm_yday)
-    today_start = datetime.combine(now.date(), time.min, tzinfo=tz)
-    day_bounds.append((today_start.astimezone(UTC), now.astimezone(UTC)))
-    days_of_year.append(now.date().timetuple().tm_yday)
+    day_bounds, days_of_year = _et0_day_windows(config, rain_cfg.water_balance_days)
     await ha.refresh_et0_balance(
         day_bounds=day_bounds,
         days_of_year=days_of_year,
@@ -442,6 +433,144 @@ async def refresh_et0_balance(
         fallback_decay=rain_cfg.water_balance_decay,
         confirm_rain_entity=(config.sensors.rain if rain_cfg.confirm_with_rain_sensor else None),
     )
+
+
+def _et0_day_windows(
+    config: AppConfig, water_balance_days: int
+) -> tuple[list[tuple[datetime, datetime]], list[int]]:
+    """UTC ``[start, end)`` windows of the recent local days for the ET₀ balance.
+
+    The oldest ``water_balance_days - 1`` full days come first, today's partial
+    day (midnight → now) last; ``days_of_year`` is the matching day-of-year per
+    window for the internal Hargreaves calculation.
+    """
+    tz = ZoneInfo(config.timezone)
+    now = datetime.now(tz)
+    day_bounds: list[tuple[datetime, datetime]] = []
+    days_of_year: list[int] = []
+    for offset in range(water_balance_days - 1, 0, -1):
+        day = now.date() - timedelta(days=offset)
+        start = datetime.combine(day, time.min, tzinfo=tz)
+        end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=tz)
+        day_bounds.append((start.astimezone(UTC), end.astimezone(UTC)))
+        days_of_year.append(day.timetuple().tm_yday)
+    today_start = datetime.combine(now.date(), time.min, tzinfo=tz)
+    day_bounds.append((today_start.astimezone(UTC), now.astimezone(UTC)))
+    days_of_year.append(now.date().timetuple().tm_yday)
+    return day_bounds, days_of_year
+
+
+def _daily_irrigation_by_zone(
+    session: Session,
+    area_by_zone: dict[str, float],
+    day_bounds: list[tuple[datetime, datetime]],
+) -> dict[str, list[float]]:
+    """Water Naiad applied per zone per day, in mm (reconstructed from history).
+
+    One query over all tracked zones: sums the logged liters of completed
+    ``RunHistory`` rows whose ``ended_at`` falls in each day window and converts
+    to mm via the zone area (1 L/m² = 1 mm). Manual single-zone runs count too —
+    they write ``RunHistory`` with the same ``zone_id`` — so on-demand watering
+    refills the zone's balance like a scheduled run. Zones with no tracked liters
+    stay at zero (the balance then runs on rain and ET₀ alone).
+    """
+    out = {zone_id: [0.0] * len(day_bounds) for zone_id in area_by_zone}
+    if not area_by_zone or not day_bounds:
+        return out
+    bounds_epoch = [(s.timestamp(), e.timestamp()) for s, e in day_bounds]
+    window_start = day_bounds[0][0].replace(tzinfo=None)
+    rows = session.exec(
+        select(RunHistory).where(
+            col(RunHistory.zone_id).in_(list(area_by_zone)),
+            col(RunHistory.ended_at).is_not(None),
+            col(RunHistory.ended_at) >= window_start,
+        )
+    ).all()
+    for row in rows:
+        area = area_by_zone.get(row.zone_id)
+        if row.ended_at is None or row.liters is None or not area:
+            continue
+        # ended_at is stored as naive UTC (SQLite round-trips naive values), so
+        # pin it to UTC before comparing against the tz-aware day windows —
+        # naive.timestamp() would otherwise assume the host's local timezone.
+        idx = day_index(row.ended_at.replace(tzinfo=UTC).timestamp(), bounds_epoch)
+        if idx is not None:
+            out[row.zone_id][idx] += row.liters / area
+    return out
+
+
+async def refresh_et0_zonal_balance(
+    config: AppConfig, ha: HAClient, session_factory: SessionFactory | None = None
+) -> None:
+    """Refresh the per-zone ET₀ soil water balances used by the et0_zonal mode.
+
+    Builds the same local-day windows as ``refresh_et0_balance``, reconstructs
+    each zone's recent irrigation from ``RunHistory``, derives each zone's
+    reservoir and crop coefficient from its config, and delegates the history
+    math to ``HAClient.refresh_et0_zonal_balance``. A no-op unless the effective
+    rain mode is ``et0_zonal``. The computed balances are also persisted to
+    ``ZoneWaterBalance`` so they survive a restart for inspection.
+    """
+    from naiad.domain.et0 import ZoneBalanceInput
+    from naiad.domain.models import ZoneWaterBalance
+
+    rain_cfg = config.factors.rain
+    if session_factory is not None:
+        with session_factory() as session:
+            _temp_cfg, rain_cfg = merge_factor_config(config, session.get(FactorOverride, 1))
+    if rain_cfg.mode != "et0_zonal":
+        return
+    day_bounds, days_of_year = _et0_day_windows(config, rain_cfg.water_balance_days)
+
+    # Reconstruct every tracked zone's recent irrigation in a single query
+    # (only zones with an area can convert liters into mm).
+    irrigation_by_zone: dict[str, list[float]] = {}
+    area_by_zone = {zid: z.area_m2 for zid, z in config.zones.items() if z.area_m2 > 0}
+    if session_factory is not None and area_by_zone:
+        with session_factory() as session:
+            irrigation_by_zone = _daily_irrigation_by_zone(session, area_by_zone, day_bounds)
+
+    empty = [0.0] * len(day_bounds)
+    zones: list[ZoneBalanceInput] = [
+        ZoneBalanceInput(
+            zone_id=zone_id,
+            reservoir_mm=zone_cfg.soil_reservoir_mm(),
+            crop_coefficient=zone_cfg.crop_coefficient,
+            irrigation_mm=irrigation_by_zone.get(zone_id, empty),
+        )
+        for zone_id, zone_cfg in config.zones.items()
+    ]
+
+    await ha.refresh_et0_zonal_balance(
+        day_bounds=day_bounds,
+        days_of_year=days_of_year,
+        rain_entity=config.sensors.precipitation_actual or None,
+        temperature_entity=config.sensors.temperature or None,
+        et0_entity=config.sensors.et0 or None,
+        zones=zones,
+        fallback_decay=rain_cfg.water_balance_decay,
+        confirm_rain_entity=(config.sensors.rain if rain_cfg.confirm_with_rain_sensor else None),
+    )
+
+    if session_factory is not None:
+        with session_factory() as session:
+            for zone in zones:
+                balance = ha.get_zone_balance(zone.zone_id)
+                if balance is None:
+                    continue
+                row = session.get(ZoneWaterBalance, zone.zone_id)
+                if row is None:
+                    row = ZoneWaterBalance(
+                        zone_id=zone.zone_id,
+                        balance_mm=balance,
+                        reservoir_mm=zone.reservoir_mm,
+                    )
+                else:
+                    row.balance_mm = balance
+                    row.reservoir_mm = zone.reservoir_mm
+                    row.updated_at = datetime.now(UTC)
+                session.add(row)
+            session.commit()
 
 
 async def refresh_rain_confirmed_peak(config: AppConfig, ha: HAClient) -> None:
@@ -514,7 +643,9 @@ async def run_sequence_job(
         _log_decision(session_factory, sequence_id, triggered_by, "skipped", "master_off")
         return "skipped"
 
-    snapshot = read_sensor_snapshot(ha, config)
+    # Scope the et0_zonal credit to this sequence's own zones so an unrelated dry
+    # zone elsewhere can't keep this sequence from skipping when its zones are wet.
+    snapshot = read_sensor_snapshot(ha, config, seq_cfg.zones)
     # Computed before the wind gate (it has no side effects) so a wind skip is
     # logged with the factor inputs it would have used.
     with session_factory() as session:
@@ -1197,6 +1328,7 @@ def setup_scheduler(
             await refresh_rain_confirmed_peak(config, ha)
             await refresh_recent_rain_credit(config, ha, session_factory)
             await refresh_et0_balance(config, ha, session_factory)
+            await refresh_et0_zonal_balance(config, ha, session_factory)
             if on_weather_metrics_refreshed is not None:
                 result = on_weather_metrics_refreshed()
                 if result is not None:
