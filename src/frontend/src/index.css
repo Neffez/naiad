@@ -665,6 +665,26 @@ svg { display: block; }
 .n-zone-cell { min-width: 0; display: flex; align-items: center; }
 .n-zone-cell-stair { gap: 12px; flex-wrap: wrap; }
 .n-zone-cell-del { justify-content: flex-end; }
+.n-zone-soil-wrap { border-bottom: 1px solid var(--n-line); }
+.n-zone-soil-wrap:last-child { border-bottom: none; }
+.n-zone-soil-wrap .n-zone-grid-row { border-bottom: none; }
+.n-zone-soil > summary {
+  cursor: pointer;
+  padding: 2px 20px 10px;
+  font-size: 12px;
+  color: var(--n-fg-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.n-zone-soil-grid { display: flex; flex-wrap: wrap; gap: 16px; padding: 0 20px 14px; }
+.n-zone-soil-field { display: flex; flex-direction: column; gap: 4px; }
+.n-zone-soil-field > span {
+  font-size: 11px;
+  color: var(--n-fg-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 .n-zone-id {
   font-size: 12px;
   color: var(--n-teal-200);

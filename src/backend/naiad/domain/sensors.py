@@ -99,5 +99,8 @@ def read_sensor_snapshot(ha: HAClient, config: AppConfig) -> SensorSnapshot:
         # Only the et0 rain mode refreshes this cache; outside that mode (or
         # before the first refresh) it stays None and the factor ignores it.
         et0_balance_mm=ha.get_et0_balance(),
+        # The et0_zonal credit: the most-depleted zone's balance. Only the
+        # et0_zonal mode refreshes it; None otherwise (factor ignores it).
+        et0_zonal_balance_mm=ha.get_et0_zonal_aggregate(),
         unavailable=unavailable,
     )

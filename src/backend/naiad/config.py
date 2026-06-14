@@ -269,12 +269,37 @@ class ZoneConfig(BaseModel):
     # ``staircase_min`` is the actuator's configured on-time in minutes.
     staircase_enabled: bool = False
     staircase_min: float = 0.0
+    # ── Soil-water parameters for the et0_zonal rain mode (stage 2) ───────────
+    # All optional; the defaults reproduce a neutral loam reservoir and no
+    # irrigation feedback, so an installation that never opts in behaves exactly
+    # as before. Soil type and root depth derive the reservoir capacity; the crop
+    # coefficient scales reference ET₀ into the zone's actual ETc; ``area_m2``
+    # converts logged liters into applied mm (1 L/m² = 1 mm). ``reservoir_mm``,
+    # when > 0, overrides the soil-type/root-depth derivation outright.
+    soil_type: Literal["sand", "loam", "clay"] = "loam"
+    root_depth_mm: float = Field(default=150.0, gt=0)
+    depletion_fraction: float = Field(default=0.5, ge=0.1, le=0.9)
+    crop_coefficient: float = Field(default=1.0, gt=0)
+    area_m2: float = Field(default=0.0, ge=0)
+    reservoir_mm: float = Field(default=0.0, ge=0)
 
     @model_validator(mode="after")
     def _validate_staircase(self) -> "ZoneConfig":
         if self.staircase_enabled and self.staircase_min <= 0:
             raise ValueError("staircase_min must be > 0 when staircase_enabled is true")
         return self
+
+    def et0_reservoir_mm(self) -> float:
+        """Plant-available soil reservoir (mm) for the et0_zonal balance.
+
+        Uses the explicit ``reservoir_mm`` override when set (> 0), otherwise
+        derives it from soil type, root depth and the allowed depletion.
+        """
+        from naiad.domain.et0 import reservoir_from_soil
+
+        if self.reservoir_mm > 0:
+            return self.reservoir_mm
+        return reservoir_from_soil(self.soil_type, self.root_depth_mm, self.depletion_fraction)
 
 
 def staircase_retrigger_interval_min(zone: ZoneConfig) -> float | None:
@@ -453,7 +478,7 @@ class TempFactorConfig(BaseModel):
 
 
 class RainFactorConfig(BaseModel):
-    mode: Literal["forecast", "water_balance", "et0"] = "forecast"
+    mode: Literal["forecast", "water_balance", "et0", "et0_zonal"] = "forecast"
     # Forecast window in days: 1 = today only, 2 = today + tomorrow. Only two
     # days of forecast sensors exist, so values above 2 behave like 2.
     forecast_days: int = Field(default=2, ge=1)

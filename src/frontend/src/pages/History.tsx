@@ -528,6 +528,7 @@ function DecisionRow({ row, config }: { row: DecisionEntry; config: ConfigDoc | 
                   value={
                     row.rain_mode === 'water_balance' ? t('history.rainModeWaterBalance')
                       : row.rain_mode === 'et0' ? t('history.rainModeEt0')
+                      : row.rain_mode === 'et0_zonal' ? t('history.rainModeEt0Zonal')
                       : t('history.rainModeForecast')
                   }
                 />

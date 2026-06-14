@@ -41,7 +41,8 @@ export default function ZonesSection() {
           {zoneIds.map((id) => {
             const z = draft.zones[id]
             return (
-              <div className="n-zone-grid-row" key={id}>
+              <div className="n-zone-soil-wrap" key={id}>
+              <div className="n-zone-grid-row">
                 <div className="n-zone-cell" data-col="id">
                   <span className="mono n-zone-id">{id}</span>
                 </div>
@@ -82,6 +83,43 @@ export default function ZonesSection() {
                     style={{ height: 36, width: 36, padding: 0, fontSize: 15, color: 'var(--n-danger)' }}
                     onClick={() => requestDelete({ type: 'zone', id })}>✕</button>
                 </div>
+              </div>
+              <details className="n-zone-soil">
+                <summary>
+                  {t('config.soilTitle')}
+                  <InfoTip text={t('config.soilHelp')} />
+                </summary>
+                <div className="n-zone-soil-grid">
+                  <label className="n-zone-soil-field">
+                    <span>{t('config.soilType')}</span>
+                    <select style={{ ...inputStyle, width: '100%' }} value={z.soil_type ?? 'loam'}
+                      aria-label={t('config.soilType')}
+                      onChange={(e) => patch((d) => { d.zones[id].soil_type = e.target.value as 'sand' | 'loam' | 'clay' })}>
+                      <option value="sand">{t('config.soilType_sand')}</option>
+                      <option value="loam">{t('config.soilType_loam')}</option>
+                      <option value="clay">{t('config.soilType_clay')}</option>
+                    </select>
+                  </label>
+                  <label className="n-zone-soil-field">
+                    <span>{t('config.rootDepth')}</span>
+                    <NumberField value={z.root_depth_mm ?? 150} width={90} unit="mm" min={1}
+                      aria-label={t('config.rootDepth')}
+                      onChange={(v) => patch((d) => { d.zones[id].root_depth_mm = v })} />
+                  </label>
+                  <label className="n-zone-soil-field">
+                    <span>{t('config.cropCoefficient')}</span>
+                    <NumberField value={z.crop_coefficient ?? 1} width={70} step={0.05} min={0.05}
+                      aria-label={t('config.cropCoefficient')}
+                      onChange={(v) => patch((d) => { d.zones[id].crop_coefficient = v })} />
+                  </label>
+                  <label className="n-zone-soil-field">
+                    <span>{t('config.zoneArea')}</span>
+                    <NumberField value={z.area_m2 ?? 0} width={80} unit="m²" min={0}
+                      aria-label={t('config.zoneArea')}
+                      onChange={(v) => patch((d) => { d.zones[id].area_m2 = v })} />
+                  </label>
+                </div>
+              </details>
               </div>
             )
           })}

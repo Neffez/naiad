@@ -309,7 +309,7 @@ class TempFactorSettingsInput(BaseModel):
 
 
 class RainFactorSettingsInput(BaseModel):
-    mode: Literal["forecast", "water_balance", "et0"] | None = None
+    mode: Literal["forecast", "water_balance", "et0", "et0_zonal"] | None = None
     forecast_days: int | None = None
     threshold_prob: int | None = None
     reduce_above_mm: float | None = None
@@ -352,7 +352,7 @@ class TempFactorSettingsResponse(BaseModel):
 
 
 class RainFactorSettingsResponse(BaseModel):
-    mode: Literal["forecast", "water_balance", "et0"]
+    mode: Literal["forecast", "water_balance", "et0", "et0_zonal"]
     forecast_days: int
     threshold_prob: int
     reduce_above_mm: float

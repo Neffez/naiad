@@ -4,6 +4,7 @@ from naiad.domain.et0 import (
     BalanceDay,
     extraterrestrial_radiation_mm,
     hargreaves_et0_mm,
+    reservoir_from_soil,
     soil_balance_mm,
 )
 
@@ -73,3 +74,39 @@ def test_balance_unknown_et0_falls_back_to_decay() -> None:
 
 def test_balance_empty_window_is_zero() -> None:
     assert soil_balance_mm([], reservoir_mm=25.0, fallback_decay=0.65) == 0.0
+
+
+def test_balance_counts_irrigation_like_rain() -> None:
+    """Naiad's own irrigation fills the reservoir just like rain does."""
+    days = [BalanceDay(rain_mm=0.0, et0_mm=3.0, irrigation_mm=8.0)]
+    # 0 + 8 - 3 = 5
+    assert soil_balance_mm(days, reservoir_mm=25.0, fallback_decay=0.65) == pytest.approx(5.0)
+
+
+def test_balance_rain_plus_irrigation_clamp_to_reservoir() -> None:
+    days = [BalanceDay(rain_mm=20.0, et0_mm=0.0, irrigation_mm=20.0)]
+    # 20 + 20 capped at 25; no ET₀ loss
+    assert soil_balance_mm(days, reservoir_mm=25.0, fallback_decay=0.65) == pytest.approx(25.0)
+
+
+# ── Reservoir from soil type ────────────────────────────────────────────────
+
+
+def test_reservoir_from_soil_loam() -> None:
+    """Loam (AWF 0.15) over 150 mm roots at 0.5 depletion → 0.15·150·0.5 = 11.25 mm."""
+    assert reservoir_from_soil("loam", 150.0, 0.5) == pytest.approx(11.25)
+
+
+def test_reservoir_from_soil_clay_holds_more_than_sand() -> None:
+    clay = reservoir_from_soil("clay", 300.0, 0.5)
+    sand = reservoir_from_soil("sand", 300.0, 0.5)
+    assert clay > sand
+
+
+def test_reservoir_unknown_soil_falls_back_to_loam() -> None:
+    assert reservoir_from_soil("moon_dust", 150.0, 0.5) == reservoir_from_soil("loam", 150.0, 0.5)
+
+
+def test_reservoir_has_positive_floor() -> None:
+    """A degenerate config never yields a zero-capacity reservoir."""
+    assert reservoir_from_soil("sand", 0.0, 0.5) == pytest.approx(1.0)
