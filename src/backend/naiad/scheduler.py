@@ -18,6 +18,7 @@ from naiad.config import (
     SequenceConfig,
     target_service_data,
 )
+from naiad.domain.et0 import day_index
 from naiad.domain.factors import FactorResult, compute_factors, merge_factor_config
 from naiad.domain.models import (
     DecisionLog,
@@ -476,6 +477,7 @@ def _daily_irrigation_by_zone(
     out = {zone_id: [0.0] * len(day_bounds) for zone_id in area_by_zone}
     if not area_by_zone or not day_bounds:
         return out
+    bounds_epoch = [(s.timestamp(), e.timestamp()) for s, e in day_bounds]
     window_start = day_bounds[0][0].replace(tzinfo=None)
     rows = session.exec(
         select(RunHistory).where(
@@ -491,14 +493,9 @@ def _daily_irrigation_by_zone(
         # ended_at is stored as naive UTC (SQLite round-trips naive values), so
         # pin it to UTC before comparing against the tz-aware day windows —
         # naive.timestamp() would otherwise assume the host's local timezone.
-        ended = row.ended_at.replace(tzinfo=UTC).timestamp()
-        for idx, (start, end) in enumerate(day_bounds):
-            last = idx == len(day_bounds) - 1
-            if start.timestamp() <= ended and (
-                ended < end.timestamp() or (last and ended <= end.timestamp())
-            ):
-                out[row.zone_id][idx] += row.liters / area
-                break
+        idx = day_index(row.ended_at.replace(tzinfo=UTC).timestamp(), bounds_epoch)
+        if idx is not None:
+            out[row.zone_id][idx] += row.liters / area
     return out
 
 

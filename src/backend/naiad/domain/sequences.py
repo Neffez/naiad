@@ -668,11 +668,16 @@ class SequenceRunner:
     def _zonal_durations(self, seq: SequenceConfig) -> dict[str, float] | None:
         """Per-zone deficit-based runtimes for the et0_zonal rain mode (stage 3).
 
-        Returns minutes per zone needed to refill its persisted soil-water
-        deficit at the zone's application rate (``flow_lph``/``area_m2``), clamped
-        to the sequence's configured min/max range. None unless the effective rain
+        Returns minutes per zone: a positive deficit runtime is clamped to the
+        sequence's configured min/max range; a fully-saturated zone (no deficit)
+        maps to ``0.0``, the signal for ``_run_zones`` to skip it entirely rather
+        than cycle the valve for the range minimum. None unless the effective rain
         mode is ``et0_zonal``; zones without a usable application rate or a
         computed balance are omitted, so they fall back to the factor duration.
+
+        The reservoir comes from the *current* config (``soil_reservoir_mm``), not
+        the persisted balance row, so a soil/area change takes effect immediately;
+        only the water content (``balance_mm``) comes from the refreshed row.
 
         A manual factor override also returns None: it is a deliberate "water at
         X%" instruction that scales the basis duration, and it must win over the
@@ -700,8 +705,12 @@ class SequenceRunner:
                 rate = application_rate_mm_per_min(zone_cfg.flow_lph, zone_cfg.area_m2)
                 if rate is None:
                     continue
-                runtime = deficit_runtime_min(row.reservoir_mm, row.balance_mm, rate)
-                durations[zone_id] = max(float(lo), min(float(hi), runtime))
+                runtime = deficit_runtime_min(zone_cfg.soil_reservoir_mm(), row.balance_mm, rate)
+                # Saturated (deficit 0) → 0.0 marks "skip this zone"; otherwise
+                # clamp the deficit runtime to the sequence's run-length range.
+                durations[zone_id] = (
+                    0.0 if runtime <= 0.0 else max(float(lo), min(float(hi), runtime))
+                )
         return durations or None
 
     async def _safe_turn_off(
@@ -1026,10 +1035,8 @@ class SequenceRunner:
         effective_basis, effective_watchdog = self._effective_seq_params(seq, sequence_id)
 
         # Per-zone durations for the et0_zonal mode (stage 3): each zone runs only
-        # long enough to refill its own soil deficit. None for every other path —
-        # then the single factor-scaled duration applies to all zones. Skipped on
-        # the override path (standalone zone runs and crash recovery, which carry
-        # an explicit duration), so those safety-critical flows are unchanged.
+        # long enough to refill its own soil deficit. None for every other mode —
+        # then the single factor-scaled duration applies to all zones.
         zonal_durations: dict[str, float] | None = None
         if override_min is not None:
             duration_min = override_min
@@ -1038,6 +1045,16 @@ class SequenceRunner:
             # mid-way with an alarming notification (mirrors build_zone_sequence,
             # which does the same for standalone zone runs).
             effective_watchdog = max(effective_watchdog, duration_min + 10.0)
+            # Crash recovery of a real sequence still derives per-zone deficit
+            # runtimes for the zones AFTER the resumed one (the resumed zone keeps
+            # its persisted remaining); a standalone zone run never does, so its
+            # explicit duration is honored verbatim.
+            if not run.is_zone_run:
+                zonal_durations = self._zonal_durations(seq)
+                if zonal_durations:
+                    effective_watchdog = max(
+                        effective_watchdog, max(zonal_durations.values()) + 10.0
+                    )
         else:
             lo, hi = seq.range
             basis = effective_basis * factor_pct / 100.0
@@ -1050,14 +1067,18 @@ class SequenceRunner:
                 continue
 
             zone_cfg = self._config.zones[zone_id]
+            resuming = i == start_index and start_remaining is not None
             # The factor-scaled duration is the default; in et0_zonal mode a zone
             # with a known application rate uses its own deficit-based runtime.
-            planned = duration_min
-            if zonal_durations is not None and zone_id in zonal_durations:
-                planned = zonal_durations[zone_id]
-            zone_duration = (
-                start_remaining if (i == start_index and start_remaining is not None) else planned
-            )
+            zonal = zonal_durations.get(zone_id) if zonal_durations is not None else None
+            planned = duration_min if zonal is None else zonal
+            # et0_zonal: a saturated zone (deficit 0 → runtime 0) is skipped
+            # entirely rather than cycling the valve for the range minimum. The
+            # zone being resumed mid-run is never skipped (it had a real deficit).
+            if not resuming and zonal is not None and zonal <= 0.0:
+                logger.info("zone %s skipped — soil at field capacity (et0_zonal)", zone_id)
+                continue
+            zone_duration = start_remaining if start_remaining is not None and resuming else planned
             start_remaining = None  # only applies to first resumed zone
 
             started_at = datetime.now(UTC)

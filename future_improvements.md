@@ -218,14 +218,24 @@ where the application rate is `flow_lph / area_m2` (1 L/m² = 1 mm), clamped to
 the sequence's configured min/max range. This is confined to the normal start
 and pause/resume path in `SequenceRunner._run_zones`; the safety-critical
 override paths (standalone single-zone runs and crash recovery, which carry an
-explicit duration) are untouched, and a zone without a usable application rate
-falls back to the factor-scaled duration. The sequence-level skip gate still
-uses the aggregate (driest-zone) factor, so a sequence whose driest zone is
-already saturated is skipped wholesale as before.
+explicit duration) — except that crash recovery of a real sequence now also
+re-derives per-zone deficit runtimes for the zones after the resumed one (the
+resumed zone keeps its persisted remaining); a zone without a usable application
+rate falls back to the factor-scaled duration. A fully-saturated zone (no
+deficit) is **skipped entirely** rather than watered for the range minimum, and
+an individual manual factor override takes precedence over the per-zone runtime.
+The reservoir used for the deficit comes from the current config, so a soil/area
+change takes effect immediately rather than waiting for the next balance
+refresh. The sequence-level skip gate is scoped to each sequence's own zones
+(see stage 2), so a sequence is skipped wholesale only when *its* driest zone is
+saturated.
 
-Possible future refinement: skip an individual *saturated* zone within a
-sequence (today its runtime is clamped up to the range minimum rather than to
-zero), which would need per-zone skipping in the runner's zone loop.
+Code-review follow-ups addressed (2026-06-14): per-sequence (not global) credit
+aggregation; manual-override precedence; per-zone skip of saturated zones;
+config-fresh reservoir; clearing the cached balances on a full history delete;
+recovery re-deriving zonal runtimes; a single batched irrigation query; a shared
+day-bucketing helper; and renaming the zone reservoir method to avoid colliding
+with the global field.
 
 ---
 

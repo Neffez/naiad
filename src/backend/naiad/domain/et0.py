@@ -70,6 +70,22 @@ class BalanceDay:
     irrigation_mm: float = 0.0
 
 
+def day_index(ts: float, day_bounds: list[tuple[float, float]]) -> int | None:
+    """Index of the day window (epoch ``[start, end)``) containing ``ts``.
+
+    The last window is closed on the right so a sample timestamped exactly at the
+    window end (e.g. an appended live reading at "now", or a run that ends at the
+    current instant) still counts toward today. Returns None when ``ts`` falls
+    outside every window. Shared by the rain and irrigation day-bucketing so the
+    two never attribute the same instant to different days.
+    """
+    last = len(day_bounds) - 1
+    for idx, (start, end) in enumerate(day_bounds):
+        if start <= ts and (ts < end or (idx == last and ts <= end)):
+            return idx
+    return None
+
+
 def soil_balance_mm(days: list[BalanceDay], reservoir_mm: float, fallback_decay: float) -> float:
     """Plant-available water (mm) left from recent rain after ET₀ losses.
 

@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from naiad.api.history import delete_history
-from naiad.domain.models import Plan, RunHistory, SequenceOverride
+from naiad.domain.models import Plan, RunHistory, SequenceOverride, ZoneWaterBalance
 
 
 def _engine():
@@ -32,6 +32,29 @@ async def test_delete_all_history_clears_runs() -> None:
     assert result.deleted == 2
     with Session(eng) as s:
         assert s.exec(select(RunHistory)).all() == []
+
+
+async def test_delete_all_history_clears_zone_balances() -> None:
+    """A full clear drops the cached et0_zonal balances (rebuilt from the now-empty
+    irrigation history), but a partial prune leaves them alone."""
+    eng = _engine()
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with Session(eng) as s:
+        _run(s, now)
+        s.add(ZoneWaterBalance(zone_id="z", balance_mm=12.0, reservoir_mm=25.0))
+        s.commit()
+
+    # Partial prune keeps the balance.
+    with Session(eng) as s:
+        await delete_history(_=None, session=s, older_than_days=30)
+    with Session(eng) as s:
+        assert s.get(ZoneWaterBalance, "z") is not None
+
+    # Full clear drops it.
+    with Session(eng) as s:
+        await delete_history(_=None, session=s, older_than_days=None)
+    with Session(eng) as s:
+        assert s.get(ZoneWaterBalance, "z") is None
 
 
 async def test_delete_older_than_keeps_recent_runs() -> None:
