@@ -14,6 +14,7 @@ directly rather than via ``starlette.testclient.TestClient`` so the test needs n
 ``httpx`` dependency.
 """
 
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -23,7 +24,7 @@ from naiad.ha_client import HAClient
 
 
 @pytest.fixture
-def isolated_app(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+def isolated_app(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     # Hermetic data dir so create_tables()/get_engine() never touch the real /data
     # volume (which is unwritable in CI). Reset the cached engine so the temp path
     # actually takes effect.
@@ -41,7 +42,9 @@ def isolated_app(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
 
     import naiad.main as main
 
-    return main.app
+    routes = list(main.app.router.routes)
+    yield main.app
+    main.app.router.routes = routes
 
 
 async def test_app_lifespan_starts_and_stops(isolated_app: Any, tmp_path: Any) -> None:
