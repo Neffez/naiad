@@ -22,23 +22,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: src/backend/pyproject.toml
+
+      - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: src/backend/uv.lock
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: uv sync --locked --extra dev
 
       - name: Lint (ruff)
-        run: ruff check .
+        run: uv run ruff check .
 
       - name: Format check (ruff)
-        run: ruff format --check .
+        run: uv run ruff format --check .
 
       - name: Type check (mypy)
-        run: mypy naiad
+        run: uv run mypy naiad
 
       - name: Test (pytest)
-        run: pytest
+        run: uv run pytest
 
   frontend:
     runs-on: ubuntu-latest
