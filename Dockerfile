@@ -16,10 +16,9 @@ RUN npm run build
 FROM python:3.12-slim AS runtime
 WORKDIR /app
 
-# Mirror the repo layout so pyproject's readme (../../README.md) resolves, and the
-# package is present *before* the install. Editable install keeps `naiad` importable
-# from /app/src/backend while main.py finds the sibling ./static at runtime.
-COPY README.md ./README.md
+# Mirror the repo layout so the package is present *before* the install. Editable
+# install keeps `naiad` importable from /app/src/backend while main.py finds the
+# sibling ./static at runtime.
 COPY src/backend ./src/backend
 RUN pip install --no-cache-dir -e ./src/backend
 
