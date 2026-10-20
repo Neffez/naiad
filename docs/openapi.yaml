@@ -491,9 +491,12 @@ components:
 
     NotifyTarget:
       type: object
-      required: [service, categories, quiet, platform]
+      required: [service, enabled, categories, quiet, platform]
       properties:
         service: { type: string }
+        enabled:
+          type: boolean
+          description: When false the target receives no notifications but stays configured.
         categories:
           type: array
           items: { $ref: '#/components/schemas/NotificationCategory' }

@@ -62,7 +62,7 @@ export default function NotificationsSection() {
           <button
             className="n-btn"
             style={{ height: 32, padding: '0 12px', fontSize: 12.5, alignSelf: 'flex-start' }}
-            disabled={dirty || draft.ha.notify_targets.length === 0}
+            disabled={dirty || !draft.ha.notify_targets.some((tg) => tg.enabled)}
             title={dirty ? t('config.saveFirst') : undefined}
             onClick={handleTestNotify}
           >

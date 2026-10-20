@@ -238,6 +238,7 @@
     "notifyOnStart": "Bei Start",
     "notifyOnSkip": "Bei Überspringen (Wind/Konflikt)",
     "notifyOnAbort": "Bei Abbruch (Regen/Watchdog)",
+    "notifyEnabled": "Aktiv",
     "notifyQuiet": "Leise (ohne Ton)",
     "notifyReminder": "Abend-Erinnerung (morgige Läufe)",
     "notifyReminderCron": "Erinnerungszeit (Cron)",

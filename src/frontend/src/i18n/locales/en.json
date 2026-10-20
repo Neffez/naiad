@@ -238,6 +238,7 @@
     "notifyOnStart": "On start",
     "notifyOnSkip": "On skip (wind/conflict)",
     "notifyOnAbort": "On abort (rain/watchdog)",
+    "notifyEnabled": "Enabled",
     "notifyQuiet": "Quiet (no sound)",
     "notifyReminder": "Evening reminder (tomorrow's runs)",
     "notifyReminderCron": "Reminder time (cron)",
