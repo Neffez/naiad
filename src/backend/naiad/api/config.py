@@ -295,17 +295,23 @@ async def test_notify(
 ) -> dict[str, object]:
     """Send a test push to configured notify targets.
 
-    If *service* is given, only that target is tested; otherwise all targets are
+    If *service* is given, only that target is tested (even when it is disabled, so a
+    target can be checked before switching it on); otherwise all enabled targets are
     tested. Reports exactly what failed."""
     targets = config.ha.notify_targets
     if service is not None:
         targets = [tgt for tgt in targets if tgt.service == service]
         if not targets:
             raise HTTPException(404, f"Notify target '{service}' not found in configuration.")
-    elif not targets:
-        raise HTTPException(
-            400, "No notify targets configured. Add at least one (notify.*) in the configuration."
-        )
+    else:
+        if not targets:
+            raise HTTPException(
+                400,
+                "No notify targets configured. Add at least one (notify.*) in the configuration.",
+            )
+        targets = [tgt for tgt in targets if tgt.enabled]
+        if not targets:
+            raise HTTPException(400, "All notify targets are disabled.")
     message = t("test.notification", config.language)
     failures: list[str] = []
     for target in targets:

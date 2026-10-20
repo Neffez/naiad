@@ -11,12 +11,14 @@ from naiad.domain.models import (
     DeferredCronRun,
     Plan,
     QueuedNotification,
+    SequenceOverride,
     SkippedRun,
     UserPreference,
 )
 from naiad.domain.sequences import SequenceRunner, zone_run_id
 from naiad.scheduler import (
     _consume_skip,
+    _evening_reminder,
     _notification_queue,
     _on_rain,
     _plan_tick,
@@ -830,3 +832,185 @@ async def test_wind_ignores_non_wind_blocked_runs(minimal_config: AppConfig, eng
 
     assert "seq_1" in runner.running_run_ids()
     await runner.stop("seq_1")
+
+
+# ── Notifications: per-target enable switch ────────────────────────────────────
+
+
+def test_notify_target_enabled_by_default() -> None:
+    cfg = _cfg_targets([{"service": "notify.a"}, "notify.b"])
+    assert all(tgt.enabled for tgt in cfg.ha.notify_targets)
+
+
+async def test_push_skips_disabled_target() -> None:
+    ha = _RecordingHA()
+    cfg = _cfg_targets(
+        [
+            {"service": "notify.a", "enabled": False},
+            {"service": "notify.b"},
+        ]
+    )
+    await push_notification(ha, cfg, "hi", category="start")
+    assert ha.calls == [("notify", "b", {"message": "hi"})]
+
+
+async def test_push_disabled_target_gets_no_info_either() -> None:
+    ha = _RecordingHA()
+    cfg = _cfg_targets([{"service": "notify.a", "enabled": False}])
+    await push_notification(ha, cfg, "hi", category="info")
+    assert ha.calls == []
+
+
+async def test_push_disabled_target_is_not_queued_offline() -> None:
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a", "enabled": False}])
+    await push_notification(ha, cfg, "hi", category="start")
+    assert _notification_queue.pending_count() == 0
+
+
+async def test_flush_drops_items_of_target_disabled_meanwhile() -> None:
+    ha = _ToggleHA(connected=False)
+    cfg = _cfg_targets([{"service": "notify.a"}])
+    await push_notification(ha, cfg, "hi", category="start")
+    assert _notification_queue.pending_count() == 1
+
+    ha.is_connected = True
+    await flush_notification_queue(ha, _cfg_targets([{"service": "notify.a", "enabled": False}]))
+    assert ha.calls == []
+    assert _notification_queue.pending_count() == 0
+
+
+# ── Evening reminder: only runs that will actually be attempted ────────────────
+
+
+class _FakeTrigger:
+    def get_next_fire_time(self, previous: datetime | None, now: datetime) -> datetime | None:
+        return None
+
+
+class _FakeJob:
+    def __init__(self, seq_id: str, when: datetime, idx: int = 0) -> None:
+        self.id = f"cron-{seq_id}#{idx}"
+        self.args = [seq_id]
+        self.next_run_time = when
+        self.trigger = _FakeTrigger()
+
+
+class _FakeScheduler:
+    def __init__(self, jobs: list[_FakeJob]) -> None:
+        self._jobs = jobs
+
+    def get_jobs(self) -> list[_FakeJob]:
+        return self._jobs
+
+
+def _tomorrow_at(cfg: AppConfig, hour: int) -> datetime:
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(cfg.timezone)
+    day = datetime.now(tz).date() + timedelta(days=1)
+    return datetime(day.year, day.month, day.day, hour, 0, tzinfo=tz)
+
+
+def _reminder_cfg() -> AppConfig:
+    return _cfg_targets([{"service": "notify.a", "categories": ["reminder"]}])
+
+
+async def test_reminder_lists_tomorrows_runs(engine) -> None:
+    cfg = _reminder_cfg()
+    ha = _RecordingHA()
+    sched = _FakeScheduler([_FakeJob("seq_1", _tomorrow_at(cfg, 6))])
+    await _evening_reminder(sched, cfg, ha, lambda: Session(engine))  # type: ignore[arg-type]
+    assert len(ha.calls) == 1
+    assert "Sequence 1" in ha.calls[0][2]["message"]
+
+
+async def test_reminder_not_sent_when_master_off(engine) -> None:
+    cfg = _reminder_cfg()
+    with Session(engine) as s:
+        s.add(UserPreference(key="master_on", value="0"))
+        s.commit()
+    ha = _RecordingHA()
+    sched = _FakeScheduler([_FakeJob("seq_1", _tomorrow_at(cfg, 6))])
+    await _evening_reminder(sched, cfg, ha, lambda: Session(engine))  # type: ignore[arg-type]
+    assert ha.calls == []
+
+
+async def test_reminder_not_sent_when_target_disabled(engine) -> None:
+    cfg = _cfg_targets([{"service": "notify.a", "categories": ["reminder"], "enabled": False}])
+    ha = _RecordingHA()
+    sched = _FakeScheduler([_FakeJob("seq_1", _tomorrow_at(cfg, 6))])
+    await _evening_reminder(sched, cfg, ha, lambda: Session(engine))  # type: ignore[arg-type]
+    assert ha.calls == []
+
+
+async def test_reminder_omits_user_skipped_run(engine) -> None:
+    cfg = _reminder_cfg()
+    skipped_at = _tomorrow_at(cfg, 6)
+    with Session(engine) as s:
+        s.add(
+            SkippedRun(
+                sequence_id="seq_1",
+                scheduled_at=skipped_at.astimezone(UTC).replace(tzinfo=None),
+            )
+        )
+        s.commit()
+    ha = _RecordingHA()
+    sched = _FakeScheduler(
+        [
+            _FakeJob("seq_1", skipped_at, 0),
+            _FakeJob("seq_1", _tomorrow_at(cfg, 18), 1),
+        ]
+    )
+    await _evening_reminder(sched, cfg, ha, lambda: Session(engine))  # type: ignore[arg-type]
+    assert len(ha.calls) == 1
+    message = ha.calls[0][2]["message"]
+    assert "18:00" in message  # the later, non-skipped run is still announced
+    assert "06:00" not in message
+
+
+async def test_reminder_not_sent_when_only_run_is_skipped(engine) -> None:
+    cfg = _reminder_cfg()
+    when = _tomorrow_at(cfg, 6)
+    with Session(engine) as s:
+        s.add(
+            SkippedRun(sequence_id="seq_1", scheduled_at=when.astimezone(UTC).replace(tzinfo=None))
+        )
+        s.commit()
+    ha = _RecordingHA()
+    sched = _FakeScheduler([_FakeJob("seq_1", when)])
+    await _evening_reminder(sched, cfg, ha, lambda: Session(engine))  # type: ignore[arg-type]
+    assert ha.calls == []
+
+
+async def test_reminder_omits_paused_sequence(engine) -> None:
+    cfg = _reminder_cfg()
+    with Session(engine) as s:
+        s.add(SequenceOverride(sequence_id="seq_1", paused=True))
+        s.add(
+            Plan(
+                id=str(uuid.uuid4()),
+                sequence_id="seq_1",
+                scheduled_at=_tomorrow_at(cfg, 8).astimezone(UTC).replace(tzinfo=None),
+            )
+        )
+        s.commit()
+    ha = _RecordingHA()
+    sched = _FakeScheduler([_FakeJob("seq_1", _tomorrow_at(cfg, 6))])
+    await _evening_reminder(sched, cfg, ha, lambda: Session(engine))  # type: ignore[arg-type]
+    assert ha.calls == []
+
+
+async def test_expired_deferred_cron_not_notified_when_master_off(
+    fast_config: AppConfig, engine
+) -> None:
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(fast_config, FakeDriver(), sf)
+    past = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=30)
+    with Session(engine) as s:
+        s.add(UserPreference(key="master_on", value="0"))
+        s.add(DeferredCronRun(sequence_id="seq_1", created_at=past, expires_at=past))
+        s.commit()
+    ha = _RecordingHA()
+    await _retry_deferred_cron_runs(runner, ha, fast_config, sf)  # type: ignore[arg-type]
+    assert ha.calls == []

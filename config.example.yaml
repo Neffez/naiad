@@ -12,6 +12,7 @@ ha:
   # (just the service) is also accepted and means "all categories".
   notify_targets:
     - service: notify.mobile_app_pixel
+      enabled: true                                 # false = keep configured, send nothing
       categories: [start, skip, abort, reminder]   # which kinds this phone wants
       quiet: false                                  # silent / low-priority delivery
       platform: auto                                # auto | ios | android (tunes quiet)

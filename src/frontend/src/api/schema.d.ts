@@ -935,6 +935,8 @@ export interface components {
         NotificationCategory: "start" | "skip" | "abort" | "reminder";
         NotifyTarget: {
             service: string;
+            /** @description When false the target receives no notifications but stays configured. */
+            enabled: boolean;
             categories: components["schemas"]["NotificationCategory"][];
             quiet: boolean;
             /** @enum {string} */

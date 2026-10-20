@@ -292,8 +292,9 @@ export function ReminderTime({ value, onChange }: { value: string; onChange: (cr
   )
 }
 
-// Per-recipient notify targets: each is an HA notify.* service plus which
-// categories it wants, whether to deliver quietly, and a platform hint.
+// Per-recipient notify targets: each is an HA notify.* service plus whether it
+// is active, which categories it wants, whether to deliver quietly, and a
+// platform hint. A disabled target stays configured but receives nothing.
 export function NotifyTargetList({ values, services, dirty, onChange }: {
   values: NotifyTarget[]; services?: string[]; dirty: boolean; onChange: (vals: NotifyTarget[]) => void
 }) {
@@ -323,60 +324,69 @@ export function NotifyTargetList({ values, services, dirty, onChange }: {
           display: 'flex', flexDirection: 'column', gap: 8,
           padding: '12px', border: '1px solid var(--n-line)', borderRadius: 'var(--n-r-md)',
         }}>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-            <EntityCombobox
-              value={tg.service}
-              onChange={(nv) => update(i, (x) => ({ ...x, service: nv }))}
-              options={options}
-              hint={t('config.entityType.notify')}
-              ariaLabel={t('config.entityType.notify')}
-              width={300}
-            />
-            <button
-              className="n-btn"
-              title={dirty ? t('config.saveFirst') : t('config.notifyTestThis')}
-              aria-label={t('config.notifyTestThis')}
-              style={{ height: 36, width: 36, padding: 0, fontSize: 15, color: testStates[i] === 'ok' ? 'var(--n-teal-400)' : 'var(--n-fg-muted)' }}
-              disabled={dirty || !tg.service || testStates[i] === 'pending'}
-              onClick={() => handleTestTarget(i, tg.service)}
-            >
-              {testStates[i] === 'ok' ? '✓' : '✉'}
-            </button>
-            <DeleteButton onClick={() => onChange(values.filter((_, j) => j !== i))} />
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <Check label={t('config.notifyEnabled')} checked={tg.enabled}
+              onChange={(c) => update(i, (x) => ({ ...x, enabled: c }))} />
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {NOTIFICATION_CATEGORIES.map((cat) => {
-              const on = tg.categories.includes(cat)
-              return (
-                <button key={cat} type="button" aria-pressed={on} className={`n-chip${on ? ' active' : ''}`}
-                  style={{ cursor: 'pointer', opacity: on ? 1 : 0.55 }}
-                  onClick={() => update(i, (x) => ({
-                    ...x,
-                    categories: on ? x.categories.filter((c) => c !== cat) : [...x.categories, cat],
-                  }))}>
-                  {t(`config.notifyCat.${cat}`, { defaultValue: cat })}
-                </button>
-              )
-            })}
-          </div>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Check label={t('config.notifyQuiet')} checked={tg.quiet}
-              onChange={(c) => update(i, (x) => ({ ...x, quiet: c }))} />
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--n-fg-muted)' }}>
-              {t('config.notifyPlatform')}
-              <select value={tg.platform}
-                onChange={(e) => update(i, (x) => ({ ...x, platform: e.target.value as NotifyTarget['platform'] }))}
-                style={{ ...inputStyle, height: 30, width: 110 }}>
-                <option value="auto">{t('config.platformAuto')}</option>
-                <option value="ios">iOS</option>
-                <option value="android">Android</option>
-              </select>
-            </label>
+          <div style={{
+            display: 'flex', flexDirection: 'column', gap: 8,
+            opacity: tg.enabled ? 1 : 0.5,
+          }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+              <EntityCombobox
+                value={tg.service}
+                onChange={(nv) => update(i, (x) => ({ ...x, service: nv }))}
+                options={options}
+                hint={t('config.entityType.notify')}
+                ariaLabel={t('config.entityType.notify')}
+                width={300}
+              />
+              <button
+                className="n-btn"
+                title={dirty ? t('config.saveFirst') : t('config.notifyTestThis')}
+                aria-label={t('config.notifyTestThis')}
+                style={{ height: 36, width: 36, padding: 0, fontSize: 15, color: testStates[i] === 'ok' ? 'var(--n-teal-400)' : 'var(--n-fg-muted)' }}
+                disabled={dirty || !tg.service || testStates[i] === 'pending'}
+                onClick={() => handleTestTarget(i, tg.service)}
+              >
+                {testStates[i] === 'ok' ? '✓' : '✉'}
+              </button>
+              <DeleteButton onClick={() => onChange(values.filter((_, j) => j !== i))} />
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {NOTIFICATION_CATEGORIES.map((cat) => {
+                const on = tg.categories.includes(cat)
+                return (
+                  <button key={cat} type="button" aria-pressed={on} className={`n-chip${on ? ' active' : ''}`}
+                    style={{ cursor: 'pointer', opacity: on ? 1 : 0.55 }}
+                    onClick={() => update(i, (x) => ({
+                      ...x,
+                      categories: on ? x.categories.filter((c) => c !== cat) : [...x.categories, cat],
+                    }))}>
+                    {t(`config.notifyCat.${cat}`, { defaultValue: cat })}
+                  </button>
+                )
+              })}
+            </div>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Check label={t('config.notifyQuiet')} checked={tg.quiet}
+                onChange={(c) => update(i, (x) => ({ ...x, quiet: c }))} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--n-fg-muted)' }}>
+                {t('config.notifyPlatform')}
+                <select value={tg.platform}
+                  onChange={(e) => update(i, (x) => ({ ...x, platform: e.target.value as NotifyTarget['platform'] }))}
+                  style={{ ...inputStyle, height: 30, width: 110 }}>
+                  <option value="auto">{t('config.platformAuto')}</option>
+                  <option value="ios">iOS</option>
+                  <option value="android">Android</option>
+                </select>
+              </label>
+            </div>
           </div>
         </div>
       ))}
       <button className="n-btn" style={{ height: 32, padding: '0 12px', fontSize: 12.5, alignSelf: 'flex-start' }}
-        onClick={() => onChange([...values, { service: '', categories: [...NOTIFICATION_CATEGORIES], quiet: false, platform: 'auto' }])}>
+        onClick={() => onChange([...values, { service: '', enabled: true, categories: [...NOTIFICATION_CATEGORIES], quiet: false, platform: 'auto' }])}>
         + {t('config.addEntry')}
       </button>
     </div>

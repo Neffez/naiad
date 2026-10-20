@@ -249,8 +249,13 @@ class NotificationQueue:
                     select(QueuedNotification).order_by(col(QueuedNotification.enqueued_at))
                 ).all()
             )
+        disabled = {tgt.service for tgt in config.ha.notify_targets if not tgt.enabled}
         delivered = 0
         for row in rows:
+            if row.service in disabled:
+                self._delete(row.id)  # target was switched off meanwhile — don't deliver
+                logger.info("Dropped queued notification for disabled '%s'", row.service)
+                continue
             target = NotifyTarget.model_validate(
                 {"service": row.service, "quiet": row.quiet, "platform": row.platform}
             )
@@ -305,7 +310,8 @@ async def push_notification(
 ) -> None:
     """Push to every notify target subscribed to ``category`` (``info`` → all).
 
-    Each target chooses its own categories and silent/platform settings. Sends that
+    Disabled targets receive nothing. Each target chooses its own categories and
+    silent/platform settings. Sends that
     fail because HA is unreachable are queued and re-delivered on reconnect (see
     NotificationQueue); real service errors are logged and dropped.
     """
@@ -316,6 +322,8 @@ async def push_notification(
     sent = 0
     queued = 0
     for target in targets:
+        if not target.enabled:
+            continue
         if category in NOTIFICATION_CATEGORIES and category not in target.categories:
             continue
         if await _deliver(ha, target, message):
@@ -880,8 +888,9 @@ async def _retry_deferred_cron_runs(
             _log_decision(session_factory, row.sequence_id, "cron", "skipped", "expired")
             # A scheduled run is being silently lost — tell the user, since safety
             # work (HA outage / valve cleanup at boot) blocked it past its TTL.
+            # Not when Naiad is switched off: the run would have been skipped anyway.
             seq_cfg = config.sequences.get(row.sequence_id)
-            if seq_cfg is not None:
+            if seq_cfg is not None and _master_on(session_factory):
                 note = t("skip.expired", config.language, label=seq_cfg.label)
                 await push_notification(ha, config, note, category="skip")
                 await broadcast_notification(note, level="warning")
@@ -1093,20 +1102,33 @@ async def _evening_reminder(
     """Push a summary of the next day's scheduled runs (nightly).
 
     push_notification gates delivery per target (category "reminder"); we just skip
-    the work when nobody is subscribed.
+    the work when nobody is subscribed. Nothing is announced while Naiad is switched
+    off (master off), and paused sequences and occurrences the user chose to skip
+    are left out — the reminder only lists runs that will actually be attempted.
     """
-    if not any("reminder" in target.categories for target in config.ha.notify_targets):
+    if not _reminder_subscribed(config):
+        return
+    if not _master_on(session_factory):
+        logger.info("Evening reminder skipped — master off")
         return
     tz = ZoneInfo(config.timezone)
     tomorrow = (datetime.now(tz) + timedelta(days=1)).date()
+    end_of_tomorrow = datetime.combine(tomorrow + timedelta(days=1), time.min, tzinfo=tz)
     runs: list[tuple[datetime, str]] = []
 
+    with session_factory() as session:
+        paused = {
+            row.sequence_id for row in session.exec(select(SequenceOverride)).all() if row.paused
+        }
+        skipped = list(session.exec(select(SkippedRun)).all())
+
     for seq_id, seq_cfg in config.sequences.items():
-        if not seq_cfg.enabled:
+        if not seq_cfg.enabled or seq_id in paused:
             continue
-        nxt = next_run_for_sequence(scheduler, seq_id)
-        if nxt is not None and nxt.astimezone(tz).date() == tomorrow:
-            runs.append((nxt.astimezone(tz), seq_cfg.label))
+        for nxt in upcoming_cron_runs(scheduler, seq_id, end_of_tomorrow):
+            local = nxt.astimezone(tz)
+            if local.date() == tomorrow and not _is_user_skipped(skipped, seq_id, nxt):
+                runs.append((local, seq_cfg.label))
 
     with session_factory() as session:
         plans = list(session.exec(select(Plan)).all())
@@ -1120,6 +1142,8 @@ async def _evening_reminder(
                 zone_cfg = config.zones.get(plan.zone_id)
                 label = zone_cfg.label if zone_cfg else plan.zone_id
             else:
+                if plan.sequence_id in paused:
+                    continue  # run_sequence_job would skip it
                 pseq = config.sequences.get(plan.sequence_id)
                 label = pseq.label if pseq else plan.sequence_id
             runs.append((local, t("reminder.planned", config.language, label=label)))
@@ -1132,6 +1156,22 @@ async def _evening_reminder(
         )
         message = t("reminder.header", config.language) + "\n" + lines
         await push_notification(ha, config, message, category="reminder")
+
+
+def _reminder_subscribed(config: AppConfig) -> bool:
+    return any(
+        target.enabled and "reminder" in target.categories for target in config.ha.notify_targets
+    )
+
+
+def _is_user_skipped(skipped: list[SkippedRun], sequence_id: str, when: datetime) -> bool:
+    """True if ``when`` (aware) matches a one-off skip of ``sequence_id``."""
+    when_naive = when.astimezone(UTC).replace(tzinfo=None)
+    return any(
+        row.sequence_id == sequence_id
+        and abs((row.scheduled_at - when_naive).total_seconds()) <= _SKIP_MATCH_TOLERANCE_S
+        for row in skipped
+    )
 
 
 def next_run_for_sequence(scheduler: AsyncIOScheduler, seq_id: str) -> datetime | None:
@@ -1176,7 +1216,7 @@ def _register_reminder_job(
     """(Re)register the nightly reminder; only when a target wants the reminder."""
     if scheduler.get_job("evening-reminder") is not None:
         scheduler.remove_job("evening-reminder")
-    if not any("reminder" in target.categories for target in config.ha.notify_targets):
+    if not _reminder_subscribed(config):
         return
     try:
         trigger = CronTrigger.from_crontab(

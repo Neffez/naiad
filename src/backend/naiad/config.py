@@ -20,10 +20,12 @@ class NotifyTarget(BaseModel):
     ``categories`` selects which notification kinds this target receives, so e.g.
     one phone can get only the evening reminder while another gets everything.
     ``quiet`` asks for silent/low-priority delivery; ``platform`` tunes the silent
-    payload (Android vs iOS use different keys).
+    payload (Android vs iOS use different keys). ``enabled`` pauses a target without
+    removing it from the configuration.
     """
 
     service: str
+    enabled: bool = True
     categories: list[str] = list(NOTIFICATION_CATEGORIES)
     quiet: bool = False
     platform: Literal["auto", "ios", "android"] = "auto"
