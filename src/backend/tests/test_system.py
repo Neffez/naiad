@@ -152,9 +152,7 @@ async def test_get_status_reports_master_off() -> None:
     with Session(_engine()) as session:
         session.add(UserPreference(key="master_on", value="0"))
         session.commit()
-        status = await get_status(
-            _=None, config=cfg, ha=FakeHA(), session=session, scheduler=sched
-        )
+        status = await get_status(_=None, config=cfg, ha=FakeHA(), session=session, scheduler=sched)
     assert status.master_on is False
 
 
@@ -166,7 +164,5 @@ async def test_get_status_survives_invalid_factor_override() -> None:
     with Session(_engine()) as session:
         session.add(FactorOverride(id=1, rain_reduce_above_mm=20.0, rain_zero_above_mm=5.0))
         session.commit()
-        status = await get_status(
-            _=None, config=cfg, ha=FakeHA(), session=session, scheduler=sched
-        )
+        status = await get_status(_=None, config=cfg, ha=FakeHA(), session=session, scheduler=sched)
     assert status.today_factor.combined_pct == 100
