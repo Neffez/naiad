@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -13,6 +14,8 @@ from naiad.database import get_session
 from naiad.dependencies import get_config, get_scheduler, require_auth
 from naiad.domain.models import Plan
 from naiad.timeutil import to_naive_utc
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -31,7 +34,11 @@ async def upcoming_runs(
     excluded) — the data behind the planner's calendar week view.
     """
     until = datetime.now(UTC) + timedelta(days=days)
-    return [run for _when, run in upcoming_run_candidates(session, config, scheduler, until)]
+    try:
+        return [run for _when, run in upcoming_run_candidates(session, config, scheduler, until)]
+    except Exception:
+        logger.exception("Failed to list upcoming runs")
+        return []
 
 
 def _to_response(plan: Plan, config: AppConfig) -> PlanResponse:

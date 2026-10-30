@@ -1,3 +1,5 @@
+import logging
+import math
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -23,8 +25,8 @@ from naiad.dependencies import (
     get_scheduler,
     require_auth,
 )
-from naiad.domain.factors import compute_factors, merge_factor_config, rain_factor_inputs
-from naiad.domain.models import FactorOverride, Plan, RunHistory, SequenceOverride, SkippedRun
+from naiad.domain.factors import compute_factors, load_factor_config, rain_factor_inputs
+from naiad.domain.models import Plan, RunHistory, SequenceOverride, SkippedRun
 from naiad.domain.preferences import read_master_on, set_master_on
 from naiad.domain.sensors import read_sensor_snapshot
 from naiad.domain.sequences import SequenceRunner, zone_run_id
@@ -32,7 +34,16 @@ from naiad.ha_client import HAClient
 from naiad.scheduler import next_run_for_sequence, upcoming_cron_runs
 from naiad.timeutil import local_day_start_utc, local_week_start_utc, parse_iso_or_none
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["system"])
+
+
+def _finite_int(value: float, default: int = 0) -> int:
+    """int(round(x)) that stays defined for NaN/Inf sensor leftovers."""
+    if not math.isfinite(value):
+        return default
+    return int(round(value))
 
 
 def _week_series(session: Session, tz_name: str) -> list[float]:
@@ -46,9 +57,13 @@ def _week_series(session: Session, tz_name: str) -> list[float]:
 
     buckets = [0.0] * 7
     for started_at, liters in rows:
-        if liters is None:
+        if liters is None or started_at is None:
             continue
-        local = started_at.replace(tzinfo=UTC).astimezone(tz)
+        try:
+            aware = started_at if started_at.tzinfo else started_at.replace(tzinfo=UTC)
+            local = aware.astimezone(tz)
+        except (AttributeError, TypeError, ValueError):
+            continue
         buckets[local.weekday()] += liters
     return [round(b, 1) for b in buckets]
 
@@ -254,7 +269,7 @@ async def get_status(
     # Mirror the rain inputs compute_factors actually used (today peak — gated on the
     # rain sensor when confirm_with_rain_sensor is on — tomorrow per peak_tomorrow and
     # forecast_days) so the displayed rain figures match the applied adjustment.
-    _eff_temp, eff_rain = merge_factor_config(config, session.get(FactorOverride, 1))
+    _eff_temp, eff_rain = load_factor_config(config, session)
     rain_prob_today, rain_prob_tomorrow, rain_mm_today, rain_mm_tomorrow = rain_factor_inputs(
         snapshot,
         eff_rain.peak_tomorrow,
@@ -272,14 +287,28 @@ async def get_status(
         seq_id for seq_id, seq in config.sequences.items() if seq.wind_blocks and snapshot.wind_on
     ]
 
-    # RunHistory.started_at is stored as naive UTC; bucket by *local* calendar day
-    # and *local* calendar week (Mon→Sun) so "today"/"this week" reset at local
-    # midnight and liters_week matches the sum of week_series shown in the chart.
-    today_start = local_day_start_utc(config.timezone)
-    week_start = local_week_start_utc(config.timezone)
+    try:
+        upcoming_runs = _upcoming_day_runs(session, config, scheduler)
+        next_runs = _next_runs(session, config, scheduler, 2)
+    except Exception:
+        logger.exception("Failed to compute upcoming runs")
+        upcoming_runs = []
+        next_runs = []
 
-    upcoming_runs = _upcoming_day_runs(session, config, scheduler)
-    next_runs = _next_runs(session, config, scheduler, 2)
+    try:
+        # RunHistory.started_at is stored as naive UTC; bucket by *local* calendar day
+        # and *local* calendar week (Mon→Sun) so "today"/"this week" reset at local
+        # midnight and liters_week matches the sum of week_series shown in the chart.
+        today_start = local_day_start_utc(config.timezone)
+        week_start = local_week_start_utc(config.timezone)
+        liters_today = _liters_since(session, today_start)
+        liters_week = _liters_since(session, week_start)
+        week_series = _week_series(session, config.timezone)
+    except Exception:
+        logger.exception("Failed to compute liter totals")
+        liters_today = 0.0
+        liters_week = 0.0
+        week_series = [0.0] * 7
 
     return SystemStatusResponse(
         master_on=read_master_on(session),
@@ -294,9 +323,9 @@ async def get_status(
             # Both are signed deltas from neutral (0 = no adjustment). temp_delta_pct
             # is already a delta; rain_factor_pct is a multiplier in % (100 = neutral),
             # so subtract 100 to express it as a delta too.
-            temp_pct=int(round(factors.temp_delta_pct)),
-            rain_pct=int(round(factors.rain_factor_pct)) - 100,
-            combined_pct=int(round(factors.factor_pct)),
+            temp_pct=_finite_int(factors.temp_delta_pct),
+            rain_pct=_finite_int(factors.rain_factor_pct) - 100,
+            combined_pct=_finite_int(factors.factor_pct),
             manual=factors.manual,
             wind_blocking_sequences=wind_blocking,
             temp_input_c=(
@@ -310,9 +339,9 @@ async def get_status(
         next_run=next_runs[0] if len(next_runs) > 0 else None,
         after_next=next_runs[1] if len(next_runs) > 1 else None,
         upcoming_runs=upcoming_runs,
-        liters_today=_liters_since(session, today_start),
-        liters_week=_liters_since(session, week_start),
-        week_series=_week_series(session, config.timezone),
+        liters_today=liters_today,
+        liters_week=liters_week,
+        week_series=week_series,
     )
 
 

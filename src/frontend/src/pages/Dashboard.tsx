@@ -35,6 +35,7 @@ import { WeatherStrip } from '../components/WeatherStrip'
 import { WeekChart } from '../components/WeekChart'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { formatWaterCost } from '../lib/cost'
+import { masterSwitchOn } from '../lib/masterSwitch'
 import { applyOrder } from '../lib/ordering'
 import { formatSchedule } from '../lib/schedule'
 import { verticalListSortingStrategy } from '@dnd-kit/sortable'
@@ -212,7 +213,7 @@ export default function Dashboard() {
     }
   }
 
-  const masterOn = status?.master_on ?? true
+  const masterOn = masterSwitchOn(status)
 
   const weekData = buildWeekData(status, t('weekdaysShort', { returnObjects: true }) as string[])
   const weekCost = formatWaterCost(

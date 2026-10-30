@@ -1,3 +1,5 @@
+import math
+
 from naiad.config import AppConfig
 from naiad.domain.factors import SensorSnapshot
 from naiad.ha_client import HAClient
@@ -15,27 +17,37 @@ def read_sensor_snapshot(
     sensors = config.sensors
     unavailable: list[str] = []
 
-    def _float(entity_id: str, default: float = 0.0) -> float:
+    def _parse_float(entity_id: str) -> float | None:
+        """Numeric HA state, or None when missing / non-numeric / non-finite.
+
+        Weather integrations sometimes report the strings ``nan`` / ``inf``.
+        ``float()`` accepts those, but they later break JSON responses and
+        ``int(round(...))`` in ``/api/status``.
+        """
         val = ha.get_state_value(entity_id)
         if val is None or val in ("unavailable", "unknown", "none"):
-            unavailable.append(entity_id)
-            return default
+            return None
         try:
-            return float(val)
-        except ValueError:
+            parsed = float(val)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(parsed):
+            return None
+        return parsed
+
+    def _float(entity_id: str, default: float = 0.0) -> float:
+        parsed = _parse_float(entity_id)
+        if parsed is None:
             unavailable.append(entity_id)
             return default
+        return parsed
 
     def _float_or_none(entity_id: str) -> float | None:
-        val = ha.get_state_value(entity_id)
-        if val is None or val in ("unavailable", "unknown", "none"):
+        parsed = _parse_float(entity_id)
+        if parsed is None:
             unavailable.append(entity_id)
             return None
-        try:
-            return float(val)
-        except ValueError:
-            unavailable.append(entity_id)
-            return None
+        return parsed
 
     def _bool(entity_id: str, *, safe_default: bool = False) -> bool:
         val = ha.get_state_value(entity_id)
@@ -62,7 +74,9 @@ def read_sensor_snapshot(
         # recorded maximum (kept fresh by the scheduler) so the rain factor can
         # scale to the worst forecast seen today, not just the latest reading.
         cached = ha.get_cached_daily_max(entity_id)
-        return current if cached is None else max(current, cached)
+        if cached is None or not math.isfinite(cached):
+            return current
+        return max(current, cached)
 
     # Today always uses the day's peak. Tomorrow keeps the latest reading plus a
     # separate peak field; compute_factors chooses between them per peak_tomorrow.

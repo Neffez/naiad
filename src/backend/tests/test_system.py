@@ -2,13 +2,20 @@ import uuid
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlmodel import Session, SQLModel, create_engine
 
-from naiad.api.system import _upcoming_day_runs, _week_series, upcoming_run_candidates
+from naiad.api.system import (
+    _upcoming_day_runs,
+    _week_series,
+    get_status,
+    upcoming_run_candidates,
+)
 from naiad.config import AppConfig
-from naiad.domain.models import Plan, RunHistory
+from naiad.domain.models import FactorOverride, Plan, RunHistory, UserPreference
 from tests.conftest import MINIMAL_CONFIG_DATA
+from tests.test_scheduler import FakeHA
 
 
 def _engine():
@@ -120,3 +127,46 @@ def test_upcoming_run_candidates_bounded_and_sorted() -> None:
     assert whens == sorted(whens)
     assert len(candidates) == 2
     assert all(when <= now + timedelta(days=7) for when in whens)
+
+
+@pytest.mark.asyncio
+async def test_get_status_survives_non_finite_weather_sensors() -> None:
+    """HA weather entities sometimes report 'nan'/'inf'. That must not 500 /status
+    — otherwise the dashboard cannot load and the master switch is stuck."""
+    cfg = AppConfig.model_validate(MINIMAL_CONFIG_DATA)
+    ha = FakeHA()
+    ha._states["sensor.temperature"] = "nan"
+    ha._states["sensor.prec_today"] = "inf"
+    sched = AsyncIOScheduler(timezone=cfg.timezone)
+    with Session(_engine()) as session:
+        status = await get_status(_=None, config=cfg, ha=ha, session=session, scheduler=sched)
+    assert status.master_on is True
+    assert status.today_factor.combined_pct == 100
+    assert status.weather.temp_c is None
+
+
+@pytest.mark.asyncio
+async def test_get_status_reports_master_off() -> None:
+    cfg = AppConfig.model_validate(MINIMAL_CONFIG_DATA)
+    sched = AsyncIOScheduler(timezone=cfg.timezone)
+    with Session(_engine()) as session:
+        session.add(UserPreference(key="master_on", value="0"))
+        session.commit()
+        status = await get_status(
+            _=None, config=cfg, ha=FakeHA(), session=session, scheduler=sched
+        )
+    assert status.master_on is False
+
+
+@pytest.mark.asyncio
+async def test_get_status_survives_invalid_factor_override() -> None:
+    """A stored override that fails RainFactorConfig validation must not 500."""
+    cfg = AppConfig.model_validate(MINIMAL_CONFIG_DATA)
+    sched = AsyncIOScheduler(timezone=cfg.timezone)
+    with Session(_engine()) as session:
+        session.add(FactorOverride(id=1, rain_reduce_above_mm=20.0, rain_zero_above_mm=5.0))
+        session.commit()
+        status = await get_status(
+            _=None, config=cfg, ha=FakeHA(), session=session, scheduler=sched
+        )
+    assert status.today_factor.combined_pct == 100

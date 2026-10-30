@@ -28,6 +28,9 @@ class FakeHA:
     def get_et0_zonal_aggregate(self, zone_ids: list[str] | None = None) -> float | None:
         return None
 
+    def get_recent_rain_credit(self, entity_id: str) -> float | None:
+        return None
+
 
 def _base_states() -> dict[str, str]:
     return {
@@ -133,6 +136,26 @@ def test_precipitation_falls_back_to_current_without_cache(minimal_config: AppCo
     ha = FakeHA(states, daily_max={})
     snap = read_sensor_snapshot(ha, minimal_config)  # type: ignore[arg-type]
     assert snap.precipitation_today_mm == 12.0
+
+
+def test_non_finite_sensor_states_are_unavailable(minimal_config: AppConfig) -> None:
+    """HA weather sensors sometimes report 'nan' / 'inf' as the state string.
+
+    float() accepts those, but later int(round(...)) in /api/status raises and
+    the dashboard fails to load. Treat them like 'unavailable' instead.
+    """
+    states = _base_states()
+    states["sensor.temperature"] = "nan"
+    states["sensor.prec_today"] = "inf"
+    states["sensor.prec_prob_today"] = "NaN"
+    ha = FakeHA(states)
+    snap = read_sensor_snapshot(ha, minimal_config)  # type: ignore[arg-type]
+    assert snap.temperature_c is None
+    assert snap.precipitation_today_mm == 0.0
+    assert snap.precipitation_prob_today == 0.0
+    assert "sensor.temperature" in snap.unavailable
+    assert "sensor.prec_today" in snap.unavailable
+    assert "sensor.prec_prob_today" in snap.unavailable
 
 
 def test_tomorrow_keeps_live_value_and_separate_peak(minimal_config: AppConfig) -> None:

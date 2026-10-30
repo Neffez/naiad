@@ -81,6 +81,9 @@ class FakeHA:
     def get_et0_zonal_aggregate(self, zone_ids: list[str] | None = None) -> float | None:
         return None
 
+    def get_recent_rain_credit(self, entity_id: str) -> float | None:
+        return None
+
     @property
     def is_connected(self) -> bool:
         return True

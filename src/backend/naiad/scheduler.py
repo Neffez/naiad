@@ -1202,7 +1202,11 @@ def upcoming_cron_runs(scheduler: AsyncIOScheduler, seq_id: str, until: datetime
         guard = 0
         while nxt is not None and nxt <= until and guard < 64:
             out.append(nxt)
-            nxt = job.trigger.get_next_fire_time(nxt, nxt + timedelta(seconds=1))
+            try:
+                nxt = job.trigger.get_next_fire_time(nxt, nxt + timedelta(seconds=1))
+            except (TypeError, ValueError, OverflowError):
+                logger.exception("Could not enumerate further cron fires for %s", seq_id)
+                break
             guard += 1
     return out
 

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
 from naiad.config import AppConfig, RainFactorConfig, TempFactorConfig
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from sqlmodel import Session
@@ -261,6 +266,27 @@ def merge_factor_config(
     return eff_temp, eff_rain
 
 
+def load_factor_config(
+    config: AppConfig,
+    session: Session | None,
+) -> tuple[TempFactorConfig, RainFactorConfig]:
+    """YAML factor config merged with the DB override.
+
+    A stored override that fails validation (e.g. inverted rain thresholds from
+    an older client) is ignored so status/start/MQTT keep working.
+    """
+    override = None
+    if session is not None:
+        from naiad.domain.models import FactorOverride
+
+        override = session.get(FactorOverride, 1)
+    try:
+        return merge_factor_config(config, override)
+    except ValidationError:
+        logger.exception("Ignoring invalid factor override — using YAML defaults")
+        return config.factors.temp, config.factors.rain
+
+
 def _clamp_manual_pct(pct: int, eff_temp: TempFactorConfig) -> int:
     """Clamp a manual adjustment percentage to the temperature factor's bounds."""
     return max(eff_temp.min_pct, min(eff_temp.max_pct, pct))
@@ -277,7 +303,7 @@ def compute_factors(
 
         override = session.get(FactorOverride, 1)
 
-    eff_temp, eff_rain = merge_factor_config(config, override)
+    eff_temp, eff_rain = load_factor_config(config, session)
 
     # Manual override: bypass the automatic calculation entirely and use the
     # user-set percentage (clamped to the configured bounds) as the combined factor.

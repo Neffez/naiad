@@ -1,3 +1,4 @@
+import math
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Query
@@ -156,11 +157,21 @@ async def get_history_summary(
         ).where(RunHistory.started_at >= start)
     ).one()
 
+    liters_f = float(liters or 0.0)
+    if not math.isfinite(liters_f):
+        liters_f = 0.0
+    avg: float | None
+    if avg_duration is None:
+        avg = None
+    else:
+        avg_f = float(avg_duration)
+        avg = round(avg_f, 1) if math.isfinite(avg_f) else None
+
     return HistorySummaryResponse(
         days=days,
-        liters=round(float(liters or 0.0), 1),
+        liters=round(liters_f, 1),
         runs=int(runs),
-        avg_duration_min=round(float(avg_duration), 1) if avg_duration is not None else None,
+        avg_duration_min=avg,
     )
 
 

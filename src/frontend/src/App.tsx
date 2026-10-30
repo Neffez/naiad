@@ -13,6 +13,7 @@ import './index.css'
 import { useAuth } from './hooks/useAuth'
 import { BASE_PATH } from './api/base'
 import { getStatus, setMaster, type SystemStatus } from './api/client'
+import { masterSwitchOn } from './lib/masterSwitch'
 import Dashboard from './pages/Dashboard'
 import History from './pages/History'
 import Login from './pages/Login'
@@ -160,7 +161,7 @@ function PageShell({ title, children }: { title: string; children: React.ReactNo
   const queryClient = useQueryClient()
   const { data: status } = useQuery<SystemStatus>({ queryKey: queryKeys.status, queryFn: getStatus, refetchInterval: 30_000 })
   const masterMut = useMutation({ mutationFn: (on: boolean) => setMaster(on), onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.status }) })
-  const masterOn = status?.master_on ?? true
+  const masterOn = masterSwitchOn(status)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
