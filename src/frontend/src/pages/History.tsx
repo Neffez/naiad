@@ -553,7 +553,11 @@ function DetailItem({ label, value }: { label: string; value: string }) {
 function HistoryRow({ row, config }: { row: HistoryEntry; config: ConfigDoc | undefined }) {
   const { t, i18n } = useTranslation()
   const isManual = row.triggered_by === 'manual'
-  const triggerLabel = isManual ? t('history.manual') : t('history.scheduled')
+  // Name the actual source (schedule, plan, MQTT, resume, external valve
+  // activity) — not everything that isn't manual was scheduled.
+  const triggerLabel = isManual
+    ? t('history.manual')
+    : t(`history.triggerSource.${row.triggered_by}`, { defaultValue: t('history.scheduled') })
   const barColor = resolveSeqColor(config, row.sequence_id) ?? 'var(--n-fg-dim)'
 
   return (

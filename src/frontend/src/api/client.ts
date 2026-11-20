@@ -115,14 +115,14 @@ export const verify = () =>
 // Sequences
 export const getSequences = () => api.get<SequenceState[]>('/sequences')
 export const startSequence = (id: string, duration_min?: number) =>
-  api.post(`/sequences/${id}/start`, duration_min != null ? { duration_min } : undefined)
-export const stopSequence = (id: string) => api.post(`/sequences/${id}/stop`)
-export const pauseSequence = (id: string) => api.post(`/sequences/${id}/pause`)
+  api.post(`/sequences/${encodeURIComponent(id)}/start`, duration_min != null ? { duration_min } : undefined)
+export const stopSequence = (id: string) => api.post(`/sequences/${encodeURIComponent(id)}/stop`)
+export const pauseSequence = (id: string) => api.post(`/sequences/${encodeURIComponent(id)}/pause`)
 
 // Single zones (run one zone in isolation, outside any sequence)
 export const startZone = (id: string, duration_min: number) =>
-  api.post(`/zones/${id}/start`, { duration_min })
-export const stopZone = (id: string) => api.post(`/zones/${id}/stop`)
+  api.post(`/zones/${encodeURIComponent(id)}/start`, { duration_min })
+export const stopZone = (id: string) => api.post(`/zones/${encodeURIComponent(id)}/stop`)
 
 // System
 export const getHealth = () => api.get<HealthInfo>('/health')
@@ -171,7 +171,7 @@ export const deleteHistory = (olderThanDays?: number) => {
 // Plans
 export const getPlans = () => api.get<Plan[]>('/plans')
 export const createPlan = (body: CreatePlanRequest) => api.post<Plan>('/plans', body)
-export const deletePlan = (id: string) => api.delete(`/plans/${id}`)
+export const deletePlan = (id: string) => api.delete(`/plans/${encodeURIComponent(id)}`)
 // All upcoming runs (plans + cron schedules merged) of the next N days — the
 // data behind the planner's calendar week view.
 export const getUpcomingRuns = (days = 7) =>
@@ -190,9 +190,9 @@ export const clearFactorOverrides = (group?: 'temp' | 'rain') =>
 export const getConfig = () => api.get<ConfigDoc>('/config')
 export const putConfig = (body: ConfigUpdateRequest) => api.put<ConfigDoc>('/config', body)
 export const getEntities = (domain?: string) =>
-  api.get<EntitiesResponse>(`/config/entities${domain ? `?domain=${domain}` : ''}`)
+  api.get<EntitiesResponse>(`/config/entities${domain ? `?domain=${encodeURIComponent(domain)}` : ''}`)
 export const getServices = (domain?: string) =>
-  api.get<ServicesResponse>(`/config/services${domain ? `?domain=${domain}` : ''}`)
+  api.get<ServicesResponse>(`/config/services${domain ? `?domain=${encodeURIComponent(domain)}` : ''}`)
 export const testNotify = (service?: string) =>
   api.post<TestNotifyResponse>(
     `/config/test-notify${service ? `?service=${encodeURIComponent(service)}` : ''}`,

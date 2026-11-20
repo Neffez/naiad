@@ -28,9 +28,9 @@ function sectionSlice(d: ConfigDoc, id: SectionId): unknown {
     case 'zones': return d.zones
     case 'sequences': return { sequences: d.sequences, colors: d.sequence_colors_enabled }
     case 'notifications': return { notifications: d.notifications, targets: d.ha.notify_targets }
-    case 'connection': return { url: d.ha.url, sensors: d.sensors, wind: d.wind }
+    case 'connection': return { url: d.ha.url, sensors: d.sensors, wind: d.wind, frost: d.frost, cistern: d.cistern }
     case 'integrations': return d.mqtt
-    case 'advanced': return { timezone: d.timezone, auth: d.auth }
+    case 'advanced': return { timezone: d.timezone, auth: d.auth, price: d.water_price_per_m3 }
     default: return null
   }
 }

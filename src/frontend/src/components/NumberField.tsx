@@ -153,7 +153,13 @@ export function NumberField(props: NumberFieldProps) {
         }}
         onBlur={(e) => commit(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') { commit((e.target as HTMLInputElement).value); (e.target as HTMLInputElement).blur() }
+          if (e.key === 'Enter') {
+            // Suppress the form's implicit submit: it would run with the parent's
+            // *previous* value, because the commit below only lands on the next render.
+            e.preventDefault()
+            commit((e.target as HTMLInputElement).value)
+            ;(e.target as HTMLInputElement).blur()
+          }
           else if (e.key === 'ArrowUp') { e.preventDefault(); bump(1) }
           else if (e.key === 'ArrowDown') { e.preventDefault(); bump(-1) }
         }}
