@@ -20,7 +20,17 @@ WORKDIR /app
 # install keeps `naiad` importable from /app/src/backend while main.py finds the
 # sibling ./static at runtime.
 COPY src/backend ./src/backend
-RUN pip install --no-cache-dir -e ./src/backend
+# Install the exact, CI-tested dependency set from uv.lock instead of letting pip
+# resolve the open `>=` ranges in pyproject.toml at image build time (which could
+# ship untested major versions). uv is only needed for the export and is removed.
+ARG UV_VERSION=0.11.32
+RUN pip install --no-cache-dir "uv==${UV_VERSION}" \
+    && uv export --project src/backend --locked --no-dev --no-hashes --no-emit-project \
+        -o /tmp/requirements.txt \
+    && uv pip install --system --no-cache -r /tmp/requirements.txt \
+    && uv pip install --system --no-cache --no-deps -e ./src/backend \
+    && rm /tmp/requirements.txt \
+    && pip uninstall -y uv
 
 COPY --from=frontend-build /app/static/ ./src/backend/static/
 

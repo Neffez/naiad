@@ -1,21 +1,29 @@
+# All hooks run the tool versions pinned in the lockfiles (src/backend/uv.lock,
+# src/frontend/package-lock.json) — the same versions CI uses. Remote hook repos
+# with their own `rev:` drifted far behind CI (ruff 0.4 vs 0.17) and let commits
+# through that CI's `ruff format --check` then rejected.
+# Prerequisites: `uv sync --extra dev` in src/backend, `npm ci` in src/frontend.
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.10
-    hooks:
-      - id: ruff
-        args: [--fix]
-        files: ^src/backend/
-      - id: ruff-format
-        files: ^src/backend/
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.10.0
-    hooks:
-      - id: mypy
-        files: ^src/backend/naiad/
-        additional_dependencies: [types-pyyaml, pydantic>=2.7, sqlmodel>=0.0.19]
-        args: [--ignore-missing-imports]
   - repo: local
     hooks:
+      - id: ruff
+        name: ruff (backend)
+        entry: bash -c 'cd src/backend && uv run --frozen ruff check --fix .'
+        language: system
+        files: ^src/backend/.*\.py$
+        pass_filenames: false
+      - id: ruff-format
+        name: ruff format (backend)
+        entry: bash -c 'cd src/backend && uv run --frozen ruff format .'
+        language: system
+        files: ^src/backend/.*\.py$
+        pass_filenames: false
+      - id: mypy
+        name: mypy (backend)
+        entry: bash -c 'cd src/backend && uv run --frozen mypy naiad'
+        language: system
+        files: ^src/backend/naiad/.*\.py$
+        pass_filenames: false
       - id: eslint
         name: eslint (frontend)
         entry: bash -c 'cd src/frontend && npm run --silent lint'
