@@ -431,7 +431,7 @@ class MQTTConfigResponse(BaseModel):
 class MQTTConfigInput(BaseModel):
     enabled: bool = False
     host: str = ""
-    port: int = 1883
+    port: int = Field(default=1883, ge=1, le=65535)
     username: str = ""
     client_id: str = "naiad"
     discovery_prefix: str = "homeassistant"

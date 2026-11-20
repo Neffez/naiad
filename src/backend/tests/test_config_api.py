@@ -112,3 +112,46 @@ def test_list_entities_filters_by_domain_and_sorts() -> None:
     assert sensors[0]["friendly_name"] is None
 
     assert len(ha.list_entities()) == 3  # no filter → all
+
+
+# ── carry_unexposed_fields / cron validation (review fixes) ───────────────────
+
+
+def test_ui_save_keeps_language_and_ingress(minimal_config: AppConfig) -> None:
+    """The UI document has no ``language`` / ``auth.ingress``; a save must not
+    reset them to defaults (English, ingress trust re-enabled)."""
+    from naiad.api.config import carry_unexposed_fields
+    from naiad.api.schemas import ConfigUpdateRequest
+
+    data = minimal_config.model_dump()
+    data["language"] = "de"
+    data["auth"]["ingress"] = {"enabled": False, "trusted_ip": "172.30.32.9"}
+    current = AppConfig.model_validate(data)
+
+    body = ConfigUpdateRequest.model_validate(
+        build_config_response(current).model_dump()
+    ).model_dump()
+    fresh = build_validated_config(carry_unexposed_fields(body, current), current)
+
+    assert fresh.language == "de"
+    assert fresh.auth.ingress.enabled is False
+    assert fresh.auth.ingress.trusted_ip == "172.30.32.9"
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("sequences", "seq_1", "schedule", "cron"), "61 6 * * *"),
+        (("notifications", "evening_reminder_cron"), "NaN NaN * * *"),
+    ],
+)
+def test_update_rejects_invalid_cron(
+    minimal_config: AppConfig, path: tuple[str, ...], value: str
+) -> None:
+    body = build_config_response(minimal_config).model_dump()
+    target = body
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    with pytest.raises(ValueError, match="invalid cron"):
+        build_validated_config(body, minimal_config)

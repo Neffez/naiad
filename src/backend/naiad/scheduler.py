@@ -17,13 +17,13 @@ from naiad.config import (
     NotifyTarget,
     SequenceConfig,
     target_service_data,
+    to_apscheduler_crontab,
 )
 from naiad.domain.et0 import day_index
-from naiad.domain.factors import FactorResult, compute_factors, merge_factor_config
+from naiad.domain.factors import FactorResult, compute_factors, load_factor_config
 from naiad.domain.models import (
     DecisionLog,
     DeferredCronRun,
-    FactorOverride,
     Plan,
     QueuedNotification,
     RunHistory,
@@ -46,6 +46,21 @@ logger = logging.getLogger(__name__)
 
 SessionFactory = Callable[[], Session]
 _DEFERRED_CRON_TTL = timedelta(minutes=15)
+
+# Retry keys (plan ids, ``deferred:<sequence_id>``) whose zone conflict has
+# already been notified. Plans and deferred cron runs are retried every plan
+# tick while a conflicting run is active; without this, each tick would push
+# another identical conflict notification. In-memory only: after a restart the
+# conflict is announced once more, which is acceptable.
+_conflict_notified: set[str] = set()
+
+
+def _track_conflict(key: str, result: str) -> None:
+    """Remember (or forget) that ``key``'s conflict has been announced."""
+    if result == "conflict":
+        _conflict_notified.add(key)
+    else:
+        _conflict_notified.discard(key)
 
 
 def _master_on(session_factory: SessionFactory) -> bool:
@@ -397,7 +412,7 @@ async def refresh_recent_rain_credit(
     rain_cfg = config.factors.rain
     if session_factory is not None:
         with session_factory() as session:
-            _temp_cfg, rain_cfg = merge_factor_config(config, session.get(FactorOverride, 1))
+            _temp_cfg, rain_cfg = load_factor_config(config, session)
     tz = ZoneInfo(config.timezone)
     now = datetime.now(tz)
     start = datetime.combine(
@@ -427,7 +442,7 @@ async def refresh_et0_balance(
     rain_cfg = config.factors.rain
     if session_factory is not None:
         with session_factory() as session:
-            _temp_cfg, rain_cfg = merge_factor_config(config, session.get(FactorOverride, 1))
+            _temp_cfg, rain_cfg = load_factor_config(config, session)
     if rain_cfg.mode != "et0":
         return
     day_bounds, days_of_year = _et0_day_windows(config, rain_cfg.water_balance_days)
@@ -525,7 +540,7 @@ async def refresh_et0_zonal_balance(
     rain_cfg = config.factors.rain
     if session_factory is not None:
         with session_factory() as session:
-            _temp_cfg, rain_cfg = merge_factor_config(config, session.get(FactorOverride, 1))
+            _temp_cfg, rain_cfg = load_factor_config(config, session)
     if rain_cfg.mode != "et0_zonal":
         return
     day_bounds, days_of_year = _et0_day_windows(config, rain_cfg.water_balance_days)
@@ -611,8 +626,13 @@ async def run_sequence_job(
     triggered_by: str = "cron",
     override_min: float | None = None,
     consume_skip: bool = True,
+    notify_conflict: bool = True,
 ) -> str:
     """Attempt to start a sequence. Returns "started", "skipped", "busy" or "conflict".
+
+    ``notify_conflict`` controls the push/in-app warning on a zone conflict;
+    retry loops pass False after the first attempt so a long-running blocker
+    does not produce one notification per retry tick.
 
     "busy" means valve safety work is active; "conflict" means another sequence
     reserves a valve. Both are transient. "skipped" is a deterministic refusal.
@@ -763,11 +783,15 @@ async def run_sequence_job(
         # not the one we just tried to start.
         running_id = runner.conflicting_run(seq_cfg.zones)
         running_label = _run_label(config, running_id)
-        conflict_note = t(
-            "skip.conflict_sequence", config.language, label=seq_cfg.label, running=running_label
-        )
-        await push_notification(ha, config, conflict_note, category="skip")
-        await broadcast_notification(conflict_note, level="warning")
+        if notify_conflict:
+            conflict_note = t(
+                "skip.conflict_sequence",
+                config.language,
+                label=seq_cfg.label,
+                running=running_label,
+            )
+            await push_notification(ha, config, conflict_note, category="skip")
+            await broadcast_notification(conflict_note, level="warning")
         return "conflict"
 
     logger.info("Accepted '%s' via %s (factor=%d%%)", sequence_id, triggered_by, label_pct)
@@ -783,6 +807,7 @@ async def _run_zone_job(
     config: AppConfig,
     session_factory: SessionFactory,
     triggered_by: str = "plan",
+    notify_conflict: bool = True,
 ) -> str:
     """Attempt to start a standalone single-zone run. Returns "started",
     "skipped", "busy" or "conflict" (same contract as ``run_sequence_job``).
@@ -821,11 +846,12 @@ async def _run_zone_job(
         logger.warning("Conflict for zone '%s': %s", zone_id, e)
         running_id = runner.conflicting_run([zone_id])
         running_label = _run_label(config, running_id)
-        conflict_note = t(
-            "skip.conflict_zone", config.language, label=zone_cfg.label, running=running_label
-        )
-        await push_notification(ha, config, conflict_note, category="skip")
-        await broadcast_notification(conflict_note, level="warning")
+        if notify_conflict:
+            conflict_note = t(
+                "skip.conflict_zone", config.language, label=zone_cfg.label, running=running_label
+            )
+            await push_notification(ha, config, conflict_note, category="skip")
+            await broadcast_notification(conflict_note, level="warning")
         return "conflict"
 
     logger.info("Accepted zone '%s' via %s (%.0f min)", zone_id, triggered_by, duration_min)
@@ -895,6 +921,7 @@ async def _retry_deferred_cron_runs(
                 await push_notification(ha, config, note, category="skip")
                 await broadcast_notification(note, level="warning")
         else:
+            key = f"deferred:{row.sequence_id}"
             result = await run_sequence_job(
                 row.sequence_id,
                 runner,
@@ -903,7 +930,9 @@ async def _retry_deferred_cron_runs(
                 session_factory,
                 triggered_by="cron",
                 consume_skip=False,
+                notify_conflict=key not in _conflict_notified,
             )
+            _track_conflict(key, result)
         if result in {"busy", "conflict"}:
             continue
         with session_factory() as session:
@@ -942,6 +971,7 @@ async def _plan_tick(
             if session.get(Plan, plan.id) is None:
                 continue  # already consumed
 
+        notify_conflict = plan.id not in _conflict_notified
         if plan.zone_id is not None:
             duration = float(plan.duration_min) if plan.duration_min is not None else 10.0
             result = await _run_zone_job(
@@ -952,6 +982,7 @@ async def _plan_tick(
                 config,
                 session_factory,
                 triggered_by="plan",
+                notify_conflict=notify_conflict,
             )
         else:
             override_min = float(plan.duration_min) if plan.duration_min is not None else None
@@ -963,7 +994,9 @@ async def _plan_tick(
                 session_factory,
                 triggered_by="plan",
                 override_min=override_min,
+                notify_conflict=notify_conflict,
             )
+        _track_conflict(plan.id, result)
 
         # Keep the plan on a transient busy/conflict so the next tick retries it;
         # drop it once it has started or was deterministically skipped.
@@ -1224,7 +1257,8 @@ def _register_reminder_job(
         return
     try:
         trigger = CronTrigger.from_crontab(
-            config.notifications.evening_reminder_cron, timezone=config.timezone
+            to_apscheduler_crontab(config.notifications.evening_reminder_cron),
+            timezone=config.timezone,
         )
     except Exception:
         logger.warning(
@@ -1266,7 +1300,9 @@ def _register_sequence_jobs(
             )
         for idx, cron in enumerate(seq_cfg.schedule.to_crons()):
             try:
-                trigger = CronTrigger.from_crontab(cron, timezone=config.timezone)
+                trigger = CronTrigger.from_crontab(
+                    to_apscheduler_crontab(cron), timezone=config.timezone
+                )
             except Exception:
                 logger.warning("Sequence '%s': invalid cron '%s' — skipped", seq_id, cron)
                 continue

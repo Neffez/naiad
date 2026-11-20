@@ -1554,6 +1554,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Unknown sequence (standalone zone runs cannot be paused) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Sequence is not currently running */
             409: {
                 headers: {

@@ -13,6 +13,7 @@ from typing import Any
 
 import yaml
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import ValidationError
 from sqlmodel import Session
@@ -27,7 +28,7 @@ from naiad.api.schemas import (
     MQTTConfigResponse,
     ServicesResponse,
 )
-from naiad.config import AppConfig, target_service_data
+from naiad.config import AppConfig, target_service_data, to_apscheduler_crontab
 from naiad.config_store import save_config_doc, to_export_dict
 from naiad.dependencies import (
     get_config,
@@ -122,7 +123,48 @@ def build_validated_config(data: dict[str, Any], current: AppConfig) -> AppConfi
             "auth.mode='password' requires a password, but none is configured. "
             "Set NAIAD_PASSWORD_HASH in the environment before enabling password auth."
         )
+    _validate_crons(config)
     return config
+
+
+def _validate_crons(config: AppConfig) -> None:
+    """Reject cron expressions APScheduler cannot parse.
+
+    Without this an invalid advanced schedule (or reminder cron) is accepted,
+    persisted, and then silently dropped at registration with only a log
+    warning — the sequence simply never runs. Validated here at the API
+    boundary only (not in the pydantic model), so an already-stored bad value
+    can never prevent the app from starting.
+    """
+    checks = [
+        (f"sequences.{seq_id}.schedule", cron)
+        for seq_id, seq in config.sequences.items()
+        for cron in seq.schedule.to_crons()
+    ]
+    checks.append(
+        ("notifications.evening_reminder_cron", config.notifications.evening_reminder_cron)
+    )
+    for where, cron in checks:
+        try:
+            CronTrigger.from_crontab(to_apscheduler_crontab(cron), timezone=config.timezone)
+        except (ValueError, TypeError, KeyError) as e:
+            raise ValueError(f"{where}: invalid cron expression {cron!r} ({e})") from e
+
+
+def carry_unexposed_fields(data: dict[str, Any], current: AppConfig) -> dict[str, Any]:
+    """Keep settings the UI document does not carry when it replaces the config.
+
+    ``ConfigUpdateRequest`` has no ``language`` and no ``auth.ingress``; a plain
+    ``model_dump`` would therefore reset them to their defaults on every save —
+    silently switching notifications back to English and, worse, re-enabling
+    ingress trust (or resetting its trusted IP) that was configured otherwise.
+    """
+    data = dict(data)
+    data.setdefault("language", current.language)
+    auth = dict(data.get("auth") or {})
+    auth.setdefault("ingress", current.auth.ingress.model_dump())
+    data["auth"] = auth
+    return data
 
 
 def _persist_and_reload(
@@ -186,7 +228,7 @@ async def replace_configuration(
     if not runner.can_reload_config():
         raise HTTPException(409, "Cannot change configuration while valve operations are active")
     try:
-        fresh = build_validated_config(body.model_dump(), config)
+        fresh = build_validated_config(carry_unexposed_fields(body.model_dump(), config), config)
     except (ValidationError, ValueError) as e:
         raise HTTPException(422, f"Invalid configuration: {e}") from e
 

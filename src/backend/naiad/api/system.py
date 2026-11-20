@@ -120,31 +120,29 @@ def _plan_next_run(
     )
 
 
+# Horizon for the hero card's "next run": far enough for any weekly schedule
+# plus a skipped occurrence; upcoming_cron_runs caps the fires per job anyway.
+_NEXT_RUN_HORIZON = timedelta(days=62)
+
+
 def _next_runs(
     session: Session,
     config: AppConfig,
     scheduler: AsyncIOScheduler,
     limit: int,
 ) -> list[NextRunResponse]:
-    """Upcoming runs from both one-off plans and recurring cron schedules.
+    """The next ``limit`` upcoming runs from one-off plans and cron schedules.
 
-    The hero card must surface whichever fires next, so both sources are merged
-    and sorted. scheduled_at is kept as naive UTC to match Plan storage; the API
-    serializer tags it as UTC on the way out.
+    Built on :func:`upcoming_run_candidates` so the hero card honours
+    user-skipped occurrences exactly like the upcoming list and the planner —
+    previously it showed a skipped run as "next". Sequences whose only fires lie
+    beyond the horizon fall back to the scheduler's next fire time.
     """
     now = datetime.now(UTC)
-    candidates: list[tuple[datetime, NextRunResponse]] = []
-
-    plans = session.exec(select(Plan).where(Plan.scheduled_at >= now.replace(tzinfo=None))).all()
-    for p in plans:
-        run = _plan_next_run(p, session, config)
-        if run is None:
-            continue
-        when = p.scheduled_at if p.scheduled_at.tzinfo else p.scheduled_at.replace(tzinfo=UTC)
-        candidates.append((when, run))
-
+    candidates = upcoming_run_candidates(session, config, scheduler, now + _NEXT_RUN_HORIZON)
+    covered = {run.sequence_id for _when, run in candidates if run.plan_id is None}
     for seq_id, seq_cfg in config.sequences.items():
-        if not seq_cfg.enabled:
+        if not seq_cfg.enabled or seq_id in covered:
             continue
         nxt: datetime | None = next_run_for_sequence(scheduler, seq_id)
         if nxt is None:
@@ -160,7 +158,6 @@ def _next_runs(
                 ),
             )
         )
-
     candidates.sort(key=lambda c: c[0])
     return [run for _, run in candidates[:limit]]
 

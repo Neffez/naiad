@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -367,3 +368,65 @@ async def test_state_publish_reflects_externally_set_master(
     await pub.publish_all()
 
     assert fake.by_topic("naiad/master/state") == "OFF"
+
+
+async def test_discovery_sets_default_entity_id(minimal_config: AppConfig, engine) -> None:
+    pub, fake = _publisher(minimal_config, engine)
+    await pub.publish_all()
+    payload = json.loads(fake.by_topic("homeassistant/switch/naiad/master/config") or "{}")
+    assert payload["default_entity_id"] == "switch.naiad_master"
+    assert payload["object_id"] == "naiad_master"  # kept for older HA versions
+
+
+async def test_removed_zone_discovery_is_withdrawn(minimal_config: AppConfig, engine) -> None:
+    """Removing a zone at runtime publishes an empty retained discovery payload
+    so HA deletes the entity instead of keeping an unavailable ghost."""
+    pub, fake = _publisher(minimal_config, engine)
+    await pub.publish_all()
+    topic = "homeassistant/sensor/naiad/water_zone_b/config"
+    assert fake.by_topic(topic)
+
+    del minimal_config.zones["zone_b"]
+    minimal_config.sequences.pop("seq_wind")
+    pub._discovered.clear()  # what on_config_changed does
+    await pub.publish_all()
+
+    assert fake.by_topic(topic) == ""
+    assert fake.by_topic("homeassistant/button/naiad/start_seq_wind/config") == ""
+    assert json.loads(fake.by_topic("homeassistant/sensor/naiad/water_zone_a/config") or "{}")
+
+
+async def test_config_change_does_not_redial_injected_client(
+    minimal_config: AppConfig, engine
+) -> None:
+    pub, fake = _publisher(minimal_config, engine)
+    minimal_config.mqtt.host = "other-broker"
+    pub.on_config_changed()
+    await asyncio.sleep(0)
+    assert pub._client is fake
+
+
+async def test_config_change_redials_owned_client(minimal_config: AppConfig, engine) -> None:
+    """Enabling/re-pointing the bridge in the UI takes effect without a restart."""
+    minimal_config.mqtt.enabled = True
+    minimal_config.mqtt.host = "broker-a"
+    pub, fake = _publisher(minimal_config, engine)
+    pub._owns_client = True
+    pub._active_signature = pub._connection_signature()
+    started: list[str] = []
+
+    async def fake_start() -> None:
+        started.append(minimal_config.mqtt.host)
+
+    pub.start = fake_start  # type: ignore[method-assign]
+
+    pub.on_config_changed()  # unchanged broker settings → just republish
+    await asyncio.sleep(0)
+    assert started == []
+
+    minimal_config.mqtt.host = "broker-b"
+    pub.on_config_changed()
+    for _ in range(3):
+        await asyncio.sleep(0)
+    assert started == ["broker-b"]
+    assert ("naiad/status", "offline", True) in fake.messages

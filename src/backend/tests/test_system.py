@@ -166,3 +166,39 @@ async def test_get_status_survives_invalid_factor_override() -> None:
         session.commit()
         status = await get_status(_=None, config=cfg, ha=FakeHA(), session=session, scheduler=sched)
     assert status.today_factor.combined_pct == 100
+
+
+@pytest.mark.asyncio
+async def test_next_run_skips_user_skipped_occurrence() -> None:
+    """The hero card's "next run" must honour a skipped cron occurrence, like the
+    upcoming list does — it used to show the skipped run as next."""
+    from apscheduler.triggers.cron import CronTrigger
+
+    from naiad.api.system import _next_runs
+    from naiad.domain.models import SkippedRun
+
+    cfg = _config_no_schedule()
+    sched = AsyncIOScheduler(timezone=cfg.timezone)
+    sched.start(paused=True)
+    try:
+        sched.add_job(
+            lambda _seq_id: None,
+            trigger=CronTrigger.from_crontab("0 6 * * *", timezone=cfg.timezone),
+            args=["seq_1"],
+            id="cron-seq_1#0",
+        )
+        first = sched.get_job("cron-seq_1#0").next_run_time
+        with Session(_engine()) as s:
+            s.add(
+                SkippedRun(
+                    sequence_id="seq_1",
+                    scheduled_at=first.astimezone(UTC).replace(tzinfo=None),
+                )
+            )
+            s.commit()
+            runs = _next_runs(s, cfg, sched, 1)
+    finally:
+        sched.shutdown(wait=False)
+
+    assert len(runs) == 1
+    assert runs[0].scheduled_at.replace(tzinfo=UTC) == (first + timedelta(days=1)).astimezone(UTC)

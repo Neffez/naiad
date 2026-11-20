@@ -115,3 +115,48 @@ def test_cron_for_time_round_trips() -> None:
         cron = cron_for_time("06:30", days)
         parsed = parse_simple_cron(cron)
         assert parsed == (sorted(days), "06:30")
+
+
+# ── Standard crontab day-of-week semantics (APScheduler numbers 0=Monday) ─────
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        ("0 6 * * 1-5", "0 6 * * mon,tue,wed,thu,fri"),
+        ("0 6 * * 0", "0 6 * * sun"),
+        ("0 6 * * 7", "0 6 * * sun"),
+        ("0 6 * * 5-7", "0 6 * * sun,fri,sat"),
+        ("0 6 * * */2", "0 6 * * sun,tue,thu,sat"),
+        ("0 6 * * 0-6", "0 6 * * *"),
+        ("0 6 * * mon-fri", "0 6 * * mon-fri"),  # names pass through unchanged
+        ("*/30 * * * *", "*/30 * * * *"),
+        ("not a cron", "not a cron"),
+    ],
+)
+def test_to_apscheduler_crontab(expr: str, expected: str) -> None:
+    from naiad.config import to_apscheduler_crontab
+
+    assert to_apscheduler_crontab(expr) == expected
+
+
+def test_numeric_weekdays_fire_on_standard_days() -> None:
+    """``1-5`` must mean Monday–Friday, as in every crontab reference."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from apscheduler.triggers.cron import CronTrigger
+
+    from naiad.config import to_apscheduler_crontab
+
+    trigger = CronTrigger.from_crontab(
+        to_apscheduler_crontab("0 6 * * 1-5"), timezone="Europe/Berlin"
+    )
+    fire = None
+    now = datetime(2026, 11, 16, 0, 0, tzinfo=ZoneInfo("Europe/Berlin"))  # a Monday
+    days = []
+    for _ in range(7):
+        fire = trigger.get_next_fire_time(fire, now if fire is None else fire)
+        assert fire is not None
+        days.append(fire.strftime("%a"))
+    assert days == ["Mon", "Tue", "Wed", "Thu", "Fri", "Mon", "Tue"]

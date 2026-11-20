@@ -129,7 +129,12 @@ class HAClient:
         while True:
             try:
                 await self._connect()
+                # A clean close (HA restart, codes 1000/1001) returns normally.
+                # Reset the backoff, but still pause briefly so a server that
+                # accepts and immediately closes cannot drive a hot reconnect loop.
                 delay = 1.0
+                logger.warning("HA connection closed — reconnecting in %.0fs", delay)
+                await asyncio.sleep(delay)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -244,7 +249,11 @@ class HAClient:
                     data = event["data"]
                     entity_id: str = data["entity_id"]
                     new_state: dict[str, Any] | None = data.get("new_state")
-                    if new_state:
+                    if not new_state:
+                        # Entity removed (or renamed away): drop the stale cache
+                        # entry so readers see it as missing, not as its last state.
+                        self._state_cache.pop(entity_id, None)
+                    else:
                         self._state_cache[entity_id] = new_state
                         if self._state_callbacks:
                             # One task per event (not per callback): the callbacks
@@ -543,10 +552,11 @@ class HAClient:
                 val = float(raw)
             except (TypeError, ValueError):
                 continue
-            for idx, (start, end) in enumerate(day_bounds):
-                if start <= ts < end:
-                    values[idx].append(val)
-                    break
+            # Same bucketing rule as the rain series (last window right-closed),
+            # so a sample at "now" counts toward today in both.
+            idx = day_index(ts, day_bounds)
+            if idx is not None:
+                values[idx].append(val)
         return values
 
     async def refresh_et0_balance(
