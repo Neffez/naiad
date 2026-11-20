@@ -65,10 +65,10 @@ live WebSocket, and the statically built React frontend. All irrigation logic
 lives in the backend; Home Assistant is reduced to a hardware driver and a
 sensor/weather source.
 
-The valve and sensor layers sit behind `IValveDriver` / `ISensorSource`
-protocols (`src/backend/naiad/drivers/`). v1 ships `HAEntityDriver` /
-`HAEntitySensorSource`, which talk to any `switch.*` / `sensor.*` /
-`binary_sensor.*` over the HA WebSocket API. 
+Valves sit behind the `IValveDriver` protocol (`src/backend/naiad/drivers/`).
+v1 ships `HAEntityDriver`, which switches any `switch.*` over the HA WebSocket
+API; sensors (`sensor.*` / `binary_sensor.*`) are read from the HA client's
+live state cache (`naiad/domain/sensors.py`).
 
 ## How to run
 
@@ -184,7 +184,7 @@ environment only (see [`.env.example`](.env.example)).
 | `ha`            | HA WebSocket URL.                                                                                                                                                                                                                                                                                                                                       |
 | `sensors`       | Entity IDs for rain, wind, season, temperature, the four precipitation forecast sensors, an optional `temperature_max` (forecast daily peak), optional `precipitation_actual` (actual precipitation amount in mm for the water-balance and ET₀ modes), and an optional `et0` daily evapotranspiration sensor (mm/day) for the ET₀ mode.                                                                                                             |
 | `zones`         | Per-zone `label`, `switch` entity, and `flow_lph` (used for liter tracking).                                                                                                                                                                                                                                                                            |
-| `sequences`     | Ordered `zones`, `basis_min_per_zone`, allowed `range`, `watchdog_min`, `enabled`, `wind_blocks` (skips the run on a wind alarm), and a `schedule` — `days` (ISO 1=Mon…7=Sun, empty = every day) + `times` (`HH:MM`), with an advanced `cron` escape hatch that overrides them when set.                                                                |
+| `sequences`     | Ordered `zones`, `basis_min_per_zone`, allowed `range`, `watchdog_min`, `enabled`, `wind_blocks` (skips the run on a wind alarm), and a `schedule` — `days` (ISO 1=Mon…7=Sun, empty = every day) + `times` (`HH:MM`), with an advanced `cron` escape hatch that overrides them when set (standard crontab syntax; numeric weekdays follow crontab semantics, `0`/`7` = Sunday, `1` = Monday).                                                                |
 | `factors`       | `temp` (linear scaling around `basis_c`, clamped to `min_pct`..`max_pct`) and `rain`. `rain.mode: forecast` keeps the existing forecast-based reduction with `threshold_prob`, `reduce_above_mm`, `zero_above_mm`, `forecast_decay`, `peak_tomorrow`. `rain.mode: water_balance` additionally uses recent actual precipitation from `sensors.precipitation_actual` as a decaying rain credit (`water_balance_days`, `water_balance_decay`) so rain earlier in the week can reduce a later scheduled run. `rain.mode: et0` replaces the heuristic decay with a physical soil water balance: recent rain is drained by the daily reference evapotranspiration (the `sensors.et0` entity when configured, else computed via Hargreaves from the temperature history and the HA latitude) and capped at `et0_reservoir_mm` (the root zone's plant-available water). When `confirm_with_rain_sensor` is enabled, forecast peaks and water-balance precipitation deltas only count while the binary rain sensor actually detected rain. The temperature input prefers the forecast daily max, then falls back to yesterday's recorded max, and only uses the current temperature as a last resort. |
 | `mqtt`          | Optional MQTT bridge: statistics sensors plus control entities (master switch, start/stop buttons, manual factor) — see [Statistics in Home Assistant](#statistics-in-home-assistant). `enabled`, broker `host`/`port`/`username`, `discovery_prefix`, `base_topic`.                                                                                     |
 | `notifications` | Optional HA push notifications.                                                                                                                                                                                                                                                                                                                         |
