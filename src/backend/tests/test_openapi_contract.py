@@ -2,12 +2,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi.routing import APIRoute
 
 from naiad.main import app
 
 HTTP_METHODS = {"get", "put", "post", "delete", "patch"}
-ROUTE_HTTP_METHODS = {method.upper() for method in HTTP_METHODS}
 
 
 def _repo_root() -> Path:
@@ -35,17 +33,17 @@ def _documented_operations(doc: dict[str, Any]) -> set[tuple[str, str]]:
 
 
 def _app_operations() -> set[tuple[str, str]]:
+    # Derived from the generated OpenAPI document rather than by walking
+    # ``app.routes``: FastAPI >= 0.165 keeps included routers as internal
+    # ``_IncludedRouter`` nodes, so the public schema is the stable source.
     operations: set[tuple[str, str]] = set()
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or not route.include_in_schema:
-            continue
-        path = route.path_format
+    for path, path_item in app.openapi()["paths"].items():
         if not path.startswith("/api/"):
             continue
         contract_path = path.removeprefix("/api")
-        methods = {method for method in route.methods if method in ROUTE_HTTP_METHODS}
-        for method in methods:
-            operations.add((method, contract_path))
+        for method in path_item:
+            if method in HTTP_METHODS:
+                operations.add((method.upper(), contract_path))
     return operations
 
 

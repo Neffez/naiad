@@ -8,9 +8,9 @@ dependencies = [
     "fastapi>=0.111",
     "uvicorn[standard]>=0.29",
     "apscheduler>=3.10",
-    "websockets>=12.0",
+    "websockets>=13.0",
     "pydantic>=2.7",
-    "sqlmodel>=0.0.19",
+    "sqlmodel>=0.0.45",
     "pydantic-settings>=2.2",
     "pyyaml>=6.0",
     "bcrypt>=4.1",
@@ -55,4 +55,5 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]

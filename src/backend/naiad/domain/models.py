@@ -1,6 +1,16 @@
 from datetime import UTC, datetime
 
+from pydantic import NaiveDatetime
 from sqlmodel import Field, SQLModel
+
+# All timestamps are stored as naive UTC. Fields are annotated ``NaiveDatetime``
+# explicitly: sqlmodel >= 0.0.45 maps a bare ``datetime`` to a tz-aware
+# ``UTCDateTime`` column that rejects naive values, which would break the
+# naive-UTC convention used throughout the code base (see timeutil.py).
+
+
+def _utcnow_naive() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class RunHistory(SQLModel, table=True):
@@ -9,8 +19,8 @@ class RunHistory(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     zone_id: str
     sequence_id: str
-    started_at: datetime
-    ended_at: datetime | None = None
+    started_at: NaiveDatetime
+    ended_at: NaiveDatetime | None = None
     duration_min: float | None = None
     liters: float | None = None
     triggered_by: str  # cron | manual | plan | resume | mqtt
@@ -33,7 +43,9 @@ class DecisionLog(SQLModel, table=True):
     __tablename__ = "decision_log"
 
     id: int | None = Field(default=None, primary_key=True)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None))
+    created_at: NaiveDatetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )
     sequence_id: str
     triggered_by: str  # cron | plan | mqtt
     decision: str  # started | skipped
@@ -61,9 +73,9 @@ class Plan(SQLModel, table=True):
     # databases created before zone_id existed).
     sequence_id: str = ""
     zone_id: str | None = None
-    scheduled_at: datetime
+    scheduled_at: NaiveDatetime
     duration_min: int | None = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: NaiveDatetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class DeferredCronRun(SQLModel, table=True):
@@ -77,8 +89,10 @@ class DeferredCronRun(SQLModel, table=True):
     __tablename__ = "deferred_cron_runs"
 
     sequence_id: str = Field(primary_key=True)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None))
-    expires_at: datetime
+    created_at: NaiveDatetime = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )
+    expires_at: NaiveDatetime
 
 
 class SkippedRun(SQLModel, table=True):
@@ -93,8 +107,8 @@ class SkippedRun(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     sequence_id: str
-    scheduled_at: datetime  # naive UTC, minute precision
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    scheduled_at: NaiveDatetime  # naive UTC, minute precision
+    created_at: NaiveDatetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class AuthToken(SQLModel, table=True):
@@ -102,9 +116,9 @@ class AuthToken(SQLModel, table=True):
 
     token: str = Field(primary_key=True)
     device_label: str | None = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    last_used_at: datetime | None = None
-    expires_at: datetime
+    created_at: NaiveDatetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_used_at: NaiveDatetime | None = None
+    expires_at: NaiveDatetime
 
 
 class UserPreference(SQLModel, table=True):
@@ -127,7 +141,7 @@ class ResumeSnapshot(SQLModel, table=True):
     zone_id: str
     zone_index: int
     remaining_min: float
-    paused_at: datetime
+    paused_at: NaiveDatetime
 
 
 class ActiveRun(SQLModel, table=True):
@@ -146,7 +160,7 @@ class ActiveRun(SQLModel, table=True):
     # Nullable for rows created before switch-specific crash recovery existed.
     switch: str | None = None
     zone_index: int
-    zone_started_at: datetime
+    zone_started_at: NaiveDatetime
     zone_planned_min: float  # planned duration of the current zone (for staleness/remaining)
     run_duration_min: float  # per-zone duration for the subsequent zones
     triggered_by: str
@@ -172,7 +186,7 @@ class PendingClose(SQLModel, table=True):
 
     switch: str = Field(primary_key=True)
     zone_id: str | None = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: NaiveDatetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ConfigDocument(SQLModel, table=True):
@@ -187,7 +201,7 @@ class ConfigDocument(SQLModel, table=True):
 
     id: int = Field(default=1, primary_key=True)
     data: str  # JSON-serialized AppConfig with secret fields blanked
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: NaiveDatetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class SequenceOverride(SQLModel, table=True):
@@ -199,7 +213,7 @@ class SequenceOverride(SQLModel, table=True):
     basis_min_per_zone: int | None = None
     watchdog_min: int | None = None
     paused: bool = False
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: NaiveDatetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ZoneWaterBalance(SQLModel, table=True):
@@ -216,7 +230,7 @@ class ZoneWaterBalance(SQLModel, table=True):
     zone_id: str = Field(primary_key=True)
     balance_mm: float
     reservoir_mm: float
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: NaiveDatetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class FactorOverride(SQLModel, table=True):
@@ -245,7 +259,7 @@ class FactorOverride(SQLModel, table=True):
     # combined factor (clamped to the temperature factor's min/max bounds).
     manual_mode: bool = False
     manual_pct: int | None = None
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: NaiveDatetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class QueuedNotification(SQLModel, table=True):
@@ -265,6 +279,4 @@ class QueuedNotification(SQLModel, table=True):
     category: str
     quiet: bool = False
     platform: str = "auto"
-    enqueued_at: datetime = Field(  # naive UTC, like skipped_runs
-        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None)
-    )
+    enqueued_at: NaiveDatetime = Field(default_factory=_utcnow_naive)  # like skipped_runs
