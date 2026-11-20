@@ -680,3 +680,28 @@ def test_send_command_task_cancellation_propagates() -> None:
             await task
 
     asyncio.run(run())
+
+
+async def test_removed_entity_is_dropped_from_state_cache() -> None:
+    """A state_changed event with new_state=None (entity removed) must evict the
+    cached state instead of keeping the last value forever."""
+    client = HAClient(url="ws://localhost:8123/api/websocket", token="t")
+    client._state_cache["switch.zone_a"] = {"entity_id": "switch.zone_a", "state": "on"}
+    await client._dispatch(
+        {
+            "type": "event",
+            "event": {
+                "event_type": "state_changed",
+                "data": {"entity_id": "switch.zone_a", "new_state": None},
+            },
+        }
+    )
+    assert client.get_state_value("switch.zone_a") is None
+
+
+def test_daily_numeric_counts_sample_at_window_end_toward_today() -> None:
+    """Numeric bucketing uses the same right-closed last window as the rain
+    series, so a live sample stamped exactly "now" lands in today."""
+    bounds = [(0.0, 10.0), (10.0, 20.0)]
+    values = HAClient._daily_numeric([(5.0, "1"), (10.0, "2"), (20.0, "3")], bounds)
+    assert values == [[1.0], [2.0, 3.0]]

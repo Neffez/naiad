@@ -18,6 +18,9 @@ const Ctx = createContext<ConfigCtx | null>(null)
 
 export const ConfigProvider = Ctx.Provider
 
+// A context module exports its provider and hook together by design; fast refresh
+// falling back to a full reload for this file is fine.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useConfig(): ConfigCtx {
   const ctx = useContext(Ctx)
   if (!ctx) throw new Error('useConfig must be used within a ConfigProvider')

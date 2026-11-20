@@ -1440,3 +1440,49 @@ async def test_zonal_saturated_zone_is_skipped_in_run(
 
     assert "switch.zone_a" in driver.on_calls  # dry zone watered
     assert "switch.zone_b" not in driver.on_calls  # saturated zone skipped
+
+
+async def test_run_with_every_zone_skipped_ends_cleanly(
+    runner: SequenceRunner, driver: FakeDriver, engine, caplog: pytest.LogCaptureFixture
+) -> None:
+    """et0_zonal can mark every zone as saturated (runtime 0 → skipped). The run
+    must then end normally — previously the end-of-run cleanup referenced a
+    helper that was only defined inside the loop body and crashed."""
+    runner._zonal_durations = lambda seq: dict.fromkeys(seq.zones, 0.0)  # type: ignore[method-assign]
+
+    await runner.start("seq_1")
+    await _task(runner, "seq_1")
+
+    assert driver.on_calls == []
+    assert "Unhandled error" not in caplog.text
+    assert runner.status_of("seq_1").state == SequenceState.IDLE
+    with Session(engine) as s:
+        assert load_active_runs(s) == []
+
+
+async def test_invalid_factor_override_does_not_break_run_start(
+    minimal_config: AppConfig, driver: FakeDriver, engine
+) -> None:
+    """A stored override invalidated by a later config change (inverted rain
+    thresholds) is ignored when deriving zonal durations instead of crashing the
+    run before its first valve opens."""
+    from naiad.domain.models import FactorOverride
+
+    with Session(engine) as s:
+        s.add(FactorOverride(id=1, rain_reduce_above_mm=30.0, rain_zero_above_mm=10.0))
+        s.commit()
+    runner = SequenceRunner(minimal_config, driver, lambda: Session(engine))
+    assert runner._zonal_durations(minimal_config.sequences["seq_1"]) is None
+
+
+async def test_pause_endpoint_rejects_standalone_zone_runs(
+    runner: SequenceRunner, fast_config: AppConfig
+) -> None:
+    """Zone runs have no resume path; pausing one would orphan a snapshot."""
+    from fastapi import HTTPException
+
+    from naiad.api.sequences import pause_sequence
+
+    with pytest.raises(HTTPException) as exc:
+        await pause_sequence(zone_run_id("zone_a"), None, fast_config, runner)
+    assert exc.value.status_code == 404

@@ -7,6 +7,7 @@ import { createPlan, deletePlan, getConfig, getPlans, getSequences, getValves, t
 import { IChevDown, IX } from '../components/icons'
 import { LoadError } from '../components/LoadError'
 import { NumberField } from '../components/NumberField'
+import { toast } from '../components/Toast'
 import { WeekOverview } from '../components/WeekOverview'
 import { resolveSeqColor } from '../theme/sequenceColors'
 
@@ -41,6 +42,7 @@ export default function Planner() {
   const deleteMut = useMutation({
     mutationFn: deletePlan,
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.plans }),
+    onError: (e: Error) => toast(e.message, 'error'),
   })
 
   function submit(e: FormEvent) {
@@ -261,6 +263,7 @@ export default function Planner() {
         {/* Submit */}
         <button
           type="submit"
+          disabled={createMut.isPending}
           className="n-btn primary lg"
           style={{ width: '100%', height: 52, fontSize: 15 }}
         >

@@ -1017,3 +1017,52 @@ async def test_expired_deferred_cron_not_notified_when_master_off(
     ha = _RecordingHA()
     await _retry_deferred_cron_runs(runner, ha, fast_config, sf)  # type: ignore[arg-type]
     assert ha.calls == []
+
+
+async def test_plan_conflict_is_notified_only_once(
+    minimal_config: AppConfig, engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plan blocked by a long run is retried every tick, but the conflict
+    warning must be pushed once — not once per minute until the blocker ends."""
+    import naiad.scheduler as scheduler_mod
+
+    pushed: list[str] = []
+
+    async def fake_push(_ha: Any, _cfg: Any, message: str, *, category: str = "info") -> None:
+        pushed.append(message)
+
+    async def fake_broadcast(_message: str, level: str = "info") -> None:
+        return None
+
+    monkeypatch.setattr(scheduler_mod, "push_notification", fake_push)
+    monkeypatch.setattr(scheduler_mod, "broadcast_notification", fake_broadcast)
+
+    sf = lambda: Session(engine)  # noqa: E731
+    runner = SequenceRunner(minimal_config, FakeDriver(), sf)
+    plan_id = str(uuid.uuid4())
+    with Session(engine) as s:
+        s.add(
+            Plan(
+                id=plan_id,
+                sequence_id="seq_1",
+                scheduled_at=datetime.now(UTC) - timedelta(minutes=1),
+            )
+        )
+        s.commit()
+
+    await runner.start("seq_1")  # 30-minute run keeps the zone reserved
+    try:
+        for _ in range(3):
+            await _plan_tick(runner, FakeHA(), minimal_config, sf)
+    finally:
+        await runner.stop("seq_1")
+
+    conflict_pushes = [m for m in pushed if "Sequence 1" in m and "conflict" in m.lower()]
+    assert len(conflict_pushes) == 1
+    with Session(engine) as s:
+        assert s.get(Plan, plan_id) is not None  # still retried
+
+    # Once the blocker is gone the plan starts and its conflict marker is cleared.
+    await _plan_tick(runner, FakeHA(), minimal_config, sf)
+    assert plan_id not in scheduler_mod._conflict_notified
+    await runner.stop("seq_1")

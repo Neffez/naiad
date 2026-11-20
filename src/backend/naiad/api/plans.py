@@ -1,4 +1,5 @@
 import logging
+import math
 import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -18,6 +19,9 @@ from naiad.timeutil import to_naive_utc
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/plans", tags=["plans"])
+
+# Upper bound for relative plans (one year ahead).
+_MAX_PLAN_HOURS = 24 * 366
 
 
 @router.get("/upcoming", response_model=list[NextRunResponse])
@@ -93,9 +97,10 @@ async def list_plans(
     config: AppConfig = Depends(get_config),
     session: Session = Depends(get_session),
 ) -> list[PlanResponse]:
-    plans = session.exec(
-        select(Plan).where(Plan.scheduled_at >= datetime.now(UTC)).order_by(col(Plan.scheduled_at))
-    ).all()
+    # Every pending plan, including one whose time has passed but that is still
+    # waiting on a transient conflict/busy retry — otherwise it would be
+    # invisible (and impossible to cancel) while it keeps retrying.
+    plans = session.exec(select(Plan).order_by(col(Plan.scheduled_at))).all()
     return [_to_response(p, config) for p in plans]
 
 
@@ -123,6 +128,9 @@ async def create_plan(
             hours = float(body.value)
         except (TypeError, ValueError) as e:
             raise HTTPException(422, "value must be a number for mode=in_hours") from e
+        # NaN/inf (or an absurd horizon) would make timedelta raise → 500.
+        if not math.isfinite(hours) or not 0 < hours <= _MAX_PLAN_HOURS:
+            raise HTTPException(422, f"value must be within (0, {_MAX_PLAN_HOURS}] hours")
         scheduled_at = datetime.now(UTC) + timedelta(hours=hours)
     elif body.mode == "at_datetime":
         try:

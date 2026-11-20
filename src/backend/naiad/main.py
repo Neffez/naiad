@@ -400,7 +400,11 @@ if _static.is_dir():
             try:
                 return await super().get_response(path, scope)
             except StarletteHTTPException as exc:
-                if exc.status_code == 404:
+                # Unknown client-side routes fall back to the SPA shell, but an
+                # unknown API path must stay a real 404 — otherwise API clients
+                # (and typos in fetch calls) get index.html with a 200.
+                is_api = path == "api" or path.startswith("api/")
+                if exc.status_code == 404 and not is_api:
                     return await super().get_response("index.html", scope)
                 raise
 

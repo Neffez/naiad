@@ -120,7 +120,9 @@
     "triggerSource": {
       "cron": "Schedule",
       "plan": "Plan",
-      "mqtt": "MQTT"
+      "mqtt": "MQTT",
+      "resume": "Resumed",
+      "external": "External"
     },
     "decisionReason": {
       "disabled": "Sequence disabled",

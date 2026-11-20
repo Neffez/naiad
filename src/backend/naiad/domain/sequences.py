@@ -685,12 +685,14 @@ class SequenceRunner:
         dropped for every zone with an application rate).
         """
         from naiad.domain.et0 import application_rate_mm_per_min, deficit_runtime_min
-        from naiad.domain.factors import merge_factor_config
+        from naiad.domain.factors import load_factor_config
         from naiad.domain.models import FactorOverride, ZoneWaterBalance
 
         with self._session_factory() as session:
             override = session.get(FactorOverride, 1)
-            _temp_cfg, rain_cfg = merge_factor_config(self._config, override)
+            # Tolerant load: an override invalidated by a later config change must
+            # not crash the run before its first valve opens.
+            _temp_cfg, rain_cfg = load_factor_config(self._config, session)
             if rain_cfg.mode != "et0_zonal":
                 return None
             if override is not None and override.manual_mode and override.manual_pct is not None:
@@ -1062,6 +1064,7 @@ class SequenceRunner:
             zonal_durations = self._zonal_durations(seq)
 
         announced = False
+        opened_any = False
         for i, zone_id in enumerate(seq.zones):
             if i < start_index:
                 continue
@@ -1149,6 +1152,7 @@ class SequenceRunner:
                     "warning",
                 )
                 return
+            opened_any = True
             logger.info("zone %s ON  (%.1f min)", zone_id, zone_duration)
 
             if not announced and self.on_started is not None:
@@ -1186,12 +1190,10 @@ class SequenceRunner:
             closed = await self._safe_turn_off(zone_cfg, zone_id)
             logger.info("zone %s OFF result=%s closed=%s", zone_id, result, closed)
 
-            # This execution path ended deliberately, so it must never be resumed
-            # after a restart. If the close was not confirmed, _safe_turn_off has
-            # already written a switch-specific PendingClose for durable retry.
-            def _release(sequence_id: str = sequence_id) -> None:
-                self._clear_active_run(sequence_id)
-
+            # Every exit below ends this execution path deliberately, so it must
+            # never be resumed after a restart: each one clears the ActiveRun. If
+            # the close was not confirmed, _safe_turn_off has already written a
+            # switch-specific PendingClose for durable retry.
             actual_min = (off_time - started_at).total_seconds() / 60.0
             liters = actual_min / 60.0 * zone_cfg.flow_lph
             # An unconfirmed close ends the run too (see the `if not closed` branch
@@ -1266,7 +1268,7 @@ class SequenceRunner:
                 )
 
             if result == _STOP:
-                _release()
+                self._clear_active_run(sequence_id)
                 return
             if result == _WATCHDOG:
                 logger.warning("Watchdog triggered for zone %s", zone_id)
@@ -1280,7 +1282,7 @@ class SequenceRunner:
                     ),
                     "warning",
                 )
-                _release()
+                self._clear_active_run(sequence_id)
                 return
             if result == _RETRIGGER_FAILED:
                 logger.warning(
@@ -1296,13 +1298,13 @@ class SequenceRunner:
                     ),
                     "warning",
                 )
-                _release()
+                self._clear_active_run(sequence_id)
                 return
             if result == _PAUSE:
                 remaining = zone_duration - actual_min
                 with self._session_factory() as session:
                     save_pause_snapshot(session, sequence_id, zone_id, i, max(0.0, remaining))
-                _release()
+                self._clear_active_run(sequence_id)
                 return
 
             # Normal zone completion, but the valve close was not confirmed: do NOT
@@ -1312,8 +1314,11 @@ class SequenceRunner:
             # open valve is durably tracked (PendingClose) and retried (the warning
             # was already emitted above).
             if not closed:
-                _release()
+                self._clear_active_run(sequence_id)
                 return
 
-        # All zones completed normally.
-        _release()
+        # All zones completed normally — or none ran at all (et0_zonal skipped
+        # every saturated zone). Either way nothing is left to recover.
+        if not opened_any:
+            logger.info("run %s finished without opening a valve (all zones skipped)", sequence_id)
+        self._clear_active_run(sequence_id)

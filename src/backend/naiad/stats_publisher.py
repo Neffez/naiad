@@ -57,7 +57,7 @@ from naiad.domain.factors import (
     FactorResult,
     SensorSnapshot,
     compute_factors,
-    merge_factor_config,
+    load_factor_config,
 )
 from naiad.domain.models import FactorOverride, RunHistory
 from naiad.domain.preferences import read_master_on, set_master_on
@@ -185,7 +185,17 @@ class StatsPublisher:
         self._client = client
         self._loop: asyncio.AbstractEventLoop | None = None
         self._connected = client is not None  # injected fakes are "ready" for tests
+        # Only a client this class dialled itself may be torn down and re-created
+        # on a configuration change; an injected (test) client is left alone.
+        self._owns_client = False
+        # Broker settings the live client was started with (see _connection_signature).
+        self._active_signature: tuple[Any, ...] | None = None
+        self._active_availability_topic: str | None = None
         self._discovered: set[str] = set()
+        # Discovery topics advertised by this process (object_id → topic), so
+        # entities of removed zones/sequences can be withdrawn from HA.
+        self._advertised: dict[str, str] = {}
+        self._tasks: set[asyncio.Task[None]] = set()
         # Invoked for a start/stop button press with (sequence_id, "start"|"stop").
         # Wired in main to the shared run gates and the idempotent stop path; a
         # press without a handler is logged and dropped.
@@ -253,8 +263,7 @@ class StatsPublisher:
         through a stale discovery payload.
         """
         with self._session_factory() as session:
-            override = session.get(FactorOverride, 1)
-        eff_temp, _eff_rain = merge_factor_config(self._config, override)
+            eff_temp, _eff_rain = load_factor_config(self._config, session)
         return eff_temp.min_pct, eff_temp.max_pct
 
     def _control_specs(self) -> list[_EntitySpec]:
@@ -312,7 +321,11 @@ class StatsPublisher:
         payload: dict[str, Any] = {
             "name": spec.name,
             "unique_id": f"naiad_{spec.object_id}",
+            # ``object_id`` is deprecated since HA 2025.10 in favour of
+            # ``default_entity_id`` (the full entity id). Send both so the entity
+            # ids stay stable on older and newer Home Assistant versions.
             "object_id": f"naiad_{spec.object_id}",
+            "default_entity_id": f"{spec.platform}.naiad_{spec.object_id}",
             "availability_topic": self._availability_topic,
             "device": {
                 "identifiers": ["naiad"],
@@ -378,6 +391,9 @@ class StatsPublisher:
         client.on_message = self._on_message
         client.reconnect_delay_set(min_delay=1, max_delay=60)
         self._client = client
+        self._owns_client = True
+        self._active_signature = self._connection_signature()
+        self._active_availability_topic = self._availability_topic
         try:
             client.connect_async(cfg.host, cfg.port, keepalive=60)
             client.loop_start()
@@ -391,15 +407,43 @@ class StatsPublisher:
         if self._client is None:
             return
         try:
-            self._client.publish(self._availability_topic, "offline", retain=True)
-            loop_stop = getattr(self._client, "loop_stop", None)
-            if loop_stop is not None:
-                loop_stop()
+            topic = self._active_availability_topic or self._availability_topic
+            self._client.publish(topic, "offline", retain=True)
+            # Disconnect first so the DISCONNECT packet (and the offline state
+            # above) is still flushed by the network loop, then stop the loop.
             disconnect = getattr(self._client, "disconnect", None)
             if disconnect is not None:
                 disconnect()
+            loop_stop = getattr(self._client, "loop_stop", None)
+            if loop_stop is not None:
+                loop_stop()
         except Exception:
             logger.debug("Error while stopping MQTT bridge", exc_info=True)
+
+    def _connection_signature(self) -> tuple[Any, ...]:
+        """Broker settings that require a new client when they change."""
+        cfg = self._config.mqtt
+        return (
+            cfg.enabled,
+            cfg.host,
+            cfg.port,
+            cfg.username,
+            cfg.password,
+            cfg.client_id,
+            cfg.base_topic,
+        )
+
+    async def _restart(self) -> None:
+        """Re-dial the broker after its connection settings changed at runtime."""
+        await self.stop()
+        self._client = None
+        self._connected = False
+        self._owns_client = False
+        self._active_signature = None
+        self._active_availability_topic = None
+        self._discovered.clear()
+        self._advertised.clear()
+        await self.start()
 
     # ── paho callbacks (run on paho's network thread) ──────────────────────────
 
@@ -454,14 +498,23 @@ class StatsPublisher:
         self._client.publish(topic, payload, retain=retain)
 
     def _publish_discovery(self) -> None:
-        for spec in (*self._entity_specs(), *self._control_specs()):
+        specs = (*self._entity_specs(), *self._control_specs())
+        current = {spec.object_id for spec in specs}
+        # Withdraw entities that no longer exist (zone/sequence removed): an empty
+        # retained discovery payload makes HA delete the entity, instead of
+        # leaving a permanently "unavailable" ghost behind.
+        for object_id, topic in list(self._advertised.items()):
+            if object_id not in current:
+                self._publish(topic, "")
+                del self._advertised[object_id]
+                self._discovered.discard(object_id)
+        for spec in specs:
             if spec.object_id in self._discovered:
                 continue
-            self._publish(
-                self._discovery_topic(spec),
-                json.dumps(self._discovery_payload(spec)),
-            )
+            topic = self._discovery_topic(spec)
+            self._publish(topic, json.dumps(self._discovery_payload(spec)))
             self._discovered.add(spec.object_id)
+            self._advertised[spec.object_id] = topic
 
     def _publish_state(self) -> None:
         with self._session_factory() as session:
@@ -575,7 +628,7 @@ class StatsPublisher:
                 override = session.get(FactorOverride, 1) or FactorOverride(id=1)
                 # Clamp to the effective temperature-factor bounds — the same rule
                 # the settings API applies (see api/settings.py).
-                eff_temp, _eff_rain = merge_factor_config(self._config, override)
+                eff_temp, _eff_rain = load_factor_config(self._config, session)
                 override.manual_pct = max(eff_temp.min_pct, min(eff_temp.max_pct, pct))
                 override.updated_at = datetime.now(UTC)
                 session.add(override)
@@ -622,7 +675,21 @@ class StatsPublisher:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 return
-        loop.create_task(self.publish_all())
+        # Broker settings changed (bridge enabled/disabled, host, credentials, …):
+        # re-dial instead of silently keeping the old connection until a restart.
+        signature_changed = self._connection_signature() != self._active_signature
+        can_redial = self._client is None or self._owns_client
+        wants_bridge = self._client is not None or self._config.mqtt.enabled
+        if signature_changed and can_redial and wants_bridge:
+            self._spawn(loop, self._restart())
+            return
+        self._spawn(loop, self.publish_all())
+
+    def _spawn(self, loop: asyncio.AbstractEventLoop, coro: Any) -> None:
+        # Keep a strong reference: the loop only holds weak refs to tasks.
+        task: asyncio.Task[None] = loop.create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
 
 def _parse_on_off(payload: str) -> bool | None:

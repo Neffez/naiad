@@ -238,3 +238,31 @@ def test_login_endpoint_success_issues_token_and_clears(monkeypatch) -> None:
         )
         assert resp.token
         assert throttle.retry_after("9.9.9.9") == 0.0
+
+
+def test_issuing_a_token_prunes_expired_ones() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from sqlmodel import Session, SQLModel, create_engine, select
+
+    from naiad.api.auth import _issue_token
+    from naiad.domain.models import AuthToken
+
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(AuthToken(token="old", expires_at=datetime.now(UTC) - timedelta(days=1)))
+        session.commit()
+        _issue_token("phone", session)
+        tokens = [t.token for t in session.exec(select(AuthToken)).all()]
+    assert "old" not in tokens
+    assert len(tokens) == 1
+
+
+def test_check_password_accepts_2y_bcrypt_prefix() -> None:
+    import bcrypt
+
+    from naiad.api.auth import _check_password
+
+    hashed = bcrypt.hashpw(b"secret", bcrypt.gensalt(rounds=4)).decode()
+    assert _check_password("secret", "$2y$" + hashed[4:])

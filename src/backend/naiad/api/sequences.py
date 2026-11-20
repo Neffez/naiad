@@ -274,8 +274,13 @@ async def start_sequence(
 async def pause_sequence(
     sequence_id: str,
     _: None = Depends(require_auth),
+    config: AppConfig = Depends(get_config),
     runner: SequenceRunner = Depends(get_runner),
 ) -> dict[str, str]:
+    # Only real sequences can be paused: a standalone zone run ("__zone__<id>")
+    # has no resume path, so pausing it would leave an orphaned snapshot.
+    if sequence_id not in config.sequences:
+        raise HTTPException(404, f"Sequence '{sequence_id}' not found")
     if runner.status_of(sequence_id).state != SequenceState.RUNNING:
         raise HTTPException(409, f"Sequence '{sequence_id}' is not currently running")
     try:

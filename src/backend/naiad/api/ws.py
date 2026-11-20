@@ -202,14 +202,15 @@ async def websocket_endpoint(
         await websocket.close()
         return
 
-    if msg.get("type") != "auth":
+    if not isinstance(msg, dict) or msg.get("type") != "auth":
         await websocket.send_text(
             json.dumps({"type": "auth_failed", "detail": "Expected auth message"})
         )
         await websocket.close()
         return
 
-    token_str: str = msg.get("token", "")
+    raw_token = msg.get("token", "")
+    token_str = raw_token if isinstance(raw_token, str) else ""
 
     app = websocket.app
     config: AppConfig = app.state.config
@@ -256,7 +257,7 @@ async def websocket_endpoint(
                 client_msg = json.loads(raw)
             except json.JSONDecodeError:
                 continue
-            if client_msg.get("type") == "ping":
+            if isinstance(client_msg, dict) and client_msg.get("type") == "ping":
                 # Route through the manager so the pong is serialized with
                 # broadcasts/heartbeat/run-tick on this connection's send lock.
                 await manager.send(websocket, {"type": "pong"})

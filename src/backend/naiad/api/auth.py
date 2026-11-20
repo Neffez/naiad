@@ -1,3 +1,4 @@
+import asyncio
 import secrets
 import time
 from collections.abc import Callable
@@ -6,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlmodel import Session, select
+from sqlmodel import Session, col, delete, select
 
 from naiad.api.schemas import AuthTokenResponse, AutoLoginRequest, LoginRequest, LoginResponse
 from naiad.auth_rules import referer_matches
@@ -112,7 +113,7 @@ def _token_lifetime(session: Session) -> int:
 def _check_password(provided: str, stored: str) -> bool:
     if not stored:
         return False
-    if stored.startswith("$2b$") or stored.startswith("$2a$"):
+    if stored.startswith(("$2b$", "$2a$", "$2y$")):
         return bcrypt.checkpw(provided.encode(), stored.encode())
     # Plaintext fallback — constant-time to avoid a timing oracle. Compared as
     # bytes: compare_digest raises TypeError for non-ASCII str inputs.
@@ -121,6 +122,11 @@ def _check_password(provided: str, stored: str) -> bool:
 
 def _issue_token(body_label: str | None, session: Session) -> LoginResponse:
     lifetime = _token_lifetime(session)
+    # Expired tokens are useless but were never removed; prune them whenever a
+    # new one is issued so the table (and the device list) stays bounded.
+    session.exec(
+        delete(AuthToken).where(col(AuthToken.expires_at) < datetime.now(UTC).replace(tzinfo=None))
+    )
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(UTC) + timedelta(days=lifetime)
     session.add(
@@ -156,7 +162,9 @@ async def login(
             headers={"Retry-After": str(int(retry_after) + 1)},
         )
 
-    if not _check_password(body.password, config.auth.password):
+    # bcrypt is deliberately slow (~0.25 s) and CPU-bound: run it off the event
+    # loop so a login attempt never delays valve timers or other requests.
+    if not await asyncio.to_thread(_check_password, body.password, config.auth.password):
         _login_throttle.record_failure(client_ip)
         raise HTTPException(401, "Invalid password")
 

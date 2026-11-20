@@ -75,7 +75,7 @@ class MQTTConfig(BaseModel):
 
     enabled: bool = False
     host: str = ""
-    port: int = 1883
+    port: int = Field(default=1883, ge=1, le=65535)
     username: str = ""
     password: str = ""
     client_id: str = "naiad"
@@ -374,6 +374,58 @@ def parse_simple_cron(expr: str) -> tuple[list[int], str] | None:
     if days is None:
         return None
     return days, f"{h:02d}:{m:02d}"
+
+
+# Standard crontab numbering for the day-of-week field: 0 and 7 are Sunday.
+_STD_DOW_NAMES = ("sun", "mon", "tue", "wed", "thu", "fri", "sat")
+
+
+def _expand_numeric_dow(field: str) -> list[int] | None:
+    """Expand a purely numeric cron day-of-week field into standard day numbers
+    (0=Sun … 6=Sat), or None if it contains anything but numbers/ranges/steps."""
+    days: set[int] = set()
+    for token in field.split(","):
+        base, _, step_raw = token.partition("/")
+        if step_raw and not step_raw.isdigit():
+            return None
+        step = int(step_raw) if step_raw else 1
+        if step < 1:
+            return None
+        if base == "*":
+            lo, hi = 0, 6
+        elif "-" in base:
+            lo_raw, _, hi_raw = base.partition("-")
+            if not (lo_raw.isdigit() and hi_raw.isdigit()):
+                return None
+            lo, hi = int(lo_raw), int(hi_raw)
+        elif base.isdigit():
+            lo = int(base)
+            hi = 7 if step_raw else lo  # "a/step" means "a-max/step" in crontab
+        else:
+            return None
+        if not (0 <= lo <= hi <= 7):
+            return None
+        days.update(d % 7 for d in range(lo, hi + 1, step))
+    return sorted(days)
+
+
+def to_apscheduler_crontab(expr: str) -> str:
+    """Translate a standard crontab expression for ``CronTrigger.from_crontab``.
+
+    APScheduler 3.x numbers the day-of-week field 0=Monday … 6=Sunday, unlike
+    every crontab reference (0/7=Sunday, 1=Monday): ``0 6 * * 1-5`` would fire
+    Tuesday–Saturday and ``7`` is rejected. Numeric day-of-week fields are
+    therefore rewritten to unambiguous day names with standard semantics;
+    name-based or otherwise non-numeric fields pass through unchanged.
+    """
+    parts = expr.split()
+    if len(parts) != 5:
+        return expr
+    days = _expand_numeric_dow(parts[4])
+    if days is None:
+        return expr
+    parts[4] = "*" if len(days) == 7 else ",".join(_STD_DOW_NAMES[d] for d in days)
+    return " ".join(parts)
 
 
 def cron_for_time(time_str: str, days: list[int]) -> str:
